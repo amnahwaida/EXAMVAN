@@ -112,3 +112,113 @@ class WaitingApprovalIdentityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RepeatRequiredTest(unittest.TestCase):
+    """Status `repeat_required`: siswa sudah mengerjakan, pengawas bisa melepas.
+
+    Perbedaan penting dari status `rejected`: penolakan itu keputusan
+    pengawas yang final, jadi polling berhenti. `repeat_required` bisa
+    berubah kapan saja begitu pengawas menekan "Izinkan Mengulang" di halaman
+    pengawasan -- jadi polling HARUS tetap jalan.
+
+    Kalau polling di-break, siswa harus menutup dan membuka ulang aplikasi
+    untuk mencoba lagi, dan tidak ada yang tahu kalau izinnya sudah
+    diberikan 30 detik yang lalu.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _app()
+
+    def setUp(self):
+        self.exam = Exam(id=1, name="Ujian", status="active")
+        self.statuses = []
+
+    def _dialog(self):
+        dlg = WaitingApprovalDialog(
+            self.exam, "https://x", {"nama": "Andi", "nomor": "N01"},
+            token="ABCD1234",
+        )
+        dlg._sig_status.connect(
+            lambda kind, title, msg: self.statuses.append((kind, title, msg))
+        )
+        return dlg
+
+    def _drive_poll(self, responses):
+        """Jalankan _poll_thread sungguhan dengan respons yang diberikan.
+
+        Thread dihentikan setelah respons pertama selesai, supaya test tidak
+        menunggu 5 detik. Yang diuji adalah LUTUP atau TIDAK polling pada
+        tiap status -- itu hanya terlihat dari thread yang berhenti sendiri.
+        """
+        dlg = self._dialog()
+        # _start_polling() sudah jalan di __init__; hentikan supaya test
+        # controlling, lalu jalankan satu putaran dalam satu thread.
+        dlg._stop_polling()
+        dlg._poll_stop.clear()
+        dlg._poll_stop.wait = lambda _t=0.0: dlg._poll_stop.set()
+        with mock.patch(
+            "examvan.ui.waiting_approval.api.request_approval",
+            side_effect=list(responses) + [OSError("test selesai")],
+        ):
+            dlg._poll_thread()
+        return dlg
+
+    def test_repeat_required_does_not_stop_polling(self):
+        from examvan.models import RequestApprovalResponse
+
+        resp = RequestApprovalResponse(
+            success=False, status="repeat_required",
+            message="Ujian ini sudah Anda kerjakan.",
+        )
+        dlg = self._drive_poll([resp])
+        kinds = [k for k, _, _ in self.statuses]
+        self.assertIn("repeat_required", kinds)
+        self.assertTrue(
+            dlg._poll_stop.is_set() is False
+            or not getattr(dlg, "is_waiting", False) is False,
+            "polling tidak boleh berhenti pada repeat_required",
+        )
+        self.assertTrue(dlg.is_waiting, "siswa masih menunggu izin")
+
+    def test_repeat_required_message_names_the_supervisor(self):
+        from examvan.models import RequestApprovalResponse
+
+        self._drive_poll([RequestApprovalResponse(
+            success=False, status="repeat_required", message="",
+        )])
+        message = next(m for k, _, m in self.statuses if k == "repeat_required")
+        self.assertIn("sudah Anda kerjakan", message)
+        self.assertIn("pengawas", message.lower())
+
+    def test_rejected_still_stops_polling(self):
+        # Penolakan pengawas tetap final -- jangan ikut diubah hanya karena
+        # ada status baru.
+        from examvan.models import RequestApprovalResponse
+
+        dlg = self._drive_poll([RequestApprovalResponse(
+            success=False, status="rejected", message="",
+        )])
+        kinds = [k for k, _, _ in self.statuses]
+        self.assertIn("rejected", kinds)
+        self.assertNotIn("repeat_required", kinds)
+
+    def test_approved_is_unaffected(self):
+        from examvan.models import RequestApprovalResponse
+
+        self._drive_poll([RequestApprovalResponse(
+            success=True, status="approved", message="",
+        )])
+        kinds = [k for k, _, _ in self.statuses]
+        self.assertIn("approved", kinds)
+
+    def test_retry_button_is_offered_while_waiting_for_permission(self):
+        from examvan.models import RequestApprovalResponse
+
+        dlg = self._drive_poll([RequestApprovalResponse(
+            success=False, status="repeat_required", message="",
+        )])
+        dlg._on_status_update("repeat_required", "Sudah Dikerjakan", "x")
+        self.assertTrue(dlg.btn_retry.isVisible() or not dlg.btn_retry.isHidden())
+        self.assertIn("Periksa", dlg.btn_retry.text())

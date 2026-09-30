@@ -522,6 +522,46 @@ func RequestApproval() gin.HandlerFunc {
 			}
 		}
 
+		// --- Izin mengulang (per siswa, diberikan pengawas) ---
+		// Default: siswa yang SUDAH mengirim jawaban untuk ujian ini tidak
+		// boleh mengulang. Client tidak pernah memblokir; aturan ini
+		// hidup di server, di tempat yang bisa diaudit dan dicabut pengawas.
+		//
+		// Diuji di sini, di RequestApproval, bukan di ExamByToken: pada
+		// endpoint itu identitas siswa belum diketahui, jadi tidak ada yang
+		// bisa dicocokkan. Di sini identitas sudah ada, dan polling di client
+		// akan terus berjalan sampai pengawas melepas -- jadi siswa tidak
+		// perlu menutup dan membuka ulang aplikasi.
+		//
+		// Auto-approve TIDAK melewati gerbang ini: flag itu menyetujui
+		// perangkat, bukan melepas aturan ujian.
+		// studentKey kosong = identitas tidak terbaca. Kasus itu TIDAK
+		// diblokir: mengunci siswa yang tidak bisa diidentifikasi hanya
+		// akan menjebak mereka dengan tidak ada yang bisa melepas.
+		studentKey := helpers.StudentKey(req.ExamNumber, req.StudentName, req.StudentClass)
+		if studentKey != "" {
+			submitted, err := models.HasSubmissionForStudentKey(
+				ctx, pool, req.ExamID, studentKey)
+			if err != nil {
+				log.Printf("request approval: check submission: %v", err)
+			} else if submitted {
+				granted, err := models.HasRepeatGrant(
+					ctx, pool, req.ExamID, studentKey)
+				if err != nil {
+					log.Printf("request approval: check repeat grant: %v", err)
+				} else if !granted {
+					c.JSON(http.StatusOK, gin.H{
+						"success":     false,
+						"status":      "repeat_required",
+						"student_key": studentKey,
+						"message": "Ujian ini sudah Anda kerjakan. " +
+							"Hubungi pengawas bila perlu izin mengulang.",
+					})
+					return
+				}
+			}
+		}
+
 		// --- Auto-approve decision ---
 		// The server-side auto-approve flag approves the device immediately
 		// while the exam is live, UNLESS the per-exam approved-device cap is

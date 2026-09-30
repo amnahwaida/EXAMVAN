@@ -1590,7 +1590,7 @@ function loadDetail(page, silent) {
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
                         '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
-                        (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
+                        (s.submitted ? '<button class="pd-action-btn" data-action="toggle-repeat" data-student-key="' + escapeHtml(s.student_key || '') + '" data-granted="' + (repeatGrantedKeys[s.student_key || ''] ? '1' : '0') + '" title="' + (repeatGrantedKeys[s.student_key || ''] ? 'Cabut izin mengulang untuk siswa ini' : 'Izinkan siswa ini mengerjakan ulang ujian') + '" style="border-radius:6px;font-weight:600;font-size:0.7rem;' + (repeatGrantedKeys[s.student_key || ''] ? 'color:var(--color-warning-light);border-color:rgba(var(--rgb-warning),0.45);' : '') + '">' + (repeatGrantedKeys[s.student_key || ''] ? '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Cabut Izin' : '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-refresh"/></svg> Izinkan Mengulang') + '</button>' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
                     '</div></td>' +
                     '</tr>';
             }
@@ -1961,6 +1961,75 @@ function closeConfirmApprovalModal(event) {
 
   // Izinkan/Tolak antrean izin: mac & status lewat atribut data-* (bukan
   // interpolasi JS ke onclick) → modal konfirmasi dulu, POST setelah Ya.
+  // ===== Izin mengulang per siswa =====
+  // Default server: siswa yang sudah mengirim jawaban tidak bisa mengulang.
+  // Tombol ini yang melepas. State disimpan per student_key (dihitung server,
+  // urutan sama dengan client) -- bukan per mac_address, karena label
+  // perangkat di client per-percobaan.
+  var repeatGrantedKeys = {};
+  var repeatLoading = false;
+
+  function refreshRepeatGrants(examId) {
+    return apiFetch('/api/pengawas/exams/' + examId + '/repeat-grants')
+      .then(function(res) { return res && res.json ? res.json() : null; })
+      .then(function(res) {
+        repeatGrantedKeys = {};
+        if (res && res.grants) {
+          for (var i = 0; i < res.grants.length; i++) {
+            repeatGrantedKeys[res.grants[i].student_key] = true;
+          }
+        }
+      })
+      .catch(function() { repeatGrantedKeys = {}; });
+  }
+
+  Actions.register('toggle-repeat', function(el) {
+    var key = el.getAttribute('data-student-key');
+    if (!key) { showToast('Identitas siswa tidak terbaca.', 'error'); return; }
+    if (repeatLoading) return;
+    var granted = el.getAttribute('data-granted') === '1';
+    var examId = (typeof EXAM_ID !== 'undefined') ? EXAM_ID : el.getAttribute('data-exam-id');
+    if (!examId) { showToast('ID ujian tidak tersedia.', 'error'); return; }
+
+    showConfirm(
+        granted
+          ? 'Cabut izin mengulang untuk siswa ' + key + '?'
+          : 'Izinkan siswa ' + key + ' mengerjakan ulang ujian ini?',
+        granted
+          ? 'Siswa yang sudah mengumpulkan jawaban akan ditolak lagi.'
+          : 'Siswa bisa masuk dan mengerjakan ulang. Jawaban sebelumnya tetap tersimpan.',
+        granted ? 'Ya, Cabut' : 'Ya, Izinkan',
+        'Batal'
+    ).then(function(confirmed) {
+      if (!confirmed) return;
+      repeatLoading = true;
+      var url = '/api/pengawas/exams/' + examId + '/repeat-grants';
+      var opts = granted
+        ? { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}) }
+        : { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_key: key }) };
+      return apiFetch(url + (granted ? '/' + encodeURIComponent(key) : ''), opts)
+        .then(function(res) {
+          if (res && res.status === 403) {
+            return res.json().then(function(b) { throw new Error(b.message || 'Akses ditolak'); });
+          }
+          if (res && !res.ok) {
+            return res.json().then(function(b) { throw new Error(b.message || 'Gagal menyimpan izin'); }, function() { throw new Error('Gagal menyimpan izin'); });
+          }
+          return refreshRepeatGrants(examId);
+        })
+        .then(function() {
+          showToast(granted ? 'Izin dicabut.' : 'Izin mengulang diberikan.', 'success');
+          if (typeof loadDetail === 'function') loadDetail();
+        })
+        .catch(function(e) {
+          showToast(e && e.message ? e.message : 'Gagal menyimpan izin', 'error');
+        })
+        .finally(function() { repeatLoading = false; });
+    });
+  });
+
   Actions.register('set-approval', function(el) {
     var mac = el.getAttribute('data-mac');
     var status = el.getAttribute('data-status');
@@ -2203,7 +2272,10 @@ loadAAStatus();
     var statusFilterEl = document.getElementById('statusFilter');
     if (statusFilterEl) statusFilterEl.addEventListener('change', function() { loadDetail(1); });
 
-    loadDetail();
+    // Izin mengulang dimuat sebelum tabel pertama, supaya tombol di baris
+    // yang sudah Terkumpul langsung tampil dalam keadaan benar dan tidak
+    // berkedip dari "Izinkan" ke "Cabut Izin" saat halaman terbuka.
+    refreshRepeatGrants(EXAM_ID).then(function() { loadDetail(); });
     // Queue load is triggered by loadAAStatus() above (and by its fetch's
     // catch path), so no duplicate fetch here.
     // S36: polling pengawasan hanya berjalan saat tab terlihat (pola

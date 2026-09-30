@@ -743,3 +743,29 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_admin_users_email
     ON admin_users (LOWER(email)) WHERE email <> '';
 
+
+-- ============================================================
+-- exam_repeat_grants — izin mengulang, diberikan pengawas
+-- ============================================================
+-- Default: seorang siswa yang sudah mengumpulkan jawaban untuk suatu ujian
+-- TIDAK boleh mengulang. Server menegakkan ini di endpoint approval, dan
+-- pengawas melepasnya per siswa lewat halaman pengawas.
+--
+-- Kuncinya `student_key` (nomor ujian, atau nama bila ujian tidak
+-- mengumpulkan nomor), BUKAN mac_address: label perangkat di client bersifat
+-- per-percobaan, jadi mengunci izin pada perangkat akan kehilangan izin
+-- begitu siswa pindah PC. Kunci siswa yang benar.
+--
+-- Urutan StudentKey harus sama dengan examvan/utils.py build_student_key():
+-- nomor ujian, lalu nama, lalu kelas. Kalau berbeda, izin yang diberikan
+-- pengawas tidak akan berlaku -- dan tidak akan ada yang melaporkannya.
+CREATE TABLE IF NOT EXISTS exam_repeat_grants (
+    exam_id     INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    student_key TEXT NOT NULL,
+    granted_by  TEXT DEFAULT '',
+    created_at  TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (exam_id, student_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_repeat_grants_exam
+    ON exam_repeat_grants (exam_id);

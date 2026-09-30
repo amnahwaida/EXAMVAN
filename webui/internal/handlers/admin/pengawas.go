@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/services/examtoken"
 )
@@ -411,8 +412,12 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		}
 
 		type subItem struct {
-			ID                int                    `json:"id"`
-			StudentName       string                 `json:"student_name"`
+			ID          int    `json:"id"`
+			StudentName string `json:"student_name"`
+			// StudentKey dihitung server dengan urutan yang sama dengan client
+			// (helpers.StudentKey). Dihitung di JS akan berisiko karena logikanya
+			// jadi terduplikasi dan bisa melenceng tanpa ada yang memeriksa.
+			StudentKey        string                 `json:"student_key"`
 			ExamNumber        string                 `json:"exam_number"`
 			StudentClass      string                 `json:"student_class"`
 			IdentityData      map[string]interface{} `json:"identity_data"`
@@ -530,6 +535,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			subsData = append(subsData, subItem{
 				ID:                sub.ID,
 				StudentName:       sub.StudentName,
+				StudentKey:        helpers.StudentKey(sub.ExamNumber, sub.StudentName, sub.StudentClass),
 				ExamNumber:        sub.ExamNumber,
 				StudentClass:      sub.StudentClass,
 				IdentityData:      identityData,

@@ -183,6 +183,26 @@ class WaitingApprovalDialog(QDialog):
                 elif resp.status == "rejected":
                     self._sig_status.emit("rejected", "Akses Ditolak", "Pengawas menolak permintaan akses Anda.")
                     break
+                elif resp.status == "repeat_required":
+                    # Server menolak karena siswa ini sudah pernah
+                    # mengirim jawaban untuk ujian yang sama. Berbeda dengan
+                    # "rejected", ini BUKAN keputusan pengawas -- dan bisa
+                    # berubah kapan saja begitu pengawas menekan
+                    # "Izinkan Mengulang" di halaman pengawasan.
+                    #
+                    # Karena itu polling DIJALANKAN TERUS, bukan di-break.
+                    # Kalau di-break, siswa harus menutup dan membuka ulang
+                    # aplikasi untuk mencoba lagi, dan tidak ada yang tahu
+                    # kalau izinnya sudah diberikan 30 detik yang lalu.
+                    self._sig_status.emit(
+                        "repeat_required",
+                        "Sudah Dikerjakan",
+                        "Ujian ini sudah Anda kerjakan.\n\n"
+                        "Hubungi pengawas bila perlu izin mengulang.\n"
+                        'Klik "Periksa Lagi" setelah mendapat izin.',
+                    )
+                    self.is_waiting = True
+                    self.btn_retry.show()
                 else:
                     self._sig_status.emit("pending", "Menunggu Persetujuan", "Silakan tunggu pengawas menyetujui akses Anda.")
 
@@ -206,6 +226,11 @@ class WaitingApprovalDialog(QDialog):
             self.btn_cancel.setText("Kembali")
             self.btn_retry.show()
             self.is_waiting = False
+        elif status_type == "repeat_required":
+            self.icon_label.setText("🔁")
+            self.btn_retry.setText("Periksa Lagi")
+            self.btn_retry.show()
+            self.is_waiting = True
         elif status_type == "error":
             self.icon_label.setText("⚠️")
         else:

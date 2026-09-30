@@ -719,6 +719,13 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				csrfAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", middleware.LimitBodySize(256*1024), admin.SetApprovalStatus())
 				csrfAPI.POST("/pengawas/exams/:exam_id/auto-approve", middleware.LimitBodySize(256*1024), admin.SetAutoApprove())
 
+				// Izin mengulang per siswa. Default-nya: siswa yang sudah
+				// mengirim jawaban tidak bisa mengulang; pengawas yang melepas
+				// di sini. Satu endpoint untuk Review, satu untuk refresh, dan
+				// DELETE untuk mencabut.
+				csrfAPI.POST("/pengawas/exams/:exam_id/repeat-grants", middleware.LimitBodySize(256*1024), admin.GrantStudentRepeat())
+				csrfAPI.DELETE("/pengawas/exams/:exam_id/repeat-grants/:student_key", middleware.LimitBodySize(256*1024), admin.RevokeStudentRepeat())
+
 				// Submissions.
 				csrfAPI.POST("/submissions/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSubmission())
 
@@ -778,6 +785,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			// detail), and /queue/status (never surfaced by any UI). Their
 			// handlers live in git history.
 			lockedAPI.GET("/submissions/:id/detail", admin.SubmissionDetail())
+			lockedAPI.GET("/pengawas/exams/:exam_id/repeat-grants", admin.ListStudentRepeats())
 			lockedAPI.GET("/submissions/export", middleware.RateLimit(30, time.Minute), admin.ExportSubmissions())
 			adminUsersRead := lockedAPI.Group("", middleware.AdminManagementRequired())
 			{
@@ -1289,19 +1297,19 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 					result[i] = digits[n.Int64()]
 				}
 			}
-		codeStr := string(result)
-		// OTP is stored HASHED at-rest (finding C, 13 Sep 2026): only the
-		// hash reaches the DB; the plaintext lives just long enough to be
-		// emailed.
-		otpPlain = codeStr
-		otpHash, hErr := models.HashOTP(codeStr)
-		if hErr != nil {
-			log.Printf("register: hash otp error: %v", hErr)
-			registerError("Gagal mendaftarkan akun. Silakan coba lagi.")
-			return
-		}
-		otpCode = &otpHash
-		expiryTime := time.Now().UTC().Add(15 * time.Minute)
+			codeStr := string(result)
+			// OTP is stored HASHED at-rest (finding C, 13 Sep 2026): only the
+			// hash reaches the DB; the plaintext lives just long enough to be
+			// emailed.
+			otpPlain = codeStr
+			otpHash, hErr := models.HashOTP(codeStr)
+			if hErr != nil {
+				log.Printf("register: hash otp error: %v", hErr)
+				registerError("Gagal mendaftarkan akun. Silakan coba lagi.")
+				return
+			}
+			otpCode = &otpHash
+			expiryTime := time.Now().UTC().Add(15 * time.Minute)
 			otpExpiry = &expiryTime
 		}
 
