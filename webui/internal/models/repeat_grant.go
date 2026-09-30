@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,6 +38,14 @@ func hasSubmittedAnswersFilter() string {
 func HasSubmissionForStudentKey(
 	ctx context.Context, pool *pgxpool.Pool, examID int, studentKey string,
 ) (bool, error) {
+	// Normalisasi DI DALAM fungsi, bukan di pemanggil. T kolomnya sudah
+	// LOWER(), jadi kalau argumennya "N01" dan kolomnya "n01", keduanya
+	// tidak akan cocok -- dan pemanggil yang lupa menormalkan akan mendapat
+	// "belum submit" lalu memberi izin yang sebenarnya tidak perlu.
+	// Client sudah selalu mengirim lowercase, jadi bug ini tidak muncul dari
+	// jalur produksi; tapi ia muncul begitu endpoint admin dipanggil langsung
+	// (test TestHasSubmissionMatchesCaseInsensitively menangkapnya).
+	studentKey = strings.ToLower(strings.TrimSpace(studentKey))
 	if studentKey == "" {
 		return false, nil
 	}
@@ -80,6 +89,10 @@ func HasSubmissionForStudentKey(
 func HasRepeatGrant(
 	ctx context.Context, pool *pgxpool.Pool, examID int, studentKey string,
 ) (bool, error) {
+	// Sama seperti HasSubmissionForStudentKey: normalisasi di dalam, supaya
+	// GRANT dan CHECK tidak bisa strolling ke kunci yang berbeda hanya
+	// karena beda huruf besar-kecil di pemanggil.
+	studentKey = strings.ToLower(strings.TrimSpace(studentKey))
 	if studentKey == "" {
 		return false, nil
 	}
@@ -98,6 +111,7 @@ func HasRepeatGrant(
 func GrantRepeat(
 	ctx context.Context, pool *pgxpool.Pool, examID int, studentKey, grantedBy string,
 ) error {
+	studentKey = strings.ToLower(strings.TrimSpace(studentKey))
 	if studentKey == "" {
 		return fmt.Errorf("student key kosong")
 	}
@@ -118,6 +132,7 @@ func GrantRepeat(
 func RevokeRepeat(
 	ctx context.Context, pool *pgxpool.Pool, examID int, studentKey string,
 ) error {
+	studentKey = strings.ToLower(strings.TrimSpace(studentKey))
 	if studentKey == "" {
 		return fmt.Errorf("student key kosong")
 	}
