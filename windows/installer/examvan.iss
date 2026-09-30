@@ -126,11 +126,21 @@ Name: "desktopicon"; Description: "Buat shortcut di Desktop"; GroupDescription: 
 ;
 Source: "..\dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
-; Ikon di-bundle supaya IconFilename di [Icons] bisa menunjuk ke
-; {app}\examvan.ico. `dontcopy` karena ikon dipakai SAAT INSTALL (oleh
-; shell untuk menulis .lnk), bukan saat runtime — jadi tidak boleh ikut
-; jadi file aplikasi yang harus dibersihkan uninstaller.
-Source: "{#AppIconName}"; DestDir: "{app}"; Flags: ignoreversion dontcopy
+; Ikon di-bundle ke {app} karena ketiga shortcut menunjuk
+; IconFilename ke "{app}\examvan.ico". Dua hal harus benar-benar
+;Template: file itu harus ADA di {app} ketika shell menulis .lnk.
+;
+; Versi sebelumnya memakai `Flags: dontcopy` dengan alasan "ikon cuma
+; dipakai saat install, jadi jangan jadi file aplikasi". Itu salah:
+; `dontcopy` berarti file TIDAK disalin ke {app}, sedangkan
+; IconFilename menunjuk ke {app}\examvan.ico. Hasilnya .lnk menunjuk ke
+; file yang tidak ada dan shortcut jatuh ke ikon default -- persis hal
+; yang seharusnya dicegah. Smoke test CI yang menangkapnya:
+; "examvan.ico tidak ikut ter-install".
+;
+; Ikon ikut terhapus saat uninstall, dan itu memang yang benar: file
+; yang dipasang installer harus dibersihkan installer.
+Source: "{#AppIconName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 ; Dibuat supaya %LOCALAPPDATA%\EXAMVAN ada sejak instalasi — dipakai

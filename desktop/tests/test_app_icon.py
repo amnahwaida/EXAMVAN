@@ -184,21 +184,31 @@ class InstallerIconTest(unittest.TestCase):
         # Inno Setup, bukan ikon EXAMVAN.
         self.assertRegex(self.iss, r"(?m)^SetupIconFile\s*=")
 
-    def test_setup_icon_file_is_bundled_by_the_build(self):
-        # Inno hanya bisa memakai file yang ada di disk saat compile, dan
-        # tidak boleh membawanya ke instalasi (dipakai dari [Setup], bukan
-        # [Files]) — harus Flags: dontcopy.
-        # [Files] memakai define yang sama seperti [Icons]/[Setup].
+    def test_icon_is_actually_copied_to_the_app_folder(self):
+        # Ketiga shortcut menunjuk IconFilename ke "{app}\\examvan.ico".
+        # Kalau ikon tidak benar-benar disalin ke {app}, .lnk menunjuk ke
+        # file yang tidak ada dan shortcut jatuh ke ikon default.
+        #
+        # Versi test sebelumnya justru MEWAJIBKAN `dontcopy`, dengan alasan
+        # "jangan jadi file yang dibersihkan uninstaller". itu salah
+        # dan membuat build CI gagal:
+        #     examvan.ico tidak ikut ter-install
+        # `dontcopy` berarti file tidak disalin sama sekali, bukan
+        # "dibersihkan saat uninstall".
         m = re.search(
             r'(?m)^Source:\s*"\{#AppIconName\}";(?P<body>[^\n]*)', self.iss,
         )
         self.assertIsNotNone(m, "{#AppIconName} tidak ada di [Files]")
-        self.assertRegex(m.group("body"), r"DestDir:\s*\"\{app\}\"")
-        self.assertIn(
-            "dontcopy", m.group("body"),
-            "tanpa dontcopy, ikon jadi file aplikasi yang harus dibersihkan "
-            "uninstaller padahal tidak ada yang memakainya saat runtime",
+        body = m.group("body")
+        self.assertRegex(body, r"DestDir:\s*\"\{app\}\"")
+        self.assertNotIn(
+            "dontcopy", body,
+            "dontcopy berarti examvan.ico TIDAK disalin ke {app}, padahal "
+            "IconFilename menunjuk ke sana",
         )
+        flags = re.search(r"Flags:\s*([^;\n]*)", body)
+        self.assertIsNotNone(flags, "baris [Files] ikon tidak punya Flags")
+        self.assertIn("ignoreversion", flags.group(1))
 
     def test_icon_define_points_at_the_committed_file(self):
         # Shortcut & SetupIconFile memakai define, bukan literal, supaya
@@ -232,10 +242,23 @@ class InstallerIconTest(unittest.TestCase):
                     f"shortcut {path} tidak menyetel IconFilename ke ikon EXAMVAN",
                 )
 
-    def test_icon_file_is_actually_bundled(self):
-        # Ikon harus ikut installer, kalau tidak `dontcopy` menulis icon
-        # ke folder yang dihapus uninstaller.
-        self.assertIn("examvan.ico", self.iss)
+    def test_every_icon_filename_target_is_really_installed(self):
+        # Rantai yang harus utuh: setiap IconFilename menunjuk ke file yang
+        # [Files] benar-benar tempatkan. Shortcut menunjuk {app}, jadi ikon
+        # harus disalin ke {app} -- bukan hanya ada di folder installer.
+        destdirs = set(re.findall(
+            r'(?m)^Source:\s*"\{#AppIconName\}";\s*DestDir:\s*"([^"]+)"',
+            self.iss,
+        ))
+        self.assertEqual(
+            destdirs, {"{app}"},
+            f"ikon harus Destination ke {{app}}, bukan {destdirs}",
+        )
+        for m in re.finditer(r'IconFilename:\s*"([^"]+)"', self.iss):
+            self.assertIn(
+                "{app}", m.group(1),
+                f"IconFilename {m.group(1)} tidak menunjuk ke {{app}}",
+            )
 
     def test_stale_icon_comment_is_gone(self):
         # Komentar lama mengklaim ikon sengaja tidak dikopi dan shortcut

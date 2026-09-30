@@ -84,6 +84,11 @@ Ikon itu dipakai di tiga tempat: `EXAMVAN.exe` (lewat `--icon` PyInstaller),
 `EXAMVAN-Setup.exe` (lewat `SetupIconFile`), dan semua shortcut yang
 dibuat installer (lewat `IconFilename`).
 
+Karena `IconFilename` menunjuk ke `{app}\examvan.ico`, ikon itu **harus
+benar-benar ikut ter-install** ke folder aplikasi — jangan pakai flag
+`dontcopy` di `[Files]`. Smoke test CI memverifikasi file-nya ada dan
+headernya sah, bukan cuma shortcut-nya terbentuk.
+
 Regenerasi **hanya** saat ikon brand berubah:
 
 ```cmd
