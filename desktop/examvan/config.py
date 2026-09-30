@@ -187,6 +187,25 @@ def _looks_like_answers(parsed: dict) -> bool:
     return True
 
 
+def _sanitize(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Paksa bentuk kunci yang dipahami app; biarkan kunci lain apa adanya.
+
+    config.json ada di profil akun yang SAMA dengan akun siswa (lihat
+    _restrict_to_owner) — isinya adalah input musuh. JSON valid tapi
+    bukan object, atau kunci berbentuk salah, tidak boleh melempar:
+    `_load()` dijalankan di mana-mana (get/set/get_all), jadi satu TypeError
+    di sini mematikan seluruh app di SETIAP peluncuran — cache hanya
+    terisi setelah baris merge sukses, sehingga crash-nya berulang sampai
+    seseorang menghapus file manual di PC lab.
+    """
+    # identity_data dibaca ulang untuk MENGISI form identitas siswa
+    # berikutnya; list/str di sini berarti AttributeError di dialog
+    # ("x".get) atau form terisi data palsu. Salah bentuk = kosongkan.
+    if not isinstance(config_data.get("identity_data"), dict):
+        config_data["identity_data"] = {}
+    return config_data
+
+
 def _load() -> Dict[str, Any]:
     global _cache
     if _cache is not None:
@@ -194,8 +213,14 @@ def _load() -> Dict[str, Any]:
     if _CONFIG_FILE.exists():
         try:
             with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
-                _cache = {**_defaults, **json.load(f)}
+                data = json.load(f)
         except (json.JSONDecodeError, OSError):
+            data = None
+        # JSON valid tapi bukan object ("[]", "123", "null") juga ditolak:
+        # {**defaults, **[]} melempar TypeError (repro nyata, audit 30 Sep).
+        if isinstance(data, dict):
+            _cache = _sanitize({**_defaults, **data})
+        else:
             _cache = dict(_defaults)
     else:
         _cache = dict(_defaults)
@@ -298,12 +323,17 @@ def load_answers(exam_id: int) -> Optional[Dict[str, Any]]:
             try:
                 with open(legacy, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                # Migrate to new format
-                save_answers(exam_id, data)
-                legacy.unlink()
-                return data
             except (json.JSONDecodeError, OSError):
                 return None
+            # Format .dat sudah disaring _looks_like_answers(); jalur
+            # migrasinya yang terlewat: array/angka dari file legacy
+            # dulu lolos dan mengalir ke payload submit.
+            if not isinstance(data, dict) or not _looks_like_answers(data):
+                return None
+            # Migrate to new format
+            save_answers(exam_id, data)
+            legacy.unlink()
+            return data
         return None
     try:
         with open(path, "r", encoding="ascii") as f:
@@ -390,7 +420,15 @@ def _submitted_map(exam_id: int) -> dict:
         return {} if not value else {_submitted_key(""): "identitas tidak diketahui"}
     if not isinstance(value, dict):
         return {}
-    return value
+    # Label bukan string (hasil tampering) tetap dihitung sebagai marker —
+    # marker sticky tidak boleh hilang karena isi file diedit — tapi
+    # labelnya jatuh ke fallback, supaya sorted() di submitted_labels()
+    # tidak pernah mencampur str dan int (TypeError) saat dialog
+    # re-entry "Kirim Lagi" tampil.
+    return {
+        key: (val if isinstance(val, str) else "identitas tidak diketahui")
+        for key, val in value.items()
+    }
 
 
 def mark_submitted(
