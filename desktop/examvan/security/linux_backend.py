@@ -21,6 +21,85 @@ log = logging.getLogger(__name__)
 _GNOME_BACKUP_DIR = Path.home() / ".config" / "examvan"
 _GNOME_BACKUP_FILE = _GNOME_BACKUP_DIR / "gnome_backup.json"
 
+# Pemetaan "schema:key" → nama kunci di file backup. Sumber tunggal untuk
+# _persist_gnome_backup(), merge saat lock, dan recovery saat crash supaya
+# ketiganya tidak pernah melenceng satu sama lain.
+_GNOME_KEY_MAP = {
+    "org.gnome.mutter:dynamic-workspaces": "dynamic_workspaces",
+    "org.gnome.mutter:overlay-key": "overlay_key",
+    "org.gnome.desktop.interface:enable-hot-corners": "hot_corners",
+    "org.gnome.desktop.peripherals.touchpad:send-events": "touchpad",
+    "org.gnome.desktop.wm.keybindings:panel-run-dialog": "run_dialog",
+    "org.gnome.shell.keybindings:toggle-overview": "toggle_overview",
+    "org.gnome.shell.keybindings:toggle-application-view": "toggle_app_view",
+    "org.gnome.shell.keybindings:screenshot": "screenshot",
+    "org.gnome.shell.keybindings:screenshot-window": "screenshot_window",
+    "org.gnome.shell.keybindings:show-screenshot-ui": "show_screenshot_ui",
+    "org.gnome.desktop.wm.keybindings:activate-window-menu": "window_menu",
+    "org.gnome.desktop.wm.preferences:num-workspaces": "num_workspaces",
+}
+
+
+def _desktop_lockdown_allowed() -> bool:
+    """Tolak lockdown gsettings di proses yang bukan sesi ujian sungguhan.
+
+    Filosofinya sama dengan `x11._grab_allowed()`: `gsettings set` mengubah
+    setelan DESKTOP pengguna yang sedang dipakai — dan kalau proses yang
+    mengubahnya bukan sesi ujian interaktif, tidak ada jalur deactivate()
+    yang menjamin nilai aslinya kembali.
+
+    Insiden yang pernah terjadi di mesin pengembang: test suite
+    (`QT_QPA_PLATFORM=offscreen`) membangun window level strict yang
+    memanggil `_gnome_ws_lock()` — mematikan touchpad, mengunci workspace
+    ke 1, dan menimpa crash-backup dengan nilai yang SALAH dibaca dari
+    setelan yang ternoda. Proses test mati tanpa deactivate, dan backup
+    prinsip ikut hangus → polusi menetap (touchpad 'disabled', workspace
+    terkunci berhari-hari).
+
+    Dua guard:
+
+    * `QT_QPA_PLATFORM` harus `xcb` atau kosong. Sesi ujian nyata (X11
+      maupun Wayland) tidak pernah men-set variabel ini secara eksplisit;
+      CI dan test suite men-set `offscreen`.
+    * `EXAMVAN_NO_DESKTOP_LOCKDOWN=1` — kill-switch eksplisit yang juga
+      menghormati grab X11 (lihat `x11._grab_allowed()`), jadi satu env var
+      sudah cukup untuk menjalankan app di mesin developer.
+    """
+    if os.environ.get("EXAMVAN_NO_DESKTOP_LOCKDOWN", "").strip() not in ("", "0"):
+        log.warning("GNOME lockdown dilewati: EXAMVAN_NO_DESKTOP_LOCKDOWN di-set")
+        return False
+    if os.environ.get("EXAMVAN_NO_X11_GRAB", "").strip() not in ("", "0"):
+        log.warning("GNOME lockdown dilewati: EXAMVAN_NO_X11_GRAB di-set")
+        return False
+    platform = os.environ.get("QT_QPA_PLATFORM", "").strip().lower()
+    if platform and platform != "xcb":
+        log.warning(
+            "GNOME lockdown dilewati: QT_QPA_PLATFORM=%s bukan sesi ujian "
+            "interaktif",
+            platform,
+        )
+        return False
+    return True
+
+
+def _load_gnome_backup_file() -> dict:
+    """Baca crash-backup persisten. Return dict 'schema:key' → nilai."""
+    if not _GNOME_BACKUP_FILE.exists():
+        return {}
+    try:
+        with open(_GNOME_BACKUP_FILE) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    # Balikkan pemetaan: file memakai nama data_key, backup in-memory
+    # memakai "schema:key".
+    inverse = {dk: sk for sk, dk in _GNOME_KEY_MAP.items()}
+    return {
+        inverse[dk]: val for dk, val in data.items() if dk in inverse
+    }
+
 
 class LinuxBackend(SecurityBackend):
     """Linux (X11/Wayland) security implementation."""
@@ -83,6 +162,12 @@ class LinuxBackend(SecurityBackend):
     def set_strict_mode(self, window: Any) -> None:
         from . import x11
         if not window:
+            return
+
+        # Sesi non-interaktif (offscreen/test/dev) tidak boleh menyentuh
+        # setelan desktop sama sekali — lihat _desktop_lockdown_allowed().
+        if not _desktop_lockdown_allowed():
+            self._grab_held = False
             return
 
         # Fullscreen frameless via Qt — applied by enforcer itself
@@ -380,6 +465,9 @@ class LinuxBackend(SecurityBackend):
 
     def _gnome_ws_lock(self) -> None:
         """Disable GNOME workspace switching + overview gestures."""
+        if not _desktop_lockdown_allowed():
+            return
+
         # ALL settings that will be modified MUST be backed up here
         cmds_backup = [
             ("org.gnome.mutter", "dynamic-workspaces"),
@@ -394,7 +482,11 @@ class LinuxBackend(SecurityBackend):
             ("org.gnome.shell.keybindings", "show-screenshot-ui"),
             ("org.gnome.desktop.wm.keybindings", "activate-window-menu"),
         ]
-        self._gnome_backups.clear()
+        # Backup yang dibaca dari desktop SEKARANG. Sebelumnya dict ini
+        # di-clear() duluan, lalu crash-backup dari sesi sebelumnya ditimpa
+        # oleh _persist_gnome_backup() — nilai asli yang belum pernah
+        # dipulihkan hilang selamanya.
+        fresh = {}
         for schema, key in cmds_backup:
             try:
                 r = subprocess.run(
@@ -402,7 +494,7 @@ class LinuxBackend(SecurityBackend):
                     capture_output=True, text=True, timeout=3,
                 )
                 if r.returncode == 0:
-                    self._gnome_backups[f"{schema}:{key}"] = r.stdout.strip()
+                    fresh[f"{schema}:{key}"] = r.stdout.strip()
             except Exception:
                 pass
 
@@ -413,9 +505,22 @@ class LinuxBackend(SecurityBackend):
                 capture_output=True, text=True, timeout=3,
             )
             if r.returncode == 0:
-                self._gnome_backups["org.gnome.desktop.wm.preferences:num-workspaces"] = r.stdout.strip()
+                fresh["org.gnome.desktop.wm.preferences:num-workspaces"] = r.stdout.strip()
         except Exception:
             pass
+
+        # CRITICAL: merge dengan crash-backup yang belum pernah dipulihkan.
+        # Kalau sesi sebelumnya mati tanpa deactivate (kill -9, power loss),
+        # file berisi nilai ASLI; nilai yang terbaca sekarang justru hasil
+        # lockdown. Menimpanya = kehilangan nilai asli selamanya.
+        stale = _load_gnome_backup_file()
+        if stale:
+            log.warning(
+                "Crash-backup GNOME ditemukan (%d kunci) — nilai asli "
+                "dipertahankan untuk pemulihan",
+                len(stale),
+            )
+        self._gnome_backups = {**fresh, **stale}
 
         self._persist_gnome_backup()
 
@@ -456,17 +561,51 @@ class LinuxBackend(SecurityBackend):
             ("org.gnome.desktop.wm.keybindings", "activate-window-menu"),
             ("org.gnome.desktop.wm.preferences", "num-workspaces"),
         ]
-        for schema, key in pairs:
-            val = self._gnome_backups.get(f"{schema}:{key}")
-            if val is not None:
-                try:
-                    subprocess.run(
-                        ["gsettings", "set", schema, key, val],
-                        capture_output=True, text=True, timeout=3,
-                    )
-                except Exception:
-                    pass
+        # Cadangkan dulu isi dict in-memory: kalau backend LAIN (atau
+        # instance lain) pernah mengubah setelan ini dan crash-backup-nya
+        # belum dipulihkan, restore yang gagal tidak boleh menghanguskan
+        # satu-satunya catatan nilai asli.
+        pending = dict(self._gnome_backups)
+        if not pending:
+            pending = _load_gnome_backup_file()
+        if not pending:
+            # Tidak ada yang bisa di-restore — file jangan dihapus.
+            return
 
+        failed_keys = set()
+        for schema, key in pairs:
+            val = pending.get(f"{schema}:{key}")
+            if val is None:
+                continue
+            try:
+                r = subprocess.run(
+                    ["gsettings", "set", schema, key, val],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if r.returncode != 0:
+                    failed_keys.add(f"{schema}:{key}")
+                    log.warning(
+                        "gsettings set %s %s gagal (rc=%d): %s",
+                        schema, key, r.returncode, r.stderr.strip(),
+                    )
+            except Exception as e:
+                failed_keys.add(f"{schema}:{key}")
+                log.warning("gsettings set %s %s gagal: %s", schema, key, e)
+
+        if failed_keys:
+            # Nilai asli belum pasti kembali — simpan sisanya ke file agar
+            # recovery startup bisa melanjutkan.
+            self._gnome_backups = {
+                k: v for k, v in pending.items() if k in failed_keys
+            }
+            self._persist_gnome_backup()
+            log.warning(
+                "Sebagian restore GNOME gagal — backup disimpan untuk "
+                "pemulihan ulang"
+            )
+            return
+
+        self._gnome_backups = {}
         self._clear_gnome_backup()
         log.info("GNOME settings restored")
 
@@ -489,22 +628,8 @@ class LinuxBackend(SecurityBackend):
 
     def _persist_gnome_backup(self) -> None:
         """Write GNOME settings backup to file so crash recovery can restore."""
-        key_map = {
-            "org.gnome.mutter:dynamic-workspaces": "dynamic_workspaces",
-            "org.gnome.mutter:overlay-key": "overlay_key",
-            "org.gnome.desktop.interface:enable-hot-corners": "hot_corners",
-            "org.gnome.desktop.peripherals.touchpad:send-events": "touchpad",
-            "org.gnome.desktop.wm.keybindings:panel-run-dialog": "run_dialog",
-            "org.gnome.shell.keybindings:toggle-overview": "toggle_overview",
-            "org.gnome.shell.keybindings:toggle-application-view": "toggle_app_view",
-            "org.gnome.shell.keybindings:screenshot": "screenshot",
-            "org.gnome.shell.keybindings:screenshot-window": "screenshot_window",
-            "org.gnome.shell.keybindings:show-screenshot-ui": "show_screenshot_ui",
-            "org.gnome.desktop.wm.keybindings:activate-window-menu": "window_menu",
-            "org.gnome.desktop.wm.preferences:num-workspaces": "num_workspaces",
-        }
         data = {}
-        for dict_key, data_key in key_map.items():
+        for dict_key, data_key in _GNOME_KEY_MAP.items():
             val = self._gnome_backups.get(dict_key)
             if val is not None:
                 data[data_key] = val
@@ -532,53 +657,61 @@ class LinuxBackend(SecurityBackend):
         Public — called at startup from __main__.py to recover from
         a crashed session where deactivate() never ran.
         """
-        if not _GNOME_BACKUP_FILE.exists():
-            return
-        try:
-            with open(_GNOME_BACKUP_FILE) as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        pending = _load_gnome_backup_file()
+        if not pending:
             return
 
-        restores = []
-
-        # Schema key pairs: (data_key, schema, key, default_fallback?)
-        settings_map = [
-            ("dynamic_workspaces", "org.gnome.mutter", "dynamic-workspaces", "false"),
-            ("overlay_key", "org.gnome.mutter", "overlay-key", "'Super_L'"),
-            ("hot_corners", "org.gnome.desktop.interface", "enable-hot-corners", "true"),
-            ("touchpad", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"),
-            ("run_dialog", "org.gnome.desktop.wm.keybindings", "panel-run-dialog", "['<Alt>F2']"),
-            ("toggle_overview", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"),
-            ("toggle_app_view", "org.gnome.shell.keybindings", "toggle-application-view", "['<Super>a']"),
-            ("screenshot", "org.gnome.shell.keybindings", "screenshot", "['Print']"),
-            ("screenshot_window", "org.gnome.shell.keybindings", "screenshot-window", "['<Alt>Print']"),
-            ("show_screenshot_ui", "org.gnome.shell.keybindings", "show-screenshot-ui", "['<Shift>Print']"),
-            ("window_menu", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "['<Alt>space']"),
-            ("num_workspaces", "org.gnome.desktop.wm.preferences", "num-workspaces", "4"),
-        ]
-
-        for dk, schema, key, fallback in settings_map:
-            val = data.get(dk)
-            if val is not None:
-                restores.append(["gsettings", "set", schema, key, val])
-
-        for c in restores:
+        failed_keys = set()
+        for schema_key, val in pending.items():
+            schema, key = schema_key.split(":", 1)
             try:
-                subprocess.run(c, capture_output=True, timeout=3)
-            except Exception:
-                pass
+                r = subprocess.run(
+                    ["gsettings", "set", schema, key, val],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if r.returncode != 0:
+                    failed_keys.add(schema_key)
+                    log.warning(
+                        "recovery gsettings set %s gagal (rc=%d): %s",
+                        schema_key, r.returncode, r.stderr.strip(),
+                    )
+            except Exception as e:
+                failed_keys.add(schema_key)
+                log.warning("recovery gsettings set %s gagal: %s", schema_key, e)
 
-        # Re-enable touchpad explicitly — most visible crash symptom
-        touchpad_val = data.get("touchpad")
-        if touchpad_val is not None:
+        # Re-enable touchpad explicitly when the original value was never
+        # recorded — most visible crash symptom.
+        if "org.gnome.desktop.peripherals.touchpad:send-events" not in pending:
             try:
                 subprocess.run(
-                    ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"],
+                    ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad",
+                     "send-events", "enabled"],
                     capture_output=True, timeout=3,
                 )
             except Exception:
                 pass
+
+        if failed_keys:
+            # Nilai asli belum pasti kembali — simpan sisanya supaya
+            # recovery berikutnya melanjutkan. Menghapusnya di kondisi ini
+            # adalah cara backup hangus tanpa pernah dipulihkan.
+            try:
+                data = {
+                    _GNOME_KEY_MAP[k]: v for k, v in pending.items()
+                    if k in failed_keys
+                }
+                _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+                tmp = _GNOME_BACKUP_FILE.with_suffix(".tmp")
+                with open(tmp, "w") as f:
+                    json.dump(data, f)
+                tmp.replace(_GNOME_BACKUP_FILE)
+            except OSError:
+                pass
+            log.warning(
+                "Sebagian recovery GNOME gagal — backup disimpan ulang "
+                "untuk pemulihan berikutnya"
+            )
+            return
 
         LinuxBackend._clear_gnome_backup()
         log.info("GNOME settings restored from crash backup")

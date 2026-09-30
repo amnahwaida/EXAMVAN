@@ -222,6 +222,11 @@ def _grab_allowed() -> bool:
     if os.environ.get("EXAMVAN_NO_X11_GRAB", "").strip() not in ("", "0"):
         log.warning("X11 grab dilewati: EXAMVAN_NO_X11_GRAB di-set")
         return False
+    if os.environ.get("EXAMVAN_NO_DESKTOP_LOCKDOWN", "").strip() not in ("", "0"):
+        # Kill-switch gabungan: satu var untuk mematikan SEMUA lockdown
+        # desktop (grab X11 + gsettings GNOME) di mesin developer.
+        log.warning("X11 grab dilewati: EXAMVAN_NO_DESKTOP_LOCKDOWN di-set")
+        return False
     platform = os.environ.get("QT_QPA_PLATFORM", "").strip().lower()
     if platform and platform not in ("xcb", ""):
         log.warning(
