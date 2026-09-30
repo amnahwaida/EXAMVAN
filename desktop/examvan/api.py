@@ -577,6 +577,22 @@ def exam_result(
 _PERMANENT_HTTP_STATUS = frozenset({401, 403, 404, 410})
 
 
+def _sleep_or_give_up(wait: float, deadline: float, spent: list):
+    """Sleep `wait` (dengan jitter), atau berhenti kalau budget habis.
+
+    Mengembalikan jeda berikutnya, atau None kalau tidak ada lagi waktu
+    untuk menunggu. Memakai daftar satu-elemen untuk `spent` supaya bisa
+    diperbarui dari sini tanpa `nonlocal` pada loop pemanggil.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
+    gap = min(wait + random.uniform(0, wait * 0.3), remaining)
+    spent[0] += gap
+    time.sleep(gap)
+    return min(wait * 1.5, gap * 2)
+
+
 def poll_queued_result(
     base_url: str,
     exam_id: int,
@@ -586,6 +602,8 @@ def poll_queued_result(
     identity_data: Optional[Dict[str, Any]] = None,
     max_attempts: int = 31,
     interval: float = 2.5,
+    initial_congrats: str = "",
+    deadline_seconds: Optional[float] = None,
 ) -> SubmitResponse:
     """Poll /result until the queued submission is durable ("done").
 
@@ -595,19 +613,58 @@ def poll_queued_result(
     worker confirms durability — a raw 202 means the answers are only
     QUEUED, not yet in the database.
 
-    Defaults: 31 attempts × 2.5s ≈ 77s of polling (Android uses a 75s
-    deadline).
+    Defaults: 31 attempts × 2.5s ≈ 77s of polling, matching Android's 75s
+    deadline. `deadline_seconds` caps the TOTAL wait (default: the same
+    77s budget); jitter only shifts a fraction of each individual gap, so
+    it breaks lockstep without extending the deadline. Do not raise the
+    per-gap cap without re-deriving this number -- students read the
+    "menunggu konfirmasi" message during that whole window.
     """
     # Backoff + jitter. Tanpa ini semua perangkat yang dapat 202 pada
     # detik yang sama akan poll pada interval yang sama selamanya, dan
     # rate-limit bersama menjadi masalah yang dibuat oleh klien sendiri.
+    # Backoff DIKUNCI DALAM TOTAL BUDGET.
+    #
+    # Versi sebelumnya memakai cap `interval * 8` per tick, sehingga total
+    # sebenarnya menjadi 2.5 + 3.75 + 5.63 + ... + 20 (sejumlah itu) ~= 9
+    # menit -- bukan "77s" seperti dijanjikan docstring dan seperti yang
+    # dilakukan Android (75 detik). Siswa yang submit-nya tidak pernah
+    # terkonfirmasi akan duduk jauh lebih lama dari yang damesingkan, dan
+    # burst /result yang awalnya 77 detik jadi tersebar selama 9 menit.
+    #
+    # Sekarang total waktu tunggu dibatasi `deadline_seconds` (default
+    # mengikuti 31 x interval), dan jitter hanya menggeser SEBAGIAN kecil
+    # dari jeda itu -- cukup untuk memecah lockstep tanpa memperpanjang
+    # deadline.
+    if interval <= 0:
+        # Tidak ada jeda sama sekali (dipakai test, dan sah sebagai pemanggilan
+        # cepat). Deadline tidak relevan karena tidak ada yang menunggu.
+        deadline_seconds = None
+    elif deadline_seconds is None:
+        deadline_seconds = max_attempts * interval
+    deadline = (
+        time.monotonic() + deadline_seconds
+        if deadline_seconds is not None
+        else float("inf")
+    )
+    spent = [0.0]
     wait = interval
     last: Optional[SubmitResponse] = None
+    # Pesan ucapan guru diambil dari respons 202 sebelum polling menimpa
+    # respons. Lihat catatan di dalam loop.
+    previous_congrats = initial_congrats
     for _ in range(max_attempts):
         resp = exam_result(
             base_url, exam_id, token, mac_address, job_id, identity_data
         )
         if resp.status == "done":
+            # `congrats_message` HANYA ada di respons 202; `/result`
+            # mengirim `message` generik saja. Tanpa-carry ini, objek
+            # respons 202 ditimpa dan pesan guru hilang -- padahal
+            # `CongratulationsDialog` menjadikan pesan itu seluruh isi
+            # headline-nya, jadi fiturnya mati di jalur normal (antrean).
+            if previous_congrats and not resp.congrats_message:
+                resp.congrats_message = previous_congrats
             return resp
 
         if not resp.success:
@@ -628,14 +685,16 @@ def poll_queued_result(
             # dilaporkan gagal akan membuat siswa mengirim ulang jawaban
             # yang sudah tersimpan. Lanjut dengan backoff + jitter.
             last = resp
-            time.sleep(wait + random.uniform(0, wait * 0.3))
-            wait = min(wait * 1.5, interval * 8)
+            wait = _sleep_or_give_up(wait, deadline, spent)
+            if wait is None:
+                break
             continue
 
         # success=True tapi belum "done": masih diproses worker server.
         last = resp
-        time.sleep(wait + random.uniform(0, wait * 0.3))
-        wait = min(wait * 1.5, interval * 8)
+        wait = _sleep_or_give_up(wait, deadline, spent)
+        if wait is None:
+            break
 
     if last is not None and last.http_status is not None:
         # Transient tapi tidak pernah berhasil: jangan diam-diam

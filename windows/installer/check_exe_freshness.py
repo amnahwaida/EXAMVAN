@@ -28,7 +28,25 @@ def newest_source_mtime(root: Path) -> tuple[float, Path | None]:
     """mtime file source terbaru di bawah `root` (python, bukan bytecode)."""
     newest = 0.0
     newest_path: Path | None = None
-    for pattern in ("examvan/**/*.py", "tests/**/*.py", "requirements.txt"):
+    # `main.py` WAJIB masuk daftar: itu satu-satunya entry point yang
+    # benar-benar di-build PyInstaller (`build-exe.bat` / `build-windows.yml`).
+    # Versi sebelumnya hanya melihatexamvan/`, `tests/`, `requirements.txt` --
+    # jadi perbaikan di main.py lolos ke exe basi tanpa dilaporkan, persis
+    # skenario yang guard ini dibuat untuk cegah.
+    #
+    # `version_info.txt` dan `examvan.ico` juga dikompilasi ke dalam exe, jadi
+    # exe bisa membawa versi/ikon lama meski source-nya sudah berubah.
+    #
+    # Sisi lain: `tests/**` tidak berpengaruh apa pun ke binary. Diawasi
+    # hanya karena tidak salah -- tapi jangan sampai ia menggantikan
+    # entry point yang benar-benar penting.
+    for pattern in (
+        "main.py",
+        "examvan/**/*.py",
+        "requirements.txt",
+        "../windows/installer/version_info.txt",
+        "../windows/installer/examvan.ico",
+    ):
         for path in root.glob(pattern):
             if "__pycache__" in path.parts:
                 continue

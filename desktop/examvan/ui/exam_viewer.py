@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
 import os
 import sys
@@ -23,7 +26,121 @@ from typing import Any, Dict, Iterator, List, Optional
 # File di #2 dibaca dengan stripping newline (SaveStringToFile/Edit
 # menulis persis apa yang diketik user, tanpa newline — tapi file yang
 # diedit manual di Notepad bisa punya CRLF, jadi tetap di-strip).
+# Password admin exit disimpan sebagai PBKDF2-HMAC-SHA256, bukan plaintext.
+#
+# Alasannya: di lab sekolah semua siswa sering memakai SATU akun
+# Windows, dan `%LOCALAPPDATA%\EXAMVAN\admin_password.txt` ada di profil
+# yang sama. Plaintext berarti password supervisor bisa dibaca lalu dipakai
+# menutup ujian yang sedang berjalan. Installer tidak bisa
+# menutup ini lewat ACL: pemilik file selalu dapat memberi akses pada
+# dirinya sendiri, dan `PrivilegesRequired=lowest` membuat installer tidak
+# punya hak admin untuk mengunci apa pun.
+#
+# Yang tersisa hanyalah menaikkan palang: file tidak lagi memuat
+# passwordnya, dan hash-nya terikat mesin sehingga menyalinnya dari PC lain
+# tidak langsung berhasil.
+#
+# Batasnya harus disebut terang-terang: pada akun yang dipakai bersama,
+# siswa masih bisa menulis ulang file dengan hash pilihan sendiri. Tidak
+# ada rahasia lokal yang aman dari pemilik akun. Penutup yang sebenarnya
+# adalah akun Windows per-siswa (atau ACL admin-only di luar jangkauan
+# installer ini), bukan hashing.
+_ITERATIONS = 120_000
+_SALT_BYTES = 16
+_HASH_PREFIX = "pbkdf2_sha256"
+
+# Penanda berkas versi LAMA (plaintext).skrip installer yang sudah
+# deployed menulis ini, dan upgrade tidak boleh mengunci supervisor di
+# luar kelas saat ujian sedang berjalan.
+
+
+def _machine_fingerprint() -> str:
+    """ID mesin stabil, dipakai mengikat hash ke satu PC saja."""
+    for key in ("COMPUTERNAME", "USERNAME", "PROCESSOR_IDENTIFIER"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return "unknown-machine"
+
+
+def _admin_password_path() -> Optional[str]:
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        return None
+    return os.path.join(local_appdata, "EXAMVAN", "admin_password.txt")
+
+
+def _machine_salt() -> bytes:
+    return hashlib.sha256(
+        f"examvan-admin-exit::{_machine_fingerprint()}".encode("utf-8")
+    ).digest()
+
+
+def _derive(password: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        _machine_salt() + salt,
+        _ITERATIONS,
+    )
+
+
+def _hash_admin_password(password: str) -> str:
+    """`$pbkdf2_sha256$<iterations>$<salt-b64>$<hash-b64>`."""
+    salt = os.urandom(_SALT_BYTES)
+    digest = _derive(password, salt)
+    return "$".join(
+        (
+            _HASH_PREFIX,
+            str(_ITERATIONS),
+            base64.b64encode(salt).decode("ascii"),
+            base64.b64encode(digest).decode("ascii"),
+        )
+    )
+
+
+def _verify_admin_password(stored: str, password: str) -> bool:
+    if not stored or not stored.startswith(_HASH_PREFIX):
+        return False
+    try:
+        prefix, iterations, salt_b64, digest_b64 = stored.split("$")
+        if prefix != _HASH_PREFIX:
+            return False
+        salt = base64.b64decode(salt_b64)
+        expected = base64.b64decode(digest_b64)
+    except (ValueError, Exception):
+        return False
+    candidate = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        _machine_salt() + salt,
+        int(iterations),
+    )
+    return hmac.compare_digest(candidate, expected)
+
+
+def _store_admin_password(password: str) -> bool:
+    """Tulis password sebagai hash. Return True bila berhasil."""
+    path = _admin_password_path()
+    if not path or not password:
+        return False
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_hash_admin_password(password))
+        return True
+    except OSError:
+        log.warning("could not write admin password", exc_info=True)
+        return False
+
+
 def _load_admin_password() -> Optional[str]:
+    """Password admin exit yang dipakai app, apa adanya bentuknya.
+
+    Yang dikembalikan adalah ISI BERKAS -- hash untuk format baru, atau
+    plaintext untuk berkas lama. Perbandingan di `_admin_exit_prompt`
+    yang memutuskan, lewat `_password_matches()`.
+    """
     pw = os.environ.get("EXAMVAN_ADMIN_PASSWORD")
     if pw:
         return pw
@@ -43,6 +160,20 @@ def _load_admin_password() -> Optional[str]:
             return pw or None
     except OSError:
         return None
+
+
+def _password_matches(stored: Optional[str], typed: str) -> bool:
+    """Bandingkan input supervisor dengan yang tersimpan.
+
+    Dua bentuk didukung: hash baru (diverifikasi) dan plaintext lama
+    (dibandingkan langsung, demi kompatibilitas dengan instalasi yang
+    sudah ada).
+    """
+    if not stored:
+        return False
+    if stored.startswith(_HASH_PREFIX):
+        return _verify_admin_password(stored, typed)
+    return hmac.compare_digest(stored, typed)
 
 
 _ADMIN_PASSWORD = _load_admin_password()
@@ -154,6 +285,10 @@ class ExamViewerWindow(QMainWindow):
         # Di-scope dengan token + identitas siswa: label berarti "kursi yang
         # sedang dipakai siswa ini", bukan "mesin ini". See
         # utils.build_attempt_key untuk alasannya.
+        # Exam baru dimulai: unduhan sebelumnya (kalau ada) tidak lagi
+        # relevan, dan mengosongkan flag ini membuat `_load_pdf_thread`
+        # menyimpan PDF yang baru diunduh.
+        self._abandoned = False
         self._device_label = get_device_label(
             build_attempt_key(self._token, identity_data)
         )
@@ -309,10 +444,23 @@ class ExamViewerWindow(QMainWindow):
 
     def _load_pdf_thread(self) -> None:
         try:
+            # Destinasi TAHU SEBELUM download dimulai.
+            #
+            # Sebelumnya `self._pdf_path` baru di-assign dari nilai balik
+            # `download_pdf`, jadi `_discard_pdf()` yang dipanggil saat
+            # siswa keluar tengah-download melihat `None` dan langsung
+            # return. Download pun selesai menulis naskah ujian utuh ke
+            # %TEMP% -- dan proses masih hidup (config dialog muncul lagi),
+            # jadi berkas itu menunggu siswa berikutnya dengan lockdown
+            # sudah dilepas.
             dest = os.path.join(
                 tempfile.gettempdir(), f"examvan_exam_{self._exam.id}.pdf"
             )
-            self._pdf_path = api.download_pdf(
+            self._pdf_path = dest
+            if getattr(self, "_abandoned", False):
+                # Sudah keluar sebelum download sempat mulai.
+                return
+            downloaded = api.download_pdf(
                 self._server_url,
                 self._exam.id,
                 self._token,
@@ -332,6 +480,14 @@ class ExamViewerWindow(QMainWindow):
                 # match, dan PDF tidak pernah terunduh.
                 device_id=self._device_label,
             )
+            if getattr(self, "_abandoned", False):
+                # Race yang sesungguhnya: siswa keluar SAAT download
+                # berjalan, dan download baru selesai sekarang. Berkasnya
+                # harus dihapus seketika, bukan ditinggalkan untuk PC lab.
+                log.info("PDF finished after exit; discarding %s", downloaded)
+                self._discard_pdf()
+                return
+            self._pdf_path = downloaded
             self._sig_pdf_ready.emit()
         except Exception as e:
             self._sig_pdf_error.emit(str(e))
@@ -420,11 +576,16 @@ class ExamViewerWindow(QMainWindow):
             self._cleanup_after_submit(message)
         else:
             self._btn_submit.setEnabled(True)
-            QMessageBox.warning(
-                self,
-                "Gagal",
-                f"Gagal mengumpulkan jawaban:\n{message}\n\nSilakan coba lagi.",
-            )
+            # Guard WAJIB: dialog ini muncul di SETIAP submit yang gagal,
+            # dan `medium` adalah level default. Tanpa guard, countdown
+            # 3 detik berjalan di belakangnya dan jendela menutup --
+            # persis jalan pemulihan yang sedang ditawarkan ke siswa.
+            with self._modal_dialog_guard():
+                QMessageBox.warning(
+                    self,
+                    "Gagal",
+                    f"Gagal mengumpulkan jawaban:\n{message}\n\nSilakan coba lagi.",
+                )
 
     def _cleanup_after_submit(self, message: str) -> None:
         """Clean up after successful submit."""
@@ -582,6 +743,10 @@ class ExamViewerWindow(QMainWindow):
     # -------------------------------------------------------------------
 
     def _discard_pdf(self) -> None:
+        # Tandai dulu: download yang sedang berjalan harus tahu bahwa
+        # berkasnya sudah tidak dibutuhkan. `_load_pdf_thread` mengeceknya
+        # tepat setelah `download_pdf` selesai.
+        self._abandoned = True
         """Hapus berkas PDF yang diunduh untuk ujian ini.
 
         Dipanggil di SETIAP jalur keluar, bukan hanya submit. PDF berisi
@@ -880,6 +1045,12 @@ class ExamViewerWindow(QMainWindow):
             if resp.status == "queued" and resp.job_id:
                 self._sig_status.emit(
                     "Jawaban diterima server, menunggu konfirmasi...")
+                # `congrats_message` hanya ada di respons 202 ini;
+                # `/result` tidak pernah mengirimkannya. Tanpa
+                # meneruskannya, halaman selamat menampilkan teks bawaan
+                # dan pesan guru yang sengaja ditulis guru tidak pernah
+                # sampai ke siswa.
+                queued_congrats = resp.congrats_message or ""
                 resp = api.poll_queued_result(
                     base_url,
                     exam_id,
@@ -887,6 +1058,7 @@ class ExamViewerWindow(QMainWindow):
                     mac,
                     resp.job_id,
                     identity,
+                    initial_congrats=queued_congrats,
                 )
 
             # Fix #2 (parity Android): tampilkan `congrats_message` custom
@@ -1106,24 +1278,33 @@ class ExamViewerWindow(QMainWindow):
             # Fail-closed: tanpa password terkonfigurasi, TIDAK ada
             # jalur keluar selain kill process dari Task Manager.
             if _ADMIN_PASSWORD is None:
-                QMessageBox.warning(
-                    self, "Tidak Diizinkan",
-                    "Admin exit tidak dikonfigurasi.\n\n"
-                    "Cara mengaktifkan:\n"
-                    "• Isi kolom \"Password supervisor\" di halaman Password\n"
-                    "  Admin Exit saat instalasi (halamannya selalu tampil),\n"
-                    "  atau\n"
-                    "• Tulis ulang file di\n"
-                    "  %LOCALAPPDATA%\\EXAMVAN\\admin_password.txt,\n"
-                    "  atau\n"
-                    "• Set environment EXAMVAN_ADMIN_PASSWORD sebelum\n"
-                    "  aplikasi jalan.\n\n"
-                    "Tidak ada checkbox untuk ini — halaman passwordnya\n"
-                    "selalu tampil, jadi cukup isi kolomnya.",
-                )
+                # Tanpa guard, supervisor melihat "tidak dikonfigurasi"
+                # dan 3 detik kemudian ujian SISWA justru terkumpul --
+                # membalikkan tujuan admin exit.
+                with self._modal_dialog_guard():
+                    QMessageBox.warning(
+                        self, "Tidak Diizinkan",
+                        "Admin exit tidak dikonfigurasi.\n\n"
+                        "Cara mengaktifkan:\n"
+                        "• Isi kolom \"Password supervisor\" di halaman Password\n"
+                        "  Admin Exit saat instalasi (halamannya selalu tampil),\n"
+                        "  atau\n"
+                        "• Tulis ulang file di\n"
+                        "  %LOCALAPPDATA%\\EXAMVAN\\admin_password.txt,\n"
+                        "  atau\n"
+                        "• Set environment EXAMVAN_ADMIN_PASSWORD sebelum\n"
+                        "  aplikasi jalan.\n\n"
+                        "Tidak ada checkbox untuk ini — halaman passwordnya\n"
+                        "selalu tampil, jadi cukup isi kolomnya.",
+                    )
                 return
-            if password != _ADMIN_PASSWORD:
-                QMessageBox.warning(self, "Akses Ditolak", "Password salah.")
+            if not _password_matches(_ADMIN_PASSWORD, password):
+                # Sama seperti di atas: supervisor salah ketik SEKALI dan
+                # seluruh jawaban siswa terkirim.
+                with self._modal_dialog_guard():
+                    QMessageBox.warning(
+                        self, "Akses Ditolak", "Password salah."
+                    )
                 return
 
             # Presence DIHENTIKAN di sini juga.

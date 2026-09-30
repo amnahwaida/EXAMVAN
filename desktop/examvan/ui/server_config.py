@@ -474,6 +474,21 @@ class ServerConfigDialog(QDialog):
             config.set("identity_data", identity)
 
             if not self._offer_pending_recovery():
+                # UJIAN TIDAK DIMULAI. Identitas harus dibersihkan.
+                #
+                # `exam_selected` tidak pernah emit, jadi tidak ada viewer
+                # yang dibuat dan tidak ada `closed` signal -- artinya
+                # `config.clear_identity()` yang ada di `__main__` TIDAK
+                # terjangkau dari sini. Tanpa baris di bawah, identitas
+                # siswa ini tinggal di config dan dipakai mengisi form
+                # siswa berikutnya; `IdentityDialog` menutup diri lewat
+                # `last_input.returnPressed -> _on_submit`, jadi Enter
+                # saja sudah cukup menjawab atas nama orang lain.
+                #
+                # Ini kebocoran yang sama yang ditutup untuk jalur
+                # pembatalan layar persetujuan; jalur recovery membuka
+                # hole yang sama dari arah lain.
+                config.clear_identity()
                 return
             self.exam_selected.emit(self._exam, self._server_url, identity)
             self.accept()

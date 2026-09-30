@@ -167,6 +167,26 @@ Filename: "{app}\{#AppExeName}"; Description: "Jalankan {#AppName} sekarang"; \
 Type: filesandordirs; Name: "{app}\*.log"
 Type: filesandordirs; Name: "{app}\__pycache__"
 
+; ---------------------------------------------------------------------------
+; KREDENSIAL: SELALU dihapus, termasuk saat uninstall SENYAP.
+; ---------------------------------------------------------------------------
+; Jawaban ujian yang belum terkirim TIDAK dihapus di sini (itu pekerjaan
+; siswa; menghapusnya diam-diam adalah kehilangan data). Tapi dua berkas di
+; bawah berbeda sifatnya:
+;
+;   admin_password.txt  -> password supervisor; siapa pun yang duduk di PC
+;                          ini bisa membacanya lalu menutup ujian yang sedang
+;                          berjalan atas nama pengawas.
+;   config.json         -> exam_token (kredensial SELURUH KELAS pada mode
+;                          static) dan identitas siswa, plaintext.
+;
+; PC lab dipakai bersama. Uninstall senyap (`/VERYSILENT`) adalah mode yang
+; dipakai CI dan yang akan dipakai sekolah untuk 30 PC, dan sebelumnya
+; blok penghapusan di [Code] dijaga `and (not UninstallSilent)` -- jadi di
+; mode itu TIDAK ada prompt dan TIDAK ada penghapusan sama sekali.
+Type: files; Name: "{localappdata}\EXAMVAN\admin_password.txt"
+Type: files; Name: "{%USERPROFILE}\.config\examvan\config.json"
+
 [Code]
 var
   AdminPasswordPage: TInputQueryWizardPage;

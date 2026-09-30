@@ -72,6 +72,12 @@ rem Entry point = desktop\main.py stub, BUKAN examvan\__main__.py:
 rem PyInstaller menjalankan file entry sebagai script lepas, sedangkan
 rem __main__.py memakai relative import yang crash saat exe dijalankan.
 rem --version-file memberi metadata versi/commit di Properties exe.
+rem PENTING: script ini cd ke dalam `desktop\` lebih dulu, jadi path
+rem relatif dihitung dari sana. Berkasnya ditulis ke
+rem `%OUTPUT_DIR%` = windows\dist\ -- BUKAN dist\ di root repo.
+rem Versi sebelumnya menunjuk `..\dist\` yang tidak pernah ada, jadi
+rem build lokal MUSTAHIL: PyInstaller membuka --version-file langsung
+rem dan gagal FileNotFoundError sebelum menghasilkan apa pun.
 rem File yang sama dipakai build-setup.bat/.ps1 + CI, jadi Properties
 rem di explorer konsisten antara build lokal dan build runner.
 rem ---- Stamp version info ------------------------------------------------
@@ -97,7 +103,7 @@ pushd "%SOURCE_DIR%"
     --distpath "%OUTPUT_DIR%" ^
     --specpath "%OUTPUT_DIR%" ^
     --workpath "%OUTPUT_DIR%\build" ^
-    --version-file "..\dist\version_info.txt" ^
+    --version-file "..\windows\dist\version_info.txt" ^
     --icon "..\windows\installer\examvan.ico" ^
     --hidden-import examvan ^
     --hidden-import examvan.security ^

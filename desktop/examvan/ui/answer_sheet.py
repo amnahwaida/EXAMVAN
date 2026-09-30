@@ -142,7 +142,7 @@ class AnswerSheetWidget(QWidget):
         self._layout.addWidget(self._scroll, 1)
 
     @staticmethod
-    def _question_number(raw: Any, position: int) -> str:
+    def _question_number(raw: Any, position: int, taken: set) -> str:
         """Nomor soal sebagai string, tanpa PERNAH melempar.
 
         `int(q.get("number", 0))` sebelumnya melempat pada dua payload nyata
@@ -155,19 +155,39 @@ class AnswerSheetWidget(QWidget):
         `dict.get(k, default)` hanya memakai default saat kuncinya tidak
         ADA, jadi `{"number": null}` tetap memanggil `int(None)`.
 
-        Fallback ke nomor posisi supaya soalnya tetap bisa dijawab.
-        Penilaian soal itu memang sudah rusak dari sisi server -- nomornya
-        null di sana juga -- tapi setidaknya separuh lembar jawaban tidak
-        hilang karena satu baris kosong di form guru.
+        NOMOR CADANGAN HARUS DI RUANG TERPISAH, bukan `position + 1`.
+        Versi sebelumnya memakai `position + 1`, yang berada di ruang yang
+        SAMA dengan nomor asli: guru mengosongkan kolom Nomor pada soal
+        pertama, soal kedua bernomor 1, keduanya jadi "1". Widget-nya
+        tetap ter-gambar (kunci internal jadi "1#1") tapi handler-nya
+        memakai `num`, bukan kunci internal -- jadi keduanya menulis
+        `self._answers["1"]` dan blok yang dijawab TERAKHIR menimpa yang
+        lain. Terverifikasi: menjawab soal 1 yang benar lalu menyinggung
+        blok tanpa nomor menghapus jawaban aslinya tanpa jejak.
+
+        Karena itu nomor cadangan diberi awalan yang tidak mungkin dipakai
+        nomor soal asli, dan dihindari bila sudah terpakai.
         """
         try:
             return str(int(raw))
         except (TypeError, ValueError):
+            # Unik SECARA KONSTRUKSI: `position` berbeda untuk setiap soal,
+            # dan prefiks "soal-" tidak mungkin sama dengan nomor soal asli
+            # yang selalu numerik. Jadi tidak perlu loop penghindar
+            # tabrakan -- dan jebakan loop yang tidak bisa diuji hanya
+            # menambah cabang yang tidak pernah dieksekusi.
+            #
+            # `taken` tetap dipakai di `build_from_questions` untuk
+            # memisahkan nomor cadangan dari nomor ASLI -- yang boleh
+            # benar-benar kembar, dan itu yang dilaporkan ke siswa.
+            candidate = f"soal-{position + 1}"
             log.warning(
-                "soal #%d punya nomor tidak valid (%r); memakai nomor posisi",
-                position + 1, raw,
+                "soal #%d punya nomor tidak valid (%r); memakai nomor %s. "
+                "Nilai ini akan ikut terkirim ke server, jadi perbaiki "
+                "nomornya di editor.",
+                position + 1, raw, candidate,
             )
-            return str(position + 1)
+            return candidate
 
     def build_from_questions(self, questions: List[Dict[str, Any]]) -> List[str]:
         """Build answer sheet from question config list.
@@ -217,9 +237,15 @@ class AnswerSheetWidget(QWidget):
         # membaca sisa build sebelumnya.
         self._duplicates = duplicates
 
+        # Nomor yang sudah dipakai nomor ASLI lain. Nomor cadangan tidak
+        # boleh masuk ke sini -- itulah yang membuat keduanya menabrak.
+        reserved = {
+            str(q.get("number")) for q in questions
+            if str(q.get("number", "")).strip().lstrip("-").isdigit()
+        }
         for position, q in enumerate(questions):
             try:
-                num = self._question_number(q.get("number"), position)
+                num = self._question_number(q.get("number"), position, reserved)
                 qtype = q.get("type", "single_choice")
                 group, entry = self._build_question_widget(num, qtype, q)
 
@@ -260,11 +286,18 @@ class AnswerSheetWidget(QWidget):
         "2 / 2 terjawab" untuk satu jawaban.
         """
         out: List[str] = []
+        reserved = {
+            str(q.get("number")) for q in self._questions
+            if str(q.get("number", "")).strip().lstrip("-").isdigit()
+        }
         for position, q in enumerate(self._questions):
             # Memakai helper yang sama dengan build: nomor rusak tidak
             # boleh membuat `get_answered_count()` -- yang dipanggil SETIAP
             # kali siswa menjawab -- melempar dari dalam slot Qt.
-            num = self._question_number(q.get("number"), position)
+            # `taken=out` menjaga hasil build dan hasil hitung ini
+            # konsisten: nomor cadangan yang sama tidak boleh muncul dua
+            # kali hanya karena dihitung ulang.
+            num = self._question_number(q.get("number"), position, reserved)
             if num not in out:
                 out.append(num)
         return out
@@ -509,13 +542,57 @@ class AnswerSheetWidget(QWidget):
             elif wtype == "short":
                 widget.setText(str(val))
             elif wtype == "matching":
+                # Buang entri yang isinya TIDAK ada di(right_items).
+                # `self._answers = val` di atas sudah menyalin semua
+                # nilai mentah ke payload, jadi nilai yang tidak dikenal
+                # akan terkirim ke server apa adanya. Itu bukan hanya
+                #sia-sia: `evaluateMatching` membandingkan string,
+                # jadi entri sampah apa pun == jawaban salah.
+                if isinstance(val, dict):
+                    known = {}
+                    for key, combo in widget.items():
+                        options = {
+                            combo.itemText(i) for i in range(combo.count())
+                        }
+                        candidate = val.get(key)
+                        if candidate is not None and str(candidate) in options:
+                            known[key] = str(candidate)
+                    if known != val:
+                        self._answers[num] = known
                 for key, combo in widget.items():
                     saved_val = val.get(key, "") if isinstance(val, dict) else ""
-                    if saved_val:
-                        for i in range(combo.count()):
-                            if combo.itemText(i).startswith(str(saved_val)):
-                                combo.setCurrentIndex(i)
-                                break
+                    if not saved_val:
+                        continue
+                    # PERSIS, sama seperti `_build_matching` (line ~414).
+                    #
+                    # `itemText(i).startswith(saved_val)` dulu dipakai di
+                    # sini, dan itu menimpa jawaban siswa:
+                    #
+                    #     sebelum restore : {'Ibu Kota': 'A'}
+                    #     setelah restore : {'Ibu Kota': 'Andi'}
+                    #
+                    # karena "Andi".startswith("A") benar. Itu memicu
+                    # `currentIndexChanged` -> `_on_match_changed` ->
+                    # `answer_changed` -> autosave 500 ms, jadi jawaban
+                    # rusak langsung ditulis ke disk.
+                    #
+                    # Dan `restore_answers` adalah jalur UTAMA di
+                    # produksi: dijadwalkan 500 ms setelah window dibuat,
+                    # sedangkan `_build_matching` baru jalan setelah PDF
+                    # selesai -- jadi pemulihan persis di build biasanya
+                    # melihat `_answers` kosong.
+                    target = str(saved_val)
+                    found = -1
+                    for i in range(combo.count()):
+                        if combo.itemText(i) == target:
+                            found = i
+                            break
+                    # found <= 0 berarti: tidak ada, atau hanya placeholder
+                    # "-- Pilih --". Jangan sentuh combo: memaksa index
+                    # akan memicu _on_match_changed dan menulis nilai
+                    # yang tidak dikenal itu ke _answers.
+                    if found > 0:
+                        combo.setCurrentIndex(found)
         self._update_count()
 
     def get_answered_count(self) -> tuple:

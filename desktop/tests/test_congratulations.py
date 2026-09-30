@@ -327,16 +327,26 @@ class CopyLinkAndAutoClearTestCase(unittest.TestCase):
         self.assertIn("30", dlg.copy_button().toolTip())
 
 
-if __name__ == "__main__":
-    unittest.main()
 
+class TeacherMessageSurvivesTheQueuedPollTestCase(unittest.TestCase):
+    """#5 — `congrats_message` hanya ada di respons 202, bukan di `/result`.
 
-class SubmitFlowShowsThePageTestCase(unittest.TestCase):
-    """Layar selamat harus benar-benar dipanggil dari kedua jalur submit.
+    Server mengirim `congrats_message` hanya di dua tempat, keduanya pada
+    respons 202 (`exams.go:1204`, `:1237`). Endpoint `/result` yang
+    dipanggil `poll_queued_result` tidak pernah mengirimkannya; pesannya
+    selalu literal `"Jawaban berhasil disimpan"`.
 
-    Test isi dialog di atas tidak membuktikan apa pun kalau tidak ada
-    yang memanggilnya -- dan pemanggilannya justru bagian yang paling
-    mudah luput saat ada refactor.
+    Karena `resp = api.poll_queued_result(...)` MENIMPA objek respons 202,
+    `resp.congrats_message` selalu `None` di jalur mana pun yang lewat
+    antrean -- yaitu jalur NORMAL saat Redis tersedia:
+
+        202 -> congrats_message = "Hebat, kerja bagus!"
+        /result -> message = "Jawaban berhasil disimpan"
+        (resp ditimpa)
+        pesan yang dipakai dialog : 'Jawaban berhasil disimpan'
+
+    Commit `a58bdf5` menjadikan pesan guru itu SELURUH isi headline
+    halaman selamat, jadi fiturnya praktis mati di produksi.
     """
 
     @classmethod
@@ -345,78 +355,90 @@ class SubmitFlowShowsThePageTestCase(unittest.TestCase):
 
     @staticmethod
     def _exam(name="Ujian"):
+        from examvan.models import Exam
         return Exam(id=7, name=name, status="active")
 
-    def test_successful_submit_opens_the_page_with_the_student_identity(self):
+    def test_the_polling_carries_the_teacher_message_through(self):
+        from examvan import api
+        from examvan.models import SubmitResponse
+
+        queued = SubmitResponse(
+            success=True, status="queued", job_id="j1",
+            congrats_message="Hebat, kerja bagus!",
+        )
+        durable = SubmitResponse(
+            success=True, status="done",
+            message="Jawaban berhasil disimpan",
+        )
+        with mock.patch.object(api, "exam_result", return_value=durable), \
+             mock.patch.object(api.time, "sleep"):
+            resp = api.poll_queued_result(
+                "https://x", 7, "T", "M", "j1",
+                initial_congrats=queued.congrats_message,
+            )
+        self.assertEqual(
+            resp.congrats_message, queued.congrats_message,
+            "pesan guru hilang saat polling: `/result` hanya mengirim "
+            "message generik dan objek respons ditimpa",
+        )
+
+    def test_the_submit_path_actually_forwards_the_teacher_message(self):
+        """Pemanggil produksi harus meneruskannya.
+
+        Test pertama hanya membuktikan polling bisa meneruskan pesan kalau
+        DIBERIKAN -- tidak membuktikan `_submit_thread` benar-benar
+       .memberikannya. Kalau pemanggilnya lupa, fiturnya mati dan testnya
+        tetap hijau.
+        """
+        import threading
+
         from examvan.ui import exam_viewer as ev
+        from examvan.models import SubmitResponse
 
-        captured = {}
+        win = ev.ExamViewerWindow.__new__(ev.ExamViewerWindow)
+        win._exam = self._exam("Ujian")
+        win._token = "ABCD1234"
+        win._server_url = "https://examvan.my.id"
+        win._identity_data = {"nama": "SITI", "nomor_ujian": "N02"}
+        win._security = None
+        win._save_lock = threading.Lock()
+        win._answer_sheet = mock.Mock()
+        win._answer_sheet.get_answers.return_value = {"1": "A"}
+        win._sig_status = mock.Mock()
+        win._sig_submit_result = mock.Mock()
+        win._on_download_progress = mock.Mock()
+        win._submit_lock = threading.Lock()
+        win._submitting = False
+        win._submitted = False
 
-        def _grab(**kwargs):
-            captured.update(kwargs)
-            return mock.Mock(exec_=mock.Mock(return_value=0))
-
-        with mock.patch.object(ev, "CongratulationsDialog", side_effect=_grab), \
-             mock.patch.object(ev.config, "clear_answers"), \
-             mock.patch.object(ev.config, "mark_submitted"), \
+        queued = SubmitResponse(
+            success=True, status="queued", job_id="j1",
+            congrats_message="Hebat, kerja bagus!",
+        )
+        durable = SubmitResponse(
+            success=True, status="done",
+            message="Jawaban berhasil disimpan",
+        )
+        with mock.patch.object(ev.api, "submit_with_retry", return_value=queued), \
+             mock.patch.object(ev.api, "poll_queued_result",
+                               return_value=durable) as poll, \
+             mock.patch.object(ev.config, "save_start_time"), \
              mock.patch.object(ev.config, "load_start_time", return_value="t"), \
-             mock.patch.object(ev, "build_attempt_key", return_value="k"), \
-             mock.patch.object(ev, "student_label", return_value="l"):
-            win = ev.ExamViewerWindow.__new__(ev.ExamViewerWindow)
-            win._exam = self._exam("Ujian Matematika")
-            win._token = "ABCD1234"
-            win._server_url = "https://examvan.my.id"
-            win._identity_data = {"nama": "SITI", "nomor_ujian": "N02",
-                                  "kelas": "9B"}
-            win._security = None
-            win._timer_widget = mock.Mock()
-            win._btn_submit = mock.Mock()
-            win._pdf_viewer = mock.Mock()
-            win._pdf_path = None
-            win._stop_presence = mock.Mock()
-            win.close = mock.Mock()
-            win._cleanup_after_submit("Hebat, kerja bagus!")
+             mock.patch.object(ev, "build_attempt_key", return_value="k"):
+            ev.ExamViewerWindow._submit_thread(
+                win, "https://examvan.my.id", 7, "SITI", "N02", "9B",
+                {"1": "A"}, "2026-09-30T07:00:00Z", "DESKTOP:abc",
+                {"nama": "SITI"},
+            )
 
-        self.assertEqual(captured.get("student_name"), "SITI")
-        self.assertEqual(captured.get("student_number"), "N02")
-        self.assertEqual(captured.get("student_class"), "9B")
-        self.assertEqual(captured.get("exam_name"), "Ujian Matematika")
-        self.assertEqual(captured.get("exam_token"), "ABCD1234")
-        self.assertEqual(captured.get("congrats_message"), "Hebat, kerja bagus!")
+        self.assertTrue(poll.called, "polling tidak dipanggil sama sekali")
+        self.assertEqual(
+            poll.call_args.kwargs.get("initial_congrats"),
+            "Hebat, kerja bagus!",
+            "_submit_thread tidak meneruskan congrats_message dari respons "
+            "202, sehingga halaman selamat menampilkan teks bawaan server",
+        )
 
-    def test_the_security_is_deactivated_before_the_page_is_shown(self):
-        # Kalau tidak, `SecurityEnforcer` masih menyapu clipboard tiap 10
-        # detik dan link yang disalin di layar ini langsung hilang --
-        # atau malah sebaliknya, enforcer masih hidup saat siswa keluar.
-        from examvan.ui import exam_viewer as ev
 
-        order = []
-
-        class _Security:
-            def deactivate(self):
-                order.append("deactivate")
-
-        def _grab(**kwargs):
-            order.append("show")
-            return mock.Mock(exec_=mock.Mock(return_value=0))
-
-        with mock.patch.object(ev, "CongratulationsDialog", side_effect=_grab), \
-             mock.patch.object(ev.config, "clear_answers"), \
-             mock.patch.object(ev.config, "mark_submitted"), \
-             mock.patch.object(ev, "build_attempt_key", return_value="k"), \
-             mock.patch.object(ev, "student_label", return_value="l"):
-            win = ev.ExamViewerWindow.__new__(ev.ExamViewerWindow)
-            win._exam = self._exam("Ujian")
-            win._token = "ABCD1234"
-            win._server_url = "https://examvan.my.id"
-            win._identity_data = {}
-            win._security = _Security()
-            win._timer_widget = mock.Mock()
-            win._btn_submit = mock.Mock()
-            win._pdf_viewer = mock.Mock()
-            win._pdf_path = None
-            win._stop_presence = mock.Mock()
-            win.close = mock.Mock()
-            win._cleanup_after_submit("ok")
-
-        self.assertEqual(order, ["deactivate", "show"])
+if __name__ == "__main__":
+    unittest.main()

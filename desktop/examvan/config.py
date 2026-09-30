@@ -23,6 +23,9 @@ _defaults: Dict[str, Any] = {
     "exam_token": "",
     "remember_url": True,
     "identity_data": {},
+    # Token ujian yang pernah berlaku di mesin ini; hanya untuk membaca
+    # berkas jawaban versi lama. Lihat `set()`.
+    "exam_token_history": [],
 }
 
 _cache: Optional[Dict[str, Any]] = None
@@ -67,19 +70,56 @@ def _xor_obfuscate(data: bytes) -> bytes:
     return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
 
 
-def _legacy_xor_obfuscate(data: bytes) -> bytes:
+def _legacy_xor_obfuscate(data: bytes, token: str = "") -> bytes:
     """XOR dengan kunci yang dicampur dari token -- hanya untuk MIGRASI.
 
     Semua `answers_*.dat` yang ditulis versi lama memakai skema ini, jadi
     `load_answers` harus tetap bisa membacanya. Jangan dipakai untuk
     menulis: lihat `_xor_obfuscate`.
+
+    `token` WAJIB diteruskan eksplisit. Versi sebelumnya mengambil
+    `exam_token` yang sedang berlaku, dan itulah yang membuatnya tidak
+    berguna justru untuk kasus yang paling membutuhkan: dynamic-token
+    exam sudah Memutar token, `_connect_thread` menimpanya ke config
+    sebelum `load_answers()` dipanggil, jadi kuncinya salah dan kedua
+    decode gagal:
+
+        token lama ABCD1234 -> load: {'1': 'A', ...}
+        token baru  WXYZ5678 -> load: None
+
+    Kunci lama tidak pernah disimpan bersama berkasnya, jadi tidak bisa
+    diturunkan dari state sekarang. Yang bisa dilakukan adalah mencoba
+    setiap token yang mungkin dipakai untuk ujian ini -- lihat
+    `_legacy_token_candidates()`.
     """
-    token = get("exam_token") or ""
+    token = token or get("exam_token") or ""
     if token:
         mixed_key = bytes(b ^ ord(token[i % len(token)]) for i, b in enumerate(_OBFUSCATE_KEY))
     else:
         mixed_key = _OBFUSCATE_KEY
     return bytes(b ^ mixed_key[i % len(mixed_key)] for i, b in enumerate(data))
+
+
+def _legacy_token_candidates() -> list:
+    """Token yang mungkin dipakai untuk menulis berkas jawaban ini.
+
+    Urutan dari yang paling mungkin. Falls back ke token saat ini supaya
+    jalur biasa tidak berubah.
+    """
+    candidates = []
+    current = str(get("exam_token", "") or "").strip()
+    if current:
+        candidates.append(current)
+    # Token yang pernah berlaku di mesin ini. `config.set("exam_token", ...)`
+    # menyimpan nilai lama ke sini setiap kali token berputar, jadi
+    # jawaban yang ditulis dengan token sebelumnya masih bisa dibaca.
+    history = get("exam_token_history") or []
+    if isinstance(history, list):
+        for value in reversed(history):
+            token = str(value or "").strip()
+            if token and token not in candidates:
+                candidates.append(token)
+    return candidates
 
 
 def _encode_answers(answers: Dict[str, Any]) -> str:
@@ -102,14 +142,49 @@ def _decode_answers(data: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
-    for deobfuscate in (_xor_obfuscate, _legacy_xor_obfuscate):
-        try:
-            parsed = json.loads(deobfuscate(obfuscated).decode("utf-8"))
-        except Exception:
-            continue
+    # Skema saat ini dulu (kunci tetap).
+    try:
+        parsed = json.loads(_xor_obfuscate(obfuscated).decode("utf-8"))
         if isinstance(parsed, dict):
             return parsed
+    except Exception:
+        pass
+
+    # Lalu skema lama. Setiap kandidat token dicoba satu per satu: kunci
+    # lama tidak tersimpan, jadi satu-satunya cara adalah mencoba yang
+    # masih mungkin dipakai.
+    for token in _legacy_token_candidates():
+        try:
+            parsed = json.loads(
+                _legacy_xor_obfuscate(obfuscated, token).decode("utf-8")
+            )
+        except Exception:
+            continue
+        if isinstance(parsed, dict) and _looks_like_answers(parsed):
+            return parsed
     return None
+
+
+def _looks_like_answers(parsed: dict) -> bool:
+    """Hasil decode dengan kunci salah HANYA diterima kalau masuk akal.
+
+    XOR dengan kunci yang keliru menghasilkan byte acak; menerima
+    JSON-acak yang kebetulan_valid_json berarti "berhasil" dengan isi
+    ngawur yang akan terkirim ke server dan dinilai salah semua -- lebih
+    buruk daripada melaporkan "tidak terbaca", karena siswa tidak pernah
+    diberi tahu jawabannya hilang.
+
+    Jawaban yang sah berisi nomor soal (kunci string) dengan nilai
+    string/list/dict.
+    """
+    if not parsed:
+        return False
+    for key, value in parsed.items():
+        if not str(key).strip():
+            return False
+        if not isinstance(value, (str, list, dict)):
+            return False
+    return True
 
 
 def _load() -> Dict[str, Any]:
@@ -163,6 +238,31 @@ def get(key: str, default: Any = None) -> Any:
 
 
 def set(key: str, value: Any) -> None:
+    # Riwayat token ujian.
+    #
+    # Berkas jawaban versi lama di-XOR dengan kunci yang dicampur dari
+    # `exam_token` SAAT DITULIS, dan kunci itu tidak pernah disimpan
+    # bersama berkasnya. Satu-satunya cara membacanya kembali adalah
+    # mencoba token yang mungkin dipakai. Pada dynamic-token exam token
+    # berputar (`MaybeResetActiveToken`), dan siswa yang kembali dengan
+    # token baru menimpanya sebelum `load_answers()` dipanggil -- sehingga
+    # jawaban yang tersisa tidak terbaca, tidak ada prompt "Kirim Lagi",
+    # dan autosave berikutnya menimpanya.
+    #
+    # Menyimpan nilai lama membuat kunci itu masih bisa dicoba.
+    if key == "exam_token":
+        store = _load()
+        previous = str(store.get("exam_token", "") or "").strip()
+        current = str(value or "").strip()
+        if previous and current and previous != current:
+            history = store.get("exam_token_history") or []
+            if not isinstance(history, list):
+                history = []
+            # Bukan arsip: hanya kandidat yang masih mungkin dipakai.
+            history = [h for h in history if isinstance(h, str) and h][-7:]
+            if previous not in history:
+                history.append(previous)
+            store["exam_token_history"] = history
     _load()[key] = value
     _save()
 

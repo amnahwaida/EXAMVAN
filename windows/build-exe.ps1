@@ -73,7 +73,7 @@ if ($LASTEXITCODE -ne 0) {
     --distpath $OutputDir `
     --specpath $OutputDir `
     --workpath "$OutputDir\build" `
-    --version-file "..\dist\version_info.txt" `
+    --version-file "..\windows\dist\version_info.txt" `
     --icon "..\windows\installer\examvan.ico" `
     --hidden-import examvan `
     --hidden-import examvan.security `

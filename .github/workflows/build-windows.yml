@@ -125,9 +125,20 @@ jobs:
         # entry PyInstaller dijalankan sebagai script lepas, sedangkan
         # __main__.py memakai relative import yang crash saat exe dijalankan
         # ("attempted relative import with no known parent package").
+        # JANGAN tambahkan `--add-data "desktop/examvan;examvan"` di
+        # perintah PyInstaller di bawah: itu menyalin seluruh source
+        # Python plaintext ke dalam exe yang dibagikan ke siswa --
+        # termasuk kunci XOR berkas jawaban dan logika gate admin exit.
+        # Tanpa `--add-data`, PyInstaller hanya mengemas bytecode
+        # marshalled. Tidak ada import dinamis (importlib / __import__ /
+        # import_module) di desktop/examvan/ yang membuatnya diperlukan.
+        #
+        # Komentar ini harus di LUAR perintah: di PowerShell `#` memulai
+        # baris baru dan mengakhiri statement backtick, sehingga komentar
+        # di tengah daftar argumen menggagalkan build dengan
+        # "Missing expression after unary operator '--'".
         run: |
           python -m PyInstaller `
-            --onefile `
             --windowed `
             --name "EXAMVAN" `
             --distpath windows/dist `
@@ -150,8 +161,7 @@ jobs:
             --exclude-module examvan.security.x11 `
             --exclude-module examvan.security.linux_backend `
             --exclude-module examvan.security.kiosk `
-            --add-data "desktop/examvan;examvan" `
-            desktop/main.py
+                    desktop/main.py
         working-directory: ${{ github.workspace }}
 
       # Installer Inno Setup: SATU file untuk PC siswa, tanpa Python.
