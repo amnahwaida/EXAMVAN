@@ -177,60 +177,54 @@ def load_start_time(exam_id: int) -> str:
     return str(get(f"start_time_{exam_id}", "") or "")
 
 
-def _submitted_key(exam_id: int, attempt_key: str) -> str:
-    """Kunci marker "sudah dikumpulkan", di-scope per percobaan.
-
-    Dulu kuncinya hanya `submitted_<exam_id>`: per MESIN, per ujian,
-    selamanya. Di lab sekolah satu PC dipakai beberapa siswa, jadi begitu
-    siswa pertama selesai, PC itu memblokir ujian yang sama untuk semua
-    siswa berikutnya -- persis keluhan "tidak bisa mengerjakan ujian yang
-    sama untuk kedua kalinya".
-
-    `attempt_key` dibangun dari identitas siswa (lihat
-    `utils.build_student_key`), bukan dari label perangkat: label itu
-    per-kursi, jadi seluruh kelas yang berbagi satu token akan saling
-    memblokir satu sama lain. Kuncinya harus identity-dependent, dan
-    karena itu gerbang pemeriksaannya harus berjalan SETELAH identitas
-    diketahui -- bukan sebelum dialog identitas tampil seperti dulu.
-
-    Nilainya di-hash supaya kunci tetap pendek dan tidak pernah masuk ke
-    config.json apa adanya -- file itu tersimpan di disk dan ikut dikirim
-    bersama jawaban.
-    """
+def _submitted_key(attempt_key: str) -> str:
+    """Hash satu kunci percobaan, dipakai sebagai key di dict marker."""
     import hashlib
 
-    digest = hashlib.sha256(
+    return hashlib.sha256(
         (attempt_key or "").strip().lower().encode()
     ).hexdigest()[:16]
-    return f"submitted_{exam_id}_{digest}"
 
 
-def mark_submitted(exam_id: int, attempt_key: str = "") -> None:
-    """Persist a sticky "exam already finished" marker for this attempt.
+def _submitted_map(exam_id: int) -> dict:
+    """Dict {hash kunci: label} untuk satu ujian. Label hanya untuk pesan."""
+    value = get(f"submitted_{exam_id}", {}) or {}
+    # Rantai ke versi sebelum label ada: nilai lama adalah boolean.
+    if isinstance(value, bool):
+        return {} if not value else {_submitted_key(""): "identitas tidak diketahui"}
+    if not isinstance(value, dict):
+        return {}
+    return value
 
-    Mirrors Android's submittedOrExited flag (F2 fix): setelah submit SUKES
-    (durable), re-entry oleh SISWA YANG SAMA untuk ujian yang sama harus
-    menampilkan "sudah selesai", BUKAN menjalankan ulang alur ujian.
-    Tanpa marker ini, re-entry dalam window grace server
-    (end_time + 60 dtk) → watchdog deadline →
-    submit kosong (jawaban disk sudah dihapus oleh clear_answers) →
-    MENIMPA jawaban asli yang sudah terkirim. Marker dibiarkan sticky
-    (tidak dihapus oleh clear_answers) — selesai = selesai.
 
-    Di-scope per siswa: siswa yang sama berarti percobaan yang sama, jadi
-    overwrite protection tetap bekerja. Siswa berbeda di PC yang sama boleh
-    memakai PC itu lagi -- yang memang jadi tujuan perbaikannya.
+def mark_submitted(
+    exam_id: int, attempt_key: str = "", label: str = ""
+) -> None:
+    """Catat bahwa percobaan (ujian + siswa) sudah mengumpulkan jawaban.
 
-    Marker versi lama (`submitted_<exam_id>`, tanpa token) sengaja
-    DIABAIKAN: itu perilaku yang memblokir lab, dan membacanya kembali akan
-    membuat PC yang sudah pernah terkirim tetap terkunci selamanya.
+    Disimpan sebagai dict {hash kunci: label}, bukan boolean, supaya pesan
+    penolakan bisa menyebut identitas mana yang sudah tercatat. Selama ini
+    user hanya melihat "sudah dikumpulkan" dan tidak bisa memastikan itu
+    dirinya sendiri atau bug.
+
+    Kuncinya di-hash supaya token tidak pernah tersimpan mentah di
+    config.json; nomor dan nama siswa disimpan sebagai label karena
+    datanya sudah ada plaintext di `identity_data` pada file yang sama,
+    jadi tidak menambah risiko.
     """
-    set(_submitted_key(exam_id, attempt_key), True)
+    store = dict(_submitted_map(exam_id))
+    store[_submitted_key(attempt_key)] = label or "identitas tidak diketahui"
+    set(f"submitted_{exam_id}", store)
+
+
+def submitted_labels(exam_id: int) -> list:
+    """Label identitas yang sudah submit ujian ini di perangkat ini."""
+    return sorted(_submitted_map(exam_id).values())
 
 
 def is_submitted(exam_id: int, attempt_key: str = "") -> bool:
     """True bila percobaan ini (exam + siswa) sudah mengumpulkan jawaban."""
-    return bool(get(_submitted_key(exam_id, attempt_key), False))
+    return _submitted_key(attempt_key) in _submitted_map(exam_id)
 
 
 def clear_identity() -> None:

@@ -171,12 +171,43 @@ def build_student_key(
     Sengaja TIDAK memakai label perangkat: itu per-kursi, jadi seluruh
     kelas yang berbagi satu token akan saling memblokir.
     """
+    value, _ = _student_key_and_source(identity_data, token)
+    return value
+
+
+def _student_key_and_source(
+    identity_data: Optional[Dict[str, str]], token: str = ""
+):
+    """`(kunci, asal)` — asal dipakai untuk pesan diagnostik gerbang submit.
+
+    "token" di sini berarti identitas TIDAK terbaca dan kunci jatuh ke
+    token. Kalau itu yang terjadi, seluruh kelas yang berbagi token akan
+    saling memblokir -- jadi harus terlihat di pesan, bukan tersembunyi.
+    """
     std = map_identity_to_standard(identity_data or {})
     for key in ("exam_number", "student_name", "student_class"):
         value = str(std.get(key, "")).strip()
         if value:
-            return value.lower()
-    return (token or "").strip()
+            return value.lower(), key
+    return (token or "").strip(), "token"
+
+
+def student_label(
+    identity_data: Optional[Dict[str, str]], token: str = ""
+) -> str:
+    """Teks yang bisa dibaca manusia untuk pesan gerbang submit.
+
+    Berbeda dari `build_student_key`, ini bukan kunci pencocokan — ini
+    hanya keterangan. Kalau identitasnya tidak terbaca, dikembalikan
+    penjelasan singkat bahwa pencocokan jatuh ke token; nomor token
+    sendiri tidak pernah ditampilkan karena sudah jadi kredensial.
+    """
+    std = map_identity_to_standard(identity_data or {})
+    for key in ("exam_number", "student_name", "student_class"):
+        value = str(std.get(key, "")).strip()
+        if value:
+            return f"{key}={value}"
+    return "token (identitas kosong)"
 
 
 def get_device_label(attempt_key: Optional[str] = None) -> str:

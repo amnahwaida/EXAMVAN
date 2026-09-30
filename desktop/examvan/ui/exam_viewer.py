@@ -65,6 +65,7 @@ from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
 from ..utils import (
     build_attempt_key,
+    student_label,
     build_student_key,
     get_device_label,
     map_identity_to_standard,
@@ -433,6 +434,7 @@ class ExamViewerWindow(QMainWindow):
         config.mark_submitted(
             self._exam.id,
             build_student_key(self._identity_data, self._token),
+            student_label(self._identity_data, self._token),
         )
         # Presence: hapus heartbeat Redis (siswa tampil OFFLINE segera).
         self._stop_presence(completed=True)
@@ -620,6 +622,7 @@ class ExamViewerWindow(QMainWindow):
         config.mark_submitted(
             self._exam.id,
             build_student_key(self._identity_data, self._token),
+            student_label(self._identity_data, self._token),
         )
         memory = (
             self._answer_sheet.get_answers()

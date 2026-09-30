@@ -90,37 +90,60 @@ def _detach_identity_dialog(dlg) -> None:
 
 
 class SubmittedGateTest(RecoveryGateTestCase):
-    def test_submitted_no_pending_blocks(self):
-        config.mark_submitted(7, STUDENT_KEY)
+    """_ATURAN_ "sudah dikerjakan" dihapus dari client.
+
+    Gate ini dulu memblokir dengan "Ujian ini sudah dikumpulkan pada
+    perangkat ini" begitu ada jawaban yang pernah dikirim dari PC ini --
+    bahkan dengan identitas yang berbeda. Di lab yang berbagi PC itu
+    menutup jalan bagi semua siswa setelah yang pertama.
+
+    Sekarang client tidak pernah menolak berdasarkan itu. Yang tersisa
+    hanya pemulihan data: jawaban yang masih tersimpan di disk karena
+    submit sebelumnya gagal, dan itu milik siswa.
+    """
+
+    def test_a_previous_submission_no_longer_blocks(self):
+        # Inilah yang dikeluhkan user: setelah submit pertama, PC yang sama
+        # menolak semua siswa berikutnya untuk ujian yang sama.
+        config.mark_submitted(7, STUDENT_KEY, label="exam_number=n01")
         dlg = ServerConfigDialog()
         dlg._exam = _exam()
-        dlg.input_token.setText("ABCD1234")
+        dlg.input_token.setText("TOKLAB01")
         statuses = []
         dlg._sig_status.connect(lambda msg, err: statuses.append((msg, err)))
-        dlg._sig_recovery_available.connect(
-            lambda exam: self.fail("recovery tidak boleh ditawarkan")
-        )
-        self.assertFalse(dlg._check_already_submitted(BUDI))
-        # Blokir: ada error status yang menyebut perangkat, dan TIDAK ada
-        # tawaran recovery.
-        self.assertTrue(any(err for _, err in statuses), statuses)
+        for identity in (BUDI, SITI, {"nama": "Andi", "nomor_ujian": "N09"}):
+            with self.subTest(identity=identity):
+                self.assertTrue(
+                    dlg._offer_pending_recovery(),
+                    f"{identity} seharusnya boleh masuk",
+                )
+        self.assertEqual(statuses, [], "tidak boleh ada pesan penolakan")
 
-    def test_submitted_with_pending_offers_recovery(self):
-        config.mark_submitted(7, STUDENT_KEY)
-        # Token harus sudah tersimpan saat jawaban di-encode (kunci XOR).
+    def test_repeat_attempt_by_the_same_student_is_allowed(self):
+        # Siswa yang sama mengulang juga BOLEH. Overwrite protection tidak
+        # lagi jadi alasan memblokir: submissions di server adalah tabel
+        # tanpa UNIQUE(exam_id, mac_address) -- submit menambah baris baru,
+        # jadi percobaan lama tidak tertimpa.
+        config.mark_submitted(7, STUDENT_KEY, label="exam_number=n01")
+        dlg = ServerConfigDialog()
+        dlg._exam = _exam()
+        dlg.input_token.setText("TOKLAB01")
+        self.assertTrue(dlg._offer_pending_recovery())
+
+    def test_pending_answers_still_offer_recovery(self):
+        # Yang tersisa bukan pembatasan: jawaban yang belum terkirim harus
+        # tetap ditawarkan supaya tidak hilang.
         config.set("exam_token", "ABCD1234")
-        config.save_answers(7, {"1": "A"})  # submit background sebelumnya gagal
+        config.save_answers(7, {"1": "A"})
         dlg = ServerConfigDialog()
         dlg._exam = _exam()
         dlg.input_token.setText("ABCD1234")
         recovered = []
         dlg._sig_recovery_available.connect(lambda exam: recovered.append(exam))
-        # _show_recovery memakai QMessageBox.question yang modal — tanpa
-        # stub di sini test menggantung, bukan gagal.
         with mock.patch.object(
             QMessageBox, "question", return_value=QMessageBox.No
         ):
-            self.assertFalse(dlg._check_already_submitted(BUDI))
+            self.assertFalse(dlg._offer_pending_recovery())
         self.assertEqual(len(recovered), 1)
         self.assertEqual(recovered[0].id, 7)
 
@@ -197,104 +220,67 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class LabSharedPcGateTest(RecoveryGateTestCase):
-    """Satu PC lab, beberapa siswa, ujian yang sama.
+class MarkerBookkeepingTest(RecoveryGateTestCase):
+    """Marker tetap dicatat, tapi tidak lagi memblokir siapa pun.
 
-    Keluhan yang memicu perbaikannya: "tidak bisa mengerjakan ujian yang
-    sama untuk kedua kalinya". Penyebabnya marker `submitted_<exam_id>`
-    yang hanya berdasar UJIAN, padahal disimpan per MESIN di
-    `~/.config/examvan/config.json`. Begitu siswa pertama selesai, PC itu
-    memblokir ujian yang sama untuk semua siswa berikutnya.
-
-    Marker sekarang per (ujian, siswa). Gerbangnya dijalankan setelah
-    identitas diketahui -- sebelum itu aplikasi hanya tahu token, dan di
-    lab token sering dipakai BERSAMA seluruh kelas, jadi token sebagai kunci
-    akan membuat siswa saling memblokir. That's the bug the previous
-    commit introduced: scoping by token looked right and was wrong.
+    Yang dicatat sekarang adalah dict {hash kunci: label}, bukan boolean,
+    supaya config.json bisa menunjukkan identitas mana yang sudah pernah
+    mengirim. Kuncinya masih di-hash: token adalah kredensial dan tidak
+    boleh tersimpan mentah, sedangkan nomor/nama siswa sudah ada plaintext
+    di `identity_data` pada file yang sama.
     """
 
-    def _dlg(self):
+    def _dlg(self, token="TOKLAB01"):
         dlg = ServerConfigDialog()
         dlg._exam = _exam()
-        dlg.input_token.setText("TOKLAB01")
+        dlg.input_token.setText(token)
         return dlg
 
-    def test_second_student_on_the_same_pc_is_not_blocked(self):
-        # Ini inti masalahnya. Token SAMA, PC SAMA, ujian SAMA.
-        config.mark_submitted(7, "n01")
-        dlg = self._dlg()
-        self.assertTrue(
-            dlg._check_already_submitted(SITI),
-            "siswa kedua dengan nomor berbeda harus BOLEH masuk",
+    def test_marker_is_scoped_per_student(self):
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        config.mark_submitted(7, "n02", label="exam_number=n02")
+        self.assertTrue(config.is_submitted(7, "n01"))
+        self.assertTrue(config.is_submitted(7, "n02"))
+        self.assertFalse(config.is_submitted(7, "n03"))
+
+    def test_marker_is_scoped_per_exam_too(self):
+        config.mark_submitted(7, "n01", label="a")
+        self.assertFalse(config.is_submitted(8, "n01"))
+
+    def test_labels_are_kept_for_the_record(self):
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        config.mark_submitted(7, "n02", label="exam_number=n02")
+        self.assertEqual(
+            config.submitted_labels(7), ["exam_number=n01", "exam_number=n02"]
         )
 
-    def test_the_same_student_is_still_blocked(self):
-        # Overwrite protection TIDAK boleh hilang: siswa yang sama, ujian
-        # yang sama → diblokir, supaya re-entry dalam window grace tidak
-        # mengirim submit kosong yang menimpa jawaban asli.
-        config.mark_submitted(7, "n01")
-        dlg = self._dlg()
-        self.assertFalse(dlg._check_already_submitted(BUDI))
+    def test_token_is_never_stored_in_the_clear(self):
+        config.mark_submitted(7, "abcd1234", label="token (identitas kosong)")
+        raw = str(config.get_all())
+        self.assertNotIn("abcd1234", raw.lower())
 
-    def test_legacy_machine_wide_marker_is_ignored(self):
-        # PC yang pernah terkirim dengan skema lama (kunci
-        # `submitted_<exam_id>` tanpa identitas) harus bisa dipakai lagi.
+    def test_a_legacy_boolean_marker_does_not_block(self):
+        # Nilai lama adalah boolean. Membacanya sebagai "sudah submits"
+        # akan menghidupkan kembali blokir yang baru saja dihapus.
         config.set("submitted_7", True)
-        dlg = self._dlg()
-        self.assertTrue(dlg._check_already_submitted(SITI))
-
-    def test_identity_key_falls_back_to_name_when_no_number(self):
-        # Ujian yang tidak mengumpulkan nomor ujian harus tetap bisa
-        # membedakan siswa lewat nama.
-        config.mark_submitted(7, "budi")
-        dlg = self._dlg()
-        self.assertFalse(dlg._check_already_submitted(
-            {"nama": "Budi", "kelas": "9A"}
-        ))
-        self.assertTrue(dlg._check_already_submitted(
-            {"nama": "Andi", "kelas": "9A"}
-        ))
-
-    def test_without_any_identity_falls_back_to_the_token(self):
-        # Tidak ada identitas sama sekali: jatuh ke token, yaitu perilaku
-        # lama. Konservatif -- memblokir lebih baik daripada melepas.
-        #
-        # Token di sini harus <= 8 karakter: `input_token` memakai
-        # setMaxLength(8), jadi token yang lebih panjang dipotong diam-diam
-        # dan testnya menguji hal yang tidak terjadi di aplikasi.
-        config.mark_submitted(7, "toklab01")
-        dlg = self._dlg()
-        self.assertFalse(dlg._check_already_submitted({}))
-
-    def test_marker_does_not_leak_the_student_key_into_the_config_file(self):
-        # Nama siswa tidak boleh tersimpan mentah: config.json ada di disk
-        # dan ikut dikirim bersama jawaban.
-        config.mark_submitted(7, "budi")
-        keys = [k for k in config.get_all() if k.startswith("submitted_7")]
-        self.assertTrue(keys)
-        for k in keys:
-            self.assertNotIn("budi", k.lower())
+        self.assertFalse(config.is_submitted(7, "n01"))
+        self.assertTrue(self._dlg()._offer_pending_recovery())
 
     def test_marker_key_is_stable_and_case_insensitive(self):
         from examvan.config import _submitted_key
 
-        self.assertEqual(_submitted_key(7, "N01"), _submitted_key(7, "N01"))
-        # Nomor ujian bisa diketik "n01" atau "N01"; itu satu siswa.
-        self.assertEqual(_submitted_key(7, "N01"), _submitted_key(7, " n01 "))
-        self.assertNotEqual(_submitted_key(7, "N01"), _submitted_key(7, "N02"))
-        self.assertNotEqual(_submitted_key(7, "N01"), _submitted_key(8, "N01"))
+        self.assertEqual(_submitted_key("N01"), _submitted_key("N01"))
+        self.assertEqual(_submitted_key("N01"), _submitted_key(" n01 "))
+        self.assertNotEqual(_submitted_key("N01"), _submitted_key("N02"))
 
 
-class GateWiringTest(RecoveryGateTestCase):
-    """Gerbang harus benar-benar TERWIRING di alur, bukan cuma ada fungsi.
+class NoClientSideGateTest(RecoveryGateTestCase):
+    """Tidak boleh ada gerbang "sudah dikerjakan" tersisa di client.
 
-    Test lain memanggil `dlg._check_already_submitted(...)` langsung, jadi
-    semuanya lulus walaupun pemanggilnya dihapus dari
-    `_show_identity_dialog`. Itu kelas gap yang sama seperti membaca
-    `.iss` sebagai teks: yang diuji bukan jalur yang benar-benar dipakai.
-
-    Test di sini menjalankan alur aslinya dengan `IdentityDialog` di-stub,
-    lalu memastikan `exam_selected` hanya terpakai bila gerbang mengizinkan.
+    Dijalankan lewat alur aslinya dengan IdentityDialog di-stub, bukan
+    dengan memanggil method secara langsung: pemanggilan langsung lulus
+    walaupun pemanggilnya dihapus dari alur -- kelas gap yang sama seperti
+    membaca .iss sebagai teks.
     """
 
     def _run_dialog(self, dlg, identity):
@@ -313,38 +299,32 @@ class GateWiringTest(RecoveryGateTestCase):
         dlg.input_token.setText(token)
         return dlg
 
-    def test_a_blocked_student_never_reaches_exam_selected(self):
-        config.mark_submitted(7, STUDENT_KEY)          # Budi sudah submit
-        dlg = self._dlg()
-        statuses = []
-        dlg._sig_status.connect(lambda msg, err: statuses.append((msg, err)))
-        emitted = self._run_dialog(dlg, BUDI)
-        self.assertEqual(
-            emitted, [],
-            "exam_selected terpakai padahal siswa sudah submit -- ini akan "
-            "membuka jalan ke approval, PDF, dan submit kosong",
-        )
-        self.assertTrue(any(err for _, err in statuses), statuses)
-
-    def test_a_second_student_does_reach_exam_selected(self):
-        config.mark_submitted(7, STUDENT_KEY)          # Budi sudah submit
-        dlg = self._dlg()
-        emitted = self._run_dialog(dlg, SITI)
+    def test_a_second_student_on_the_same_pc_reaches_exam_selected(self):
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        emitted = self._run_dialog(self._dlg(), SITI)
         self.assertEqual(len(emitted), 1, emitted)
         self.assertEqual(emitted[0][2], SITI)
 
-    def test_gate_runs_before_exam_selected_not_after(self):
-        # Urutan penting: identitas disimpan dulu (supaya recovery nanti
-        # tahu), tapi gate harus menolak sebelum sinyal keluar.
-        config.mark_submitted(7, STUDENT_KEY)
-        dlg = self._dlg()
-        self.assertEqual(self._run_dialog(dlg, BUDI), [])
+    def test_the_same_student_may_repeat_the_exam(self):
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        emitted = self._run_dialog(self._dlg(), BUDI)
+        self.assertEqual(len(emitted), 1, emitted)
 
-    def test_the_gate_is_wired_into_the_dialog_path(self):
-        # Penjaga tambahan: kalau ada yang memindahkan gate keluar dari
-        # _show_identity_dialog, test ini langsung terlihat.
+    def test_no_rejection_message_is_ever_shown(self):
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        dlg = self._dlg()
+        statuses = []
+        dlg._sig_status.connect(lambda msg, err: statuses.append((msg, err)))
+        self._run_dialog(dlg, BUDI)
+        blocked = [m for m, err in statuses if "sudah dikumpulkan" in m]
+        self.assertEqual(
+            blocked, [],
+            "pesan 'sudah dikumpulkan' harus hilang dari client",
+        )
+
+    def test_the_blocking_call_site_is_gone(self):
         src = (REPO_PATH / "desktop/examvan/ui/server_config.py").read_text(
             encoding="utf-8"
         )
-        body = src[src.index("def _show_identity_dialog"):]
-        self.assertIn("_check_already_submitted", body)
+        self.assertNotIn("is_submitted", src)
+        self.assertNotIn("sudah dikumpulkan", src)
