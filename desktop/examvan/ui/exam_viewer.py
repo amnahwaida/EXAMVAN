@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 import os
+import socket
 import sys
 import tempfile
 import threading
@@ -46,6 +47,13 @@ from typing import Any, Dict, Iterator, List, Optional
 # adalah akun Windows per-siswa (atau ACL admin-only di luar jangkauan
 # installer ini), bukan hashing.
 _ITERATIONS = 120_000
+# Batas klaim iterations yang diterima dari berkas. File ini ada di
+# profil akun yang bisa ditulis ulang siswa: klaim 20.000.000 terbukti
+# memakan 10 detik per ketikan supervisor (repro nyata, review 30 Sep) —
+# siswa menggantung pengawas ~8 menit di dialog keluar. Klaim di atas
+# batas ditolak, bukan di-saturasi: kita tidak pernah menulis >120k,
+# jadi apa pun di atasnya adalah berkas yang tidak kita buat.
+_MAX_ADMIN_ITERATIONS = _ITERATIONS
 _SALT_BYTES = 16
 _HASH_PREFIX = "pbkdf2_sha256"
 
@@ -55,11 +63,25 @@ _HASH_PREFIX = "pbkdf2_sha256"
 
 
 def _machine_fingerprint() -> str:
-    """ID mesin stabil, dipakai mengikat hash ke satu PC saja."""
-    for key in ("COMPUTERNAME", "USERNAME", "PROCESSOR_IDENTIFIER"):
+    """ID MESIN stabil, dipakai mengikat hash ke satu PC saja.
+
+    USERNAME sengaja TIDAK masuk: hash supervisor adalah milik PC, bukan
+    milik nama akun. Lab sekolah sering me-rotate akun per semester
+    (siswa2026 → siswa2027); dengan USERNAME di fingerprint, password
+    supervisor resmi berhenti bekerja setelah rotasi — supervisor
+    terkunci di luar ujian tanpa pesan. Komponen yang dipakai harus
+    berubah HANYA ketika mesinnya berubah.
+    """
+    for key in ("COMPUTERNAME", "PROCESSOR_IDENTIFIER"):
         value = os.environ.get(key, "").strip()
         if value:
             return value
+    # socket.gethostname() tidak pernah kosong di Windows dan identik
+    # dengan COMPUTERNAME, jadi fallback ini menjaga determinisme mesin
+    # tanpa pernah jatuh ke faktor per-pengguna.
+    hostname = socket.gethostname().strip()
+    if hostname:
+        return hostname
     return "unknown-machine"
 
 
@@ -100,21 +122,39 @@ def _hash_admin_password(password: str) -> str:
 
 
 def _verify_admin_password(stored: str, password: str) -> bool:
+    """Verifikasi hash dari berkas. False untuk SEMUA bentuk tidak sah.
+
+    Berkas ini bisa ditulis ulang/dirusak oleh pengguna akun (lihat
+    komentar di atas), jadi isinya adalah input musuh: struktur salah,
+    iterations bukan angka, base64 rusak, atau klaim iterations di atas
+    cap — semuanya berarti 'tidak cocok', bukan exception. ValueError
+    yang lepas dari sini menjatuhkan dialog admin exit persis saat
+    supervisor membutuhkannya (repro nyata: review 30 Sep 2026).
+    """
     if not stored or not stored.startswith(_HASH_PREFIX):
         return False
     try:
-        prefix, iterations, salt_b64, digest_b64 = stored.split("$")
+        parts = stored.split("$")
+        if len(parts) != 4:
+            return False
+        prefix, iterations, salt_b64, digest_b64 = parts
         if prefix != _HASH_PREFIX:
             return False
-        salt = base64.b64decode(salt_b64)
-        expected = base64.b64decode(digest_b64)
-    except (ValueError, Exception):
+        claimed = int(iterations)
+        if not (1 <= claimed <= _MAX_ADMIN_ITERATIONS):
+            return False
+        salt = base64.b64decode(salt_b64, validate=True)
+        expected = base64.b64decode(digest_b64, validate=True)
+    except (ValueError, TypeError):
+        # int('abc'), b64 korup, dst. — semua jalur korup = tolak.
+        return False
+    if not salt or not expected:
         return False
     candidate = hashlib.pbkdf2_hmac(
         "sha256",
         password.encode("utf-8"),
         _machine_salt() + salt,
-        int(iterations),
+        claimed,
     )
     return hmac.compare_digest(candidate, expected)
 
