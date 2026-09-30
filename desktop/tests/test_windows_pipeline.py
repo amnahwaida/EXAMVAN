@@ -46,8 +46,10 @@ tidak terlihat kalau tiap file dibaca terpisah.
 
 from __future__ import annotations
 
+import os
 import re
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -152,6 +154,143 @@ class SilentUninstallLeavesNoCredentialsTestCase(unittest.TestCase):
             block,
             "blok interactive tidak ada; pastikan kredensial dihapus lewat "
             "[UninstallDelete], bukan lewat prompt",
+        )
+
+
+class X11GrabIsRefusedOffAnInteractiveSessionTestCase(unittest.TestCase):
+    """X11 grab hanya boleh di sesi interaktif pengguna (#bukan nomor temuan).
+
+    Regresi yang menyakiti: `tests/test_no_unguarded_dialogs.py` membangun
+    `ExamViewerWindow` dengan level `strict`. `__init__` memanggil
+    `SecurityEnforcer.activate()` -> `_activate_strict()` ->
+    `LinuxBackend.set_strict_mode()` -> `x11.grab_keyboard()` dan
+    `grab_pointer()`.
+
+    Yang dipanggil adalah `XOpenDisplay` sungguhan, jadi suite mengambil alih
+    keyboard dan pointer siapa pun yang menjalankannya. Grab hanya dilepas saat
+    proses selesai, dan `deleteLater()` tidak memanggil `deactivate()` --
+    sehingga `ungrab_keyboard()` tidak pernah jalan. Pada akhirnya
+    keyboard developer's terkunci sampai suite selesai atau hang.
+
+    Test suite berjalan dengan `QT_QPA_PLATFORM=offscreen`, jadi Qt tidak
+    pernah menyentuh display asli, sementara `_get_display()` tetap
+    membuka X server sungguhan. Grab seperti itu adalah bug, bukan fitur:
+    tidak ada window X11 nyata untuk di-grab.
+    """
+
+    def setUp(self) -> None:
+        from examvan.security import x11
+        self.x11 = x11
+
+    def test_grab_is_refused_when_qt_is_offscreen(self):
+        with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "offscreen"}):
+            self.assertFalse(
+                self.x11._grab_allowed(),
+                "grab diizinkan saat Qt offscreen: tidak ada window X11 "
+                "sungguhan, tapi XOpenDisplay tetap membuka display asli",
+            )
+
+    def test_grab_is_refused_for_other_headless_platforms(self):
+        for platform in ("minimal", "vnc", "offscreen"):
+            with self.subTest(platform=platform):
+                with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": platform}):
+                    self.assertFalse(self.x11._grab_allowed())
+
+    def test_grab_is_refused_when_the_kill_switch_is_set(self):
+        env = {"QT_QPA_PLATFORM": "xcb", "EXAMVAN_NO_X11_GRAB": "1"}
+        with mock.patch.dict(os.environ, env):
+            self.assertFalse(self.x11._grab_allowed())
+
+    def test_grab_is_allowed_on_a_real_xcb_session(self):
+        env = {"QT_QPA_PLATFORM": "xcb"}
+        env.pop("EXAMVAN_NO_X11_GRAB", None)
+        with mock.patch.dict(os.environ, env, clear=False):
+            os.environ.pop("EXAMVAN_NO_X11_GRAB", None)
+            self.assertTrue(
+                self.x11._grab_allowed(),
+                "grab ditolak pada sesi X11 sungguhan -- strict mode akan "
+                "kehilangan fiturnya yang justru paling penting",
+            )
+
+    def test_both_grab_entry_points_are_guarded(self):
+        import inspect
+
+        for name in ("grab_keyboard", "grab_pointer"):
+            with self.subTest(entry=name):
+                src = inspect.getsource(getattr(self.x11, name))
+                self.assertIn(
+                    "_grab_allowed()", src,
+                    f"{name} tidak memanggil _grab_allowed(); keyboard/mouse "
+                    "bisa diambil alih di sesi yang tidak semestinya",
+                )
+
+    def test_a_real_strict_viewer_does_not_grab_the_keyboard(self):
+        """Uji perilaku, bukan pola sumber.
+
+        Test ini membangun hal BERBAHAYA yang sama persis dengan test yang
+        melukai: `ExamViewerWindow` dengan level `strict` dan
+        `SecurityEnforcer` sungguhan. Yang diuji adalah hasil akhirnya --
+        `XGrabKeyboard`/`XGrabPointer` TIDAK boleh dipanggil.
+
+        Memakai sumber instead of perilaku rapuh: level sering diteruskan
+        lewat variabel (`_viewer("high")`), jadi pola literal tidak pernah
+        cocok dan check-nya lolos diam-diam saat test justru berhenti
+        memock backend.
+        """
+        from examvan.security import x11
+        from examvan.ui.exam_viewer import ExamViewerWindow
+        from examvan.models import Exam
+        from PyQt5.QtWidgets import QApplication
+
+        # Viewer sungguhan butuh QApplication yang hidup.
+        app = QApplication.instance() or QApplication([])
+
+        called = []
+        real = getattr(x11, "_xlib", None)
+
+        class _SpyXlib:
+            XGrabKeyboard = staticmethod(lambda *a, **k: called.append("kb"))
+            XGrabPointer = staticmethod(lambda *a, **k: called.append("ptr"))
+
+        exam = Exam.from_json({
+            "id": 9, "name": "Ujian", "status": "active",
+            "security_level": "strict",
+        })
+        with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "offscreen"}), \
+             mock.patch.object(x11, "_xlib", _SpyXlib, create=True), \
+             mock.patch.object(x11, "_get_display", return_value=object()), \
+             mock.patch.object(x11, "_get_x11_window_id", return_value=42):
+            viewer = ExamViewerWindow(
+                exam=exam,
+                server_url="https://exam.example",
+                token="T0KEN01",
+                identity_data={"nama": "Budi"},
+            )
+            try:
+                self.assertIs(
+                    viewer._security.strict, True,
+                    "test ini tidak memakai level strict, jadi tidak "
+                    "menguji apa pun",
+                )
+            finally:
+                viewer._security.deactivate()
+                viewer.deleteLater()
+
+        self.assertEqual(
+            called, [],
+            "XGrabKeyboard/XGrabPointer dipanggil pada sesi non-interaktif: "
+            "keyboard dan mouse Whoever menjalankan suite ikut diambil "
+            "alih sampai proses selesai",
+        )
+
+    def test_the_kill_switch_is_documented_for_operators(self):
+        # Kalau ada yang perlu menjalankan app di mesin yang tidak boleh
+        # dibajak input-nya (mis. saat menelusuri kebocoran), harus ada
+        # jalan yang diketahui -- bukan harus menebak nama env var.
+        self.assertIn(
+            "EXAMVAN_NO_X11_GRAB", _read(WINDOWS / "README.md"),
+            "EXAMVAN_NO_X11_GRAB tidak ada di windows/README.md; operator "
+            "tidak punya cara yang psychic untuk mematikan grab",
         )
 
 

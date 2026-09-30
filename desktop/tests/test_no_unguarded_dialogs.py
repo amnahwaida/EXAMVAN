@@ -42,6 +42,7 @@ diperbaiki.
 
 from __future__ import annotations
 
+import contextlib
 import time
 import unittest
 from unittest import mock
@@ -60,6 +61,103 @@ def _exam(level="medium"):
     })
 
 
+class _FakeSecurity:
+    """SecurityEnforcer yang tidak pernah menyentuh X11.
+
+    Sedejauh(test)lock-dialog tidak butuhGrab keyboard sungguhan --
+    bahkan di level strict. Yang dibutuhkan hanya flag `_focus_guard_paused`,
+    karena itulah yang sedang diuji.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.auto_submit = _FakeAutoSubmit()
+        self._focus_guard_paused = False
+        self._focus_guard_depth = 0
+        self._focus_timer = _FakeTimer()
+        self._focus_guard_resume = False
+        self.window = kwargs.get("window")
+
+    def activate(self):
+        pass
+
+    def deactivate(self):
+        pass
+
+    @contextlib.contextmanager
+    def pause_focus_guard(self):
+        self._focus_guard_depth += 1
+        if self._focus_guard_depth == 1:
+            self._focus_guard_resume = self._focus_timer.isActive()
+            self._focus_timer.stop()
+            self._focus_guard_paused = True
+        try:
+            yield
+        finally:
+            self._focus_guard_depth -= 1
+            if self._focus_guard_depth == 0:
+                self._focus_guard_paused = False
+                if self._focus_guard_resume:
+                    self._focus_timer.start()
+                self._focus_guard_resume = False
+
+    def _poll_focus(self):
+        pass
+
+    def set_capture_protection(self, window):
+        pass
+
+    def release_capture_protection(self, window):
+        pass
+
+    def release_strict_mode(self, window):
+        pass
+
+    def allow_sleep(self):
+        pass
+
+    def prevent_sleep(self):
+        pass
+
+    def clear_clipboard_now(self):
+        pass
+
+
+class _FakeTimer:
+    def __init__(self):
+        self._running = False
+        self._interval = 3000
+
+    def setInterval(self, ms):
+        self._interval = ms
+
+    def setSingleShot(self, _flag):
+        pass
+
+    def start(self, ms=None):
+        self._running = True
+
+    def stop(self):
+        self._running = False
+
+    def isActive(self):
+        return self._running
+
+    def isSingleShot(self):
+        return True
+
+
+class _FakeAutoSubmit:
+    def __init__(self):
+        self._slots = []
+
+    def connect(self, slot):
+        self._slots.append(slot)
+
+    def emit(self, *args):
+        for slot in self._slots:
+            slot(*args)
+
+
 class EveryModalDialogIsGuardedTestCase(unittest.TestCase):
     """Tidak boleh ada dialog modal yang lepas dari `_modal_dialog_guard`."""
 
@@ -68,12 +166,29 @@ class EveryModalDialogIsGuardedTestCase(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def _viewer(self, level="medium"):
-        viewer = ExamViewerWindow(
-            exam=_exam(level),
-            server_url="https://exam.example",
-            token="T0KEN01",
-            identity_data={"nama": "Budi", "nomor_ujian": "N01", "kelas": "9A"},
-        )
+        # BACKEND DI-MOCK. `ExamViewerWindow.__init__` memanggil
+        # `SecurityEnforcer.activate()`, dan level `strict` (alias "high")
+        # memanggil `set_strict_mode()` -> `x11.grab_keyboard()` +
+        # `grab_pointer()`.
+        #
+        # Yang dipanggil adalah `XOpenDisplay` sungguhan -- jadi test ini
+        # mengambil alih keyboard dan pointer whoever yang menjalankan suite.
+        # Grab hanya dilepas saat proses impugn selesai, jadi developer's
+        # keyboard tersangkut sampai suite selesai ATAU hang. Dan `deleteLater`
+        # TIDAK memanggil `deactivate()`, jadi `ungrab_keyboard()` tidak pernah
+        # jalan.
+        #
+        # Tes ini tidak butuh grab sama sekali -- yang diuji adalah dialog.
+        with mock.patch("examvan.ui.exam_viewer.SecurityEnforcer",
+                        _FakeSecurity):
+            viewer = ExamViewerWindow(
+                exam=_exam(level),
+                server_url="https://exam.example",
+                token="T0KEN01",
+                identity_data={"nama": "Budi", "nomor_ujian": "N01",
+                               "kelas": "9A"},
+            )
+        # Colek `_security` supaya dialog-guard behavior tetap bisa dibaca.
         self.addCleanup(viewer.deleteLater)
         return viewer
 

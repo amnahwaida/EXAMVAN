@@ -290,6 +290,53 @@ respons API yang rusak tidak diam-diam melepas seluruh proteksi.
 Klien Android tidak terpengaruh — `ExamModePolicy` sudah memakai
 `securityLevel != LEVEL_LOW`, sehingga tier `high` otomatis tertangani.
 
+### 1b. Keyboard atau mouse tidak bisa dipakai (Linux/X11 saja)
+
+Gejalanya: setelah menjalankan app atau test suite, sebagian tombol tidak
+m撼er jadi, kursor tidak bergerak, atau sama sekali tidak ada respon.
+
+Penyebabnya **bukan Windows**. Di Linux mode `strict` memanggil
+`x11.grab_keyboard()` dan `grab_pointer()`, dan `XGrabKeyboard`
+mengambil alih input **seluruh display** — tidak hanya jendela app. Grab
+baru dilepas kalau proses melakukan `XUngrabKeyboard` **atau** koneksi
+X-nya terputus. Kalau proses masih hidup (atau suite masih berjalan),
+keyboard siapa pun yang menjalankan ikut tersangkut.
+
+Dua hal memperburuk:
+
+* `deleteLater()` pada jendela **tidak** memanggil `deactivate()`, jadi
+  `ungrab_keyboard()` tidak pernah jalan;
+* `XOpenDisplay` di `x11.py` membuka display **sungguhan** walau Qt
+  berjalan di platform `offscreen`, sehingga test pun bisa mengambil alih
+  keyboard dan mouse developer's.
+
+Cara melepas sekarang (grab tidak bisa dilepas dari dalam app):
+
+```bash
+# 1. Buka terminal dengan MOUSE (Activities -> ketik "Terminal").
+# 2. Matikan proses yang grabbed:
+pkill -f "python.*unittest"
+pkill -f "python.*pytest"
+pkill -f EXAMVAN
+# 3. Pastikan sudah bersih:
+xset q | grep -i grab      # harus: no grabs
+```
+
+Kalau terminal tidak bisa dibuka: tekan **Ctrl+Alt+F2** untuk masuk TTY,
+login di sana, jalankan `pkill` di atas, lalu `Ctrl+Alt+F1` kembali.
+Atau pakai tetikus: **Activities** -> ketik *Terminal*.
+
+Mematikan grab sepenuhnya (berguna saat menelusuri kebocoran, atau
+running app di mesin yang tidak boleh dibajak input-nya):
+
+```bash
+EXAMVAN_NO_X11_GRAB=1 ./run.sh
+```
+
+Grab juga otomatis ditolak kalau `QT_QPA_PLATFORM` bukan `xcb`
+(mis. `offscreen`), karena di sana tidak ada window X11 sungguhan untuk
+di-grab — test suite desktop berjalan dengan nilai itu.
+
 ### 2. Kursor membeku setiap beberapa detik
 
 Bukan karena mengirim data: heartbeat berjalan **60 detik**

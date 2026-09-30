@@ -192,11 +192,54 @@ def set_window_type_dock(widget) -> bool:
         return False
 
 
+def _grab_allowed() -> bool:
+    """Penolakan grab kalau jelas-jelas bukan sesi interaktif pengguna.
+
+    `XGrabKeyboard` mengambil alih input SELURUH display -- sampai proses
+    melepaskan grab atau koneksinya ke X server terputus, tidak ada jalan
+    lain dari keyboard itu. Itu tidak boleh terjadi karena kode yang tidak
+    apa pun ingin grab.
+
+    Kasus yang pernah benar-benar merusak mesinpengajar: test suite
+    (`desktop/tests/test_no_unguarded_dialogs.py`) membangun
+    `ExamViewerWindow` dengan level `strict`, yang memanggil
+    `SecurityEnforcer.activate()` -> `_activate_strict()` ->
+    `grab_keyboard()`. Test berjalan dengan `QT_QPA_PLATFORM=offscreen`,
+    jadi Qt tidak pernah menyentuh display asli -- tetapi `_get_display()`
+    tetap membuka X server sungguhan lewat `XOpenDisplay`, dan window ID
+    dari platform offscreen tetap berupa angka yang sah untuk XGrabKeyboard.
+    Hasilnya keyboard dan pointer developer tertahan sampai suite selesai.
+
+    Dua guard yang menutupnya:
+
+    * Platform Qt harus X11 (`xcb`). Di `offscreen`/`minimal` tidak ada
+      window nyata untuk di-grab, dan grab lewat XOpenDisplay ke display
+      yang tidak memiliki window tersebut adalah
+      bug, bukan fitur.
+    * `EXAMVAN_NO_X11_GRAB=1` mematikan grab sepenuhnya untuk CI dan
+      pemecah masalah yang butuh menjalankan app tanpa mengambil alih mesin.
+    """
+    if os.environ.get("EXAMVAN_NO_X11_GRAB", "").strip() not in ("", "0"):
+        log.warning("X11 grab dilewati: EXAMVAN_NO_X11_GRAB di-set")
+        return False
+    platform = os.environ.get("QT_QPA_PLATFORM", "").strip().lower()
+    if platform and platform not in ("xcb", ""):
+        log.warning(
+            "X11 grab dilewati: QT_QPA_PLATFORM=%s bukan xcb, jadi tidak "
+            "ada window X11 sungguhan untuk di-grab",
+            platform,
+        )
+        return False
+    return True
+
+
 def grab_keyboard(widget) -> bool:
     """Grab keyboard input, preventing Alt-Tab, Alt-F4, Super, etc.
 
     Returns True on success.
     """
+    if not _grab_allowed():
+        return False
     wid = _get_x11_window_id(widget)
     if not wid:
         return False
@@ -252,6 +295,10 @@ def grab_pointer(widget) -> bool:
 
     Returns True on success.
     """
+    # Guard yang sama dengan keyboard: grab pointer di sesi yang bukan
+    # interaktif menahan mouse sampai proses selesai.
+    if not _grab_allowed():
+        return False
     wid = _get_x11_window_id(widget)
     if not wid:
         return False
