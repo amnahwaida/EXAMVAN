@@ -358,7 +358,13 @@ begin
     // ketik = supervisor terkunci di luar kelas saat ujian berjalan.
     if (PwValue <> '') and (PwValue <> PwRepeat) then
     begin
-      MsgBox('Dua password tidak sama. Password TIDAK disimpan.', mbError, MB_OK);
+      // GUARD WizardSilent WAJIB: MsgBox TETAP MUNCUL saat /VERYSILENT,
+      // jadi tanpa guard ini instalasi senyap (CI smoke test, deploy
+      // 30 PC) menggantung selamanya di dialog yang tidak pernah bisa
+      // dijawab. Kontras dengan blok uninstall yang sudah dijaga
+      // UninstallSilent — jalur install yang terlewat.
+      if not WizardSilent then
+        MsgBox('Dua password tidak sama. Password TIDAK disimpan.', mbError, MB_OK);
       // Password LAMA dikembalikan, BUKAN diganti string kosong.
       //
       // Versi sebelumnya menulis `PwValue := ''` dengan komentar "password

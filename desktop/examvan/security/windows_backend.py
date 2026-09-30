@@ -382,11 +382,21 @@ def should_block_key(
             return True
         if vk == 0x51:          # Win+Q (Cortana / Search)
             return True
+        # Win+Enter launches Narrator (screen reader) — juga slot keluar.
+        if vk == 0x0D:          # VK_RETURN
+            return True
+        # Win+C (Copilot) dan Win+J (picker): asisten AI bisa menjawab soal.
+        # Dulu sengaja lolos; keputusan review 30 Sep 2026: diblokir.
+        if vk == 0x43:          # Win+C (Copilot)
+            return True
+        if vk == 0x4A:          # Win+J
+            return True
         # Win+0 through Win+9 (taskbar items 0-9) -- launch pinned apps!
         if 0x30 <= vk <= 0x39:
             return True
-        # Win+F1 (Help)
-        if vk == 0x70:          # VK_F1
+        # Win+F1..F12 — bukan cuma F1 (Help): F6..F12 membuka tool/extra
+        # surface dan tidak ada yang dibutuhkan siswa lewat kombinasi Win.
+        if 0x70 <= vk <= 0x7B:  # VK_F1..VK_F12
             return True
         # Accessories & tools
         if vk == 0x47:          # Win+G (Game Bar / screen recording)
@@ -684,7 +694,18 @@ def restore_windows_settings() -> None:
         # Restore what the machine had BEFORE us — not "enabled". A student who
         # deliberately keeps their screen saver off should not have EXAMVAN
         # silently turn it back on.
-        _set_screen_saver_active(previous)
+        if not _set_screen_saver_active(previous):
+            # SPI ditolak (policy kiosk, sesi transisi): nilai asli BELUM
+            # kembali. Menghapus backup di kondisi ini adalah kehilangan
+            # senyap — screensaver siswa tetap mati tanpa catatan untuk
+            # dipulihkan. Persis kelas bug yang ditemukan di
+            # linux_backend._gnome_ws_restore(); aturannya sama di dua
+            # platform: backup hanya dihapus SETELAH restore sukses.
+            log.warning(
+                "could not restore screen saver to %s; keeping backup "
+                "for the next run", previous,
+            )
+            return
         log.info("Restored screen saver to %s (after EXAMVAN)", previous)
     _clear_screen_saver_backup()
 
@@ -723,9 +744,13 @@ class WindowsBackend(SecurityBackend):
                 log.warning("Keyboard hook failed — running without low-level key blocking")
 
     def release_strict_mode(self, window: Any) -> None:
-        if self._hook_installed:
+        # Syaratnya bukan hanya _hook_installed: start yang GAGAL bisa
+        # meninggalkan thread pump + _hook_thread_id global (lihat
+        # _cleanup_failed_hook_start). Melewati pemberhentian ketika flag
+        # False berarti state kotor itu menggantung sampai proses mati.
+        if self._hook_installed or _hook_thread_id is not None or _hook_thread is not None:
             self._stop_keyboard_hook()
-            self._hook_installed = False
+        self._hook_installed = False
 
     # ------------------------------------------------------------------
     # Screen-capture prevention
@@ -936,6 +961,40 @@ class WindowsBackend(SecurityBackend):
     # Internal: keyboard hook management
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _cleanup_failed_hook_start() -> None:
+        """Matikan thread pump yang tertinggal dari start yang gagal.
+
+        Kegagalan SetWindowsHookExW (atau timeout ready) dulu hanya
+        di-`return False` — thread pump dan `_hook_thread_id` global tetap
+        menggantung. Akibatnya:
+
+        * `_stop_keyboard_hook()` berikutnya menembak thread yang sudah
+          tidak memegang hook, sementara state global tetap kotor;
+        * `release_strict_mode()` lama melewati pemberhentian sama sekali
+          karena `_hook_installed` False — hook zombie tidak pernah
+          dilepas dan sesi berikutnya memasang hook KEDUA.
+
+        WM_QUIT yang dikirim di sini aman untuk thread yang sudah mati:
+        PostThreadMessageW ke thread id yang sudah tidak ada hanya gagal
+        diam-diam (return 0).
+        """
+        global _hook_thread, _hook_thread_id
+        thread_id = _hook_thread_id
+        thread = _hook_thread
+        if thread_id is not None:
+            try:
+                _PostThreadMessageW(DWORD(thread_id), WM_QUIT, WPARAM(0), LPARAM(0))
+            except Exception:
+                pass
+        if thread is not None:
+            try:
+                thread.join(timeout=1.0)
+            except Exception:
+                pass
+        _hook_thread_id = None
+        _hook_thread = None
+
     def _start_keyboard_hook(self) -> bool:
         """Start keyboard hook thread. Returns True if installed successfully."""
         global _hook_thread, _hook_thread_id, _hook_ready
@@ -950,14 +1009,17 @@ class WindowsBackend(SecurityBackend):
             ready = _hook_ready.wait(timeout=2.0)
             if not ready:
                 log.warning("Keyboard hook did not become ready within 2s")
+                self._cleanup_failed_hook_start()
                 return False
             if not _hook_id:
                 log.warning("Keyboard hook installation reported as not ready")
+                self._cleanup_failed_hook_start()
                 return False
             log.info("Keyboard hook thread started (tid=%s)", _hook_thread_id)
             return True
         except Exception as e:
             log.warning("Failed to start keyboard hook thread: %s", e)
+            self._cleanup_failed_hook_start()
             return False
 
     def _stop_keyboard_hook(self) -> None:

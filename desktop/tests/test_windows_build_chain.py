@@ -205,17 +205,41 @@ class RequirementsAreUsedTest(unittest.TestCase):
         self.assertTrue(REQUIREMENTS.exists())
 
     def test_no_windows_script_hardcodes_the_dependency_list(self):
+        # Hanya baris yang BENAR-BENAR memanggil pip yang diawasi — pesan
+        # progress "Menginstall PyQt5 + PyMuPDF" boleh ada. Bentuk lama
+        # guard ini (literal "pip install PyQt5 PyMuPDF") tidak pernah
+        # cocok dengan `& $VenvPip install ...` di build-exe.ps1: huruf
+        # besar "Pip" + urutan argumen berbeda, padahal intinya sama —
+        # menambah dependency ke requirements.txt tidak berefek di jalur
+        # build itu.
         for rel in self.SCRIPTS:
-            src = _read(rel)
-            self.assertNotIn("pip install PyQt5 PyMuPDF", src, rel)
+            for raw_line in _read(rel).splitlines():
+                line = raw_line.lower()
+                invokes_pip = (
+                    "pip install" in line
+                    or "$venvpip install" in line
+                    or "$venvpython -m pip install" in line
+                )
+                if not invokes_pip:
+                    continue
+                if "--upgrade pip" in line:
+                    continue  # upgrade pip, bukan daftar dependency
+                if "install -r" in line:
+                    continue  # requirements.txt — satu sumber kebenaran
+                self.fail(
+                    f"{rel}: memasang package hardcoded, bukan lewat "
+                    f"requirements.txt: {raw_line.strip()!r}"
+                )
 
     def test_windows_scripts_consume_the_requirements_file(self):
         # Tidak semua harus memakainya, tapi yang memasang dependency
         # wajib memakai satu sumber, kalau tidak menambah dependency ke
         # requirements.txt tidak berefek di Windows.
+        # `src.lower()`: `$VenvPip install` (huruf besar) tetap dihitung
+        # sebagai pemanggil pip — dulu membuat build-exe.ps1 lolos guard ini.
         for rel in self.SCRIPTS:
             src = _read(rel)
-            if "pip install" in src or "requirements.txt" in src:
+            if "pip install" in src.lower() or "requirements.txt" in src:
                 self.assertIn("requirements.txt", src, rel)
 
     def test_linux_chain_still_uses_it(self):

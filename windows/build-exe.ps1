@@ -35,9 +35,21 @@ $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip = Join-Path $VenvDir "Scripts\pip.exe"
 
 # ---- Install dependencies ----
+# SATU sumber: desktop\requirements.txt. Daftar hardcoded di sini dulu
+# membuat penambahan dependency (mis. PyQt5-WebSockets untuk ws.py)
+# tidak pernah ikut ke exe hasil build lokal. pyinstaller adalah alat
+# build, bukan dependency runtime aplikasi, jadi tetap disebut eksplisit.
 Write-Host "Installing dependencies..." -ForegroundColor Yellow
 & $VenvPip install --upgrade pip --quiet
-& $VenvPip install PyQt5 PyMuPDF pyinstaller --quiet
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Gagal upgrade pip. Cek koneksi internet / proxy kantor."
+    exit 1
+}
+& $VenvPip install -r (Join-Path $SourceDir "requirements.txt") pyinstaller --quiet
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Gagal install dependencies. Cek koneksi internet / proxy kantor."
+    exit 1
+}
 
 # ---- Build with PyInstaller ----
 Write-Host "Building executable..." -ForegroundColor Yellow

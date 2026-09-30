@@ -243,11 +243,12 @@ cd windows
 | Block Win+R, Win+E, Win+D, Win+I | ✅ |
 | Block Win+1..9 (taskbar apps) | ✅ |
 | Block Win+Space, Win+, Win+. | ✅ |
+| Block Win+Enter (Narrator), Win+C (Copilot), Win+J, Win+F2..F12 | ✅ (review 30 Sep 2026) |
 | Block PrintScreen + Alt+PrintScreen | ✅ (hook + WDA_MONITOR) |
 | Block Ctrl+Shift+Esc (Task Manager) | ✅ |
 | Block Ctrl+Esc (Start menu) | ✅ |
 | Block Escape (alone) | ✅ |
-| **Total: 50 blocked key combos** | ✅ |
+| **Total: 64 blocked key combos** (50 + 14 dari review 30 Sep 2026) | ✅ |
 | Clipboard clear tiap 10 detik | ✅ Win32 API |
 | Clipboard history di-overwrite | ✅ `EmptyClipboard()` |
 | Prevent sleep / monitor mati | ✅ SetThreadExecutionState |

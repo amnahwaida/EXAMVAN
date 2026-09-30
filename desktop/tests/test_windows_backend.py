@@ -177,9 +177,9 @@ class BlockedKeyTestCase(unittest.TestCase):
 
     def test_win_table_blocks_dangerous_shortcuts(self):
         # The Win+ table is a curated list of dangerous shortcuts, NOT every
-        # possible combination -- Win+C, Win+X and friends are deliberately
-        # left alone so harmless shortcuts keep working. This asserts the
-        # documented dangerous set, which is the real contract.
+        # possible combination -- Win+` and Win+/ pass through on purpose so
+        # harmless shortcuts keep working. This asserts the documented
+        # dangerous set, which is the real contract.
         dangerous = {
             VK_L: "Win+L (lock)",
             VK_TAB: "Win+Tab (task view)",
@@ -196,16 +196,24 @@ class BlockedKeyTestCase(unittest.TestCase):
             VK_LEFT: "Win+Left (snap)",
             VK_DIGIT_1: "Win+1 (launch pinned)",
             VK_DIGIT_9: "Win+9 (launch pinned)",
+            VK_RETURN: "Win+Enter (Narrator)",
+            0x43: "Win+C (Copilot)",
+            0x4A: "Win+J (picker)",
+            0x76: "Win+F6",
+            0x7B: "Win+F12",
         }
         for vk, name in dangerous.items():
             self.assertTrue(self.blocked(vk, win_down=True), name)
 
     def test_win_table_is_a_blocklist_not_a_blanket(self):
-        # Only the dangerous letters are blocked. Win+C (Copilot) and Win+J
-        # (object picker) pass through on purpose, so the supervisor keeps
-        # some functionality during an exam. Documents that this is a
-        # blocklist, not a blanket "Win blocks everything" rule.
-        for vk, name in ((0x43, "Win+C"), (0x4A, "Win+J")):
+        # Only the listed shortcuts are blocked; unlisted ones pass through.
+        # Dengan masuknya Win+C (Copilot) dan Win+J (keputusan review
+        # 30 Sep 2026: asisten AI bisa menjawab soal), SELURUH Win+<huruf>
+        # kini diblokir -- pasangan lolos yang didokumentasikan di sini
+        # adalah tanda baca OEM yang tidak membuka permukaan apa pun.
+        # Ini tetap memegang kontrak: blocklist, bukan blanket
+        # "Win blocks everything".
+        for vk, name in ((0xC0, "Win+` (OEM_3)"), (0xBF, "Win+/ (OEM_2)")):
             self.assertFalse(self.blocked(vk, win_down=True), name)
 
     def test_win_x_quick_link_menu_is_blocked(self):
