@@ -64,6 +64,14 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _yaml_jobs() -> dict:
+    """Workflow build, dibaca lewat PyYAML bila tersedia."""
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - hanya di runner tanpa PyYAML
+        raise unittest.SkipTest("PyYAML tidak terpasang")
+    return yaml.safe_load(_read(BUILD_WORKFLOW)).get("jobs", {})
+
 class SilentUninstallLeavesNoCredentialsTestCase(unittest.TestCase):
     """#8 — uninstall senyap tidak boleh meninggalkan kredensial."""
 
@@ -244,6 +252,75 @@ class FreshnessGuardWatchesTheRealEntryPointTestCase(unittest.TestCase):
                     f"{name} dikompilasi ke dalam exe tapi tidak "
                     "diawasi; exe bisa membawa versi lama",
                 )
+
+
+class PyInstallerInvocationIsWellFormedTestCase(unittest.TestCase):
+    """Perintah PyInstaller harus menghasilkan exe DATAR.
+
+    Guard ini ada karena `--onefile` hilang satu kali saat baris `--add-data`
+    dihapus, dan konsekuensinya tidak terlihat sampai build Windows gagal:
+    tanpa `--onefile`, PyInstaller membuat FOLDER `windows/dist/EXAMVAN/`
+    berisi exe di dalamnya, sehingga:
+
+      * Inno Setup gagal dengan "Source file ... \\dist\\EXAMVAN.exe does
+        not exist" -- error yang sama sekali tidak menyiratkan penyebabnya;
+      * artifact yang terunggah berisi folder, bukan installer.
+
+    Dua baris itu berdekatan dan tak terlihat hubungannya, jadi yang
+    dijaga di sini adalah BENTUK perintahnya: semua argumen dit curation
+    dan entry point berada di indentation yang sama.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.step = None
+        for step in _yaml_jobs()["build"]["steps"]:
+            run = step.get("run")
+            if isinstance(run, str) and "--exclude-module" in run:
+                cls.step = run
+                break
+        assert cls.step is not None, "langkah PyInstaller tidak ditemukan"
+
+    def test_onefile_is_present(self):
+        self.assertIn(
+            "--onefile", self.step,
+            "tanpa --onefile PyInstaller menghasilkan folder, bukan exe "
+            "datar, dan Inno Setup gagal dengan pesan yang tidak menyiratkan "
+            "penyebabnya",
+        )
+
+    def test_the_entry_point_is_the_last_argument(self):
+        lines = [l for l in self.step.splitlines() if l.strip()]
+        self.assertEqual(
+            lines[-1].strip(), "desktop/main.py",
+            f"argumen terakhir bukan entry point: {lines[-1]!r}",
+        )
+
+    def test_no_argument_has_leaked_out_of_the_backtick_chain(self):
+        # Setiap argumen harus di baris sendiri dengan indentasi sama.
+        body = [
+            l for l in self.step.splitlines()
+            if l.strip() and not l.strip().startswith("#")
+        ]
+        # Baris perintah adalah satu-satunya yang tidak berawalan "--".
+        args = [l for l in body if l.strip().startswith("-")]
+        indents = {len(l) - len(l.lstrip()) for l in args}
+        self.assertEqual(
+            len(indents), 1,
+            f"argumen punya indentasi berbeda {sorted(indents)} -- salah "
+            "satu keluar dari rantai backtick dan perintah jadi tidak "
+            "seperti yang dimaksud",
+        )
+
+    def test_every_argument_except_the_last_continues_the_chain(self):
+        body = [l for l in self.step.splitlines() if l.strip()]
+        missing = [
+            l.strip() for l in body[:-1] if not l.rstrip().endswith("`")
+        ]
+        self.assertEqual(
+            missing, [],
+            f"argumen tanpa backtick continuation: {missing}",
+        )
 
 
 class ShippedExeDoesNotContainPlaintextSourceTestCase(unittest.TestCase):

@@ -139,6 +139,7 @@ jobs:
         # "Missing expression after unary operator '--'".
         run: |
           python -m PyInstaller `
+            --onefile `
             --windowed `
             --name "EXAMVAN" `
             --distpath windows/dist `
@@ -161,7 +162,7 @@ jobs:
             --exclude-module examvan.security.x11 `
             --exclude-module examvan.security.linux_backend `
             --exclude-module examvan.security.kiosk `
-                    desktop/main.py
+          desktop/main.py
         working-directory: ${{ github.workspace }}
 
       # Installer Inno Setup: SATU file untuk PC siswa, tanpa Python.
