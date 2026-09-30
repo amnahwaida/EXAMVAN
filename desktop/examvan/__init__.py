@@ -3,7 +3,7 @@
 # SATU-SATUNYA sumber nomor versi di repo ini.
 #
 # Sebelumnya ada dua literal: `__version__ = "1.0.0"` dan
-# `APP_VERSION = "2.5.0"`. Yang dibaca guru di layar adalah `__version__`
+# `APP_VERSION = "2.5.1"`. Yang dibaca guru di layar adalah `__version__`
 # (label di dialog server pernah menulis "v1.0.0 (API 2.5.0)"), sementara
 # installer melaporkan 2.5.0 dan resource exe melaporkan 1.0.0.0. Guru
 # melapor "v1.0.0", installer bilang 2.5.0, tidak ada yang bisa dicocokkan
@@ -14,7 +14,7 @@
 # package contents" di ci.yml membaca `APP_VERSION = "..."` dengan regex
 # tanpa mengeksekusi source. Kalau arahnya dibalik, ketiganya ikut gagal
 # diam-diam dan paket .deb/${dist} terlabel versi fallback yang salah.
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.5.1"
 
 # Yang ditampilkan di layar. Diturunkan, bukan literal kedua.
 __version__ = APP_VERSION

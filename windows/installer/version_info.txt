@@ -38,7 +38,7 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'EXAMVAN'),
             StringStruct('FileDescription', 'EXAMVAN - Aplikasi Ujian Digital'),
-            StringStruct('FileVersion', '2.5.0'),
+            StringStruct('FileVersion', '2.5.1'),
             StringStruct('InternalName', 'EXAMVAN'),
             StringStruct('OriginalFilename', 'EXAMVAN.exe'),
             StringStruct('ProductName', 'EXAMVAN'),

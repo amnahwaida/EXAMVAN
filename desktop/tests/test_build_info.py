@@ -243,10 +243,18 @@ class CliStampTest(unittest.TestCase):
     def test_cli_without_optional_flags_uses_the_source_version(self):
         # build-exe.bat lokal memanggilnya tanpa flag apa pun; itu harus
         # tetap memakai APP_VERSION + build/commit dari git.
+        #
+        # APP_VERSION dibaca, bukan ditulis literal. Versi 2.5.0 -> 2.5.1
+        # membuat test ini gagal padahal tidak ada yang rusak: testnya
+        # menduplikasi angka yang sama sekali sama dengan file yang
+        # seharusnya jadi satu-satunya sumber. Itu persis kelas bug alias
+        # versi yang dijaga test_version_and_hook_owner.
+        from examvan import APP_VERSION
+
         self.assertEqual(self._cli(), 0)
         out = self.dst.read_text(encoding="utf-8")
         m = re.search(r"StringStruct\('FileVersion', '([^']*)'\)", out)
-        self.assertEqual(m.group(1), "2.5.0")
+        self.assertEqual(m.group(1), APP_VERSION)
 
     def test_cli_creates_the_destination_directory(self):
         nested = Path(self.tmp) / "dist" / "version_info.txt"

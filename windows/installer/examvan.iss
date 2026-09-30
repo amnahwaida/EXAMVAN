@@ -35,13 +35,13 @@
 ; hanya untuk iscc yang dipanggil tanpa define (build lokal tanpa
 ; build_info.py) — semua build nyata lewat build-setup.* / CI.
 #ifndef AppVersion
-  #define AppVersion "2.5.0"
+  #define AppVersion "2.5.1"
 #endif
 ; WAJIB format numerik X.X.X.X. Kalau diberi "v2.5.0" atau
 ; "2.5.0-rc1", ISCC gagal dengan "Invalid version number" — itu sebab
 ; kenapa build_info.py mengirim dua define terpisah, bukan satu.
 #ifndef AppVersionInfo
-  #define AppVersionInfo "2.5.0.0"
+  #define AppVersionInfo "2.5.1.0"
 #endif
 #ifndef AppBuild
   #define AppBuild "0"
