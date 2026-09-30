@@ -30,6 +30,12 @@ from examvan.ui.exam_viewer import ExamViewerWindow
 
 APP = QApplication.instance() or QApplication([])
 
+# Kunci marker "sudah dikumpulkan" sekarang per (ujian, siswa), bukan per
+# token. Di lab satu token dipakai bersama seluruh kelas, jadi token sebagai
+# kunci akan membuat siswa-siswa saling memblokir. Yang dipakai adalah nomor
+# ujian, jadi nilainya "n01" -- lihat utils.build_student_key.
+STUDENT_KEY = "n01"
+
 
 def _wait_until(predicate, timeout=5.0, interval=0.02):
     """Poll until predicate() is truthy (background thread completion)."""
@@ -147,7 +153,7 @@ class AutoSubmitSuccessTest(AutoSubmitTestCase):
             self.assertFalse(win.isVisible())
             self.assertTrue(win._submitted)
             # Sticky marker + jawaban ter-flush ke disk (thread masih diblokir).
-            self.assertTrue(config.is_submitted(7, "ABCD1234"))
+            self.assertTrue(config.is_submitted(7, STUDENT_KEY))
             self.assertEqual(config.load_answers(7), {"1": "A", "2": "B"})
             # Lock task dilepas (security.deactivate dipanggil).
             self._sec.return_value.deactivate.assert_called()
@@ -216,7 +222,7 @@ class AutoSubmitFailureTest(AutoSubmitTestCase):
             self.assertTrue(self._wait_notify("jaringan mati"))
             # Jawaban TIDAK dihapus — recovery re-entry mengirim ulang.
             self.assertEqual(config.load_answers(7), {"1": "A"})
-            self.assertTrue(config.is_submitted(7, "ABCD1234"))
+            self.assertTrue(config.is_submitted(7, STUDENT_KEY))
             call = next(
                 c for c in self._notify.call_args_list
                 if "jaringan mati" in str(c.args[1])

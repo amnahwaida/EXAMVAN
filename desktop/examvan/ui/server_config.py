@@ -243,34 +243,12 @@ class ServerConfigDialog(QDialog):
         config.set("exam_token", token)
         config.set("remember_url", self.chk_remember.isChecked())
 
-        # Step 2b: Sticky "already submitted" gate (F2, mirror Android).
-        # Setelah submit SUKSES durable, re-entry dengan token yang SAMA
-        # diblokir di sini — sebelum approval/PDF — sehingga watchdog deadline
-        # tidak bisa mengirim submit kosong yang MENIMPA jawaban asli dalam
-        # window grace server (end_time + 60 dtk).
-        #
-        # Di-scope dengan token, bukan exam saja. Dulu marker-nya hanya
-        # `submitted_<exam_id>`: per mesin, jadi satu PC lab memblokir ujian
-        # yang sama untuk semua siswa berikutnya. Token sudah tersedia di
-        # titik ini (dibaca sebelum dialog identitas), dan token berbeda
-        # berarti percobaan berbeda.
-        if config.is_submitted(resp.exam.id, token):
-            # Recovery (mirror Android hasPendingAnswers): submit otomatis
-            # background sebelumnya GAGAL — jawaban masih tersimpan di disk
-            # (clear hanya saat submit durable) → tawarkan kirim ulang.
-            pending = config.load_answers(resp.exam.id)
-            if pending:
-                self._exam = resp.exam
-                self._server_url = url
-                self._sig_recovery_available.emit(resp.exam)
-                return
-            self._sig_status.emit(
-                "Ujian ini sudah dikumpulkan pada perangkat ini. "
-                "Hubungi pengawas bila Anda memerlukan izin mengulang.",
-                True,
-            )
-            self._sig_enable_btn.emit()
-            return
+        # Gate "sudah dikumpulkan" TIDAK lagi di sini — lihat
+        # _check_already_submitted(), yang dipanggil setelah identitas
+        # siswa diketahui. Gate versi lama hanya tahu `submitted_<exam_id>`
+        # (per mesin), jadi satu PC lab memblokir ujian yang sama untuk
+        # semua siswa berikutnya. Dan di titik ini aplikasi belum tahu
+        # siapa siswanya, sehingga tidak ada cara membedakannya.
 
         self._exam = resp.exam
         self._server_url = url
@@ -398,6 +376,47 @@ class ServerConfigDialog(QDialog):
             f"Jawaban berhasil dikirim ulang!\n\n{msg}",
         )
 
+    def _check_already_submitted(self, identity: dict) -> bool:
+        """True bila siswa ini boleh lanjut (belum pernah submit).
+
+        Marker "sudah dikumpulkan" disimpan per (ujian, siswa). Dulu kuncinya
+        hanya per ujian sementara file-nya per mesin, jadi begitu siswa
+        pertama selesai, PC itu memblokir semua siswa berikutnya untuk
+        ujian yang sama. Itu persis keluhan "tidak bisa mengerjakan ujian
+        yang sama untuk kedua kalinya" di lab yang berbagi PC.
+
+        Gerbang ini HARUS setelah dialog identitas: sebelum itu aplikasi
+        hanya tahu token, dan di lab token sering dipakai BERSAMA seluruh
+        kelas — memakai token sebagai kunci akan membuat siswa-siswa
+        saling memblokir.
+
+        Overwrite protection tetap utuh: siswa yang sama, ujian yang sama →
+        diblokir, sehingga re-entry dalam window grace tidak bisa mengirim
+        submit kosong yang menimpa jawaban asli.
+        """
+        from ..utils import build_student_key
+
+        assert self._exam is not None
+        token = self.input_token.text().strip().upper()
+        key = build_student_key(identity, token)
+        if not config.is_submitted(self._exam.id, key):
+            return True
+
+        # Recovery (mirror Android hasPendingAnswers): submit otomatis
+        # sebelumnya GAGAL — jawaban masih tersimpan di disk (clear hanya
+        # saat submit durable) → tawarkan kirim ulang.
+        pending = config.load_answers(self._exam.id)
+        if pending:
+            self._sig_recovery_available.emit(self._exam)
+            return False
+        self._sig_status.emit(
+            "Ujian ini sudah dikumpulkan pada perangkat ini. "
+            "Hubungi pengawas bila Anda memerlukan izin mengulang.",
+            True,
+        )
+        self._sig_enable_btn.emit()
+        return False
+
     @pyqtSlot()
     def _show_identity_dialog(self) -> None:
         """Show identity dialog after successful token lookup."""
@@ -415,6 +434,12 @@ class ServerConfigDialog(QDialog):
         QApplication.processEvents()
         if dlg.exec_() == QDialog.Accepted:
             identity = dlg.get_identity_data()
+            # Gerbang submit: setelah identitas diketahui, sebelum
+            # approval/PDF, sehingga watchdog deadline tetap tidak bisa
+            # mengirim submit kosong yang menimpa jawaban asli.
+            if not self._check_already_submitted(identity):
+                config.set("identity_data", identity)
+                return
             config.set("identity_data", identity)
             self.exam_selected.emit(self._exam, self._server_url, identity)
             self.accept()

@@ -153,6 +153,32 @@ def build_attempt_key(
     return "|".join(parts)
 
 
+def build_student_key(
+    identity_data: Optional[Dict[str, str]], token: str = ""
+) -> str:
+    """Kunci "percobaan" berbasis SISWA, dipakai untuk marker submit.
+
+    Label perangkat (lihat `get_device_label`) sengaja per-kursi supaya
+    lab bisa dipakai. Marker "sudah dikumpulkan" perlu Treatment yang
+    BERBEDA: dia harus memblokir percobaan ULANG oleh siswa yang sama,
+    tapi TIDAK boleh memblokir siswa berikutnya di PC yang sama.
+
+    Nomor ujian jadi kunci utama karena itu yang paling stabil dan paling
+    unik di kelas. Kalau ujian tidak mengumpulkan nomor, turun ke nama.
+    Kalau tidak ada keduanya, jatuh ke token -- perilaku lama, dan aman
+    (konservatif: memblokir daripada melepas).
+
+    Sengaja TIDAK memakai label perangkat: itu per-kursi, jadi seluruh
+    kelas yang berbagi satu token akan saling memblokir.
+    """
+    std = map_identity_to_standard(identity_data or {})
+    for key in ("exam_number", "student_name", "student_class"):
+        value = str(std.get(key, "")).strip()
+        if value:
+            return value.lower()
+    return (token or "").strip()
+
+
 def get_device_label(attempt_key: Optional[str] = None) -> str:
     """Return 'DESKTOP:<device_id>' (universal label for desktop clients).
 

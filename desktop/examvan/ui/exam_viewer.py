@@ -63,7 +63,12 @@ from PyQt5.QtWidgets import (
 from .. import APP_VERSION, api, config, notify
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
-from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
+from ..utils import (
+    build_attempt_key,
+    build_student_key,
+    get_device_label,
+    map_identity_to_standard,
+)
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
 from .fullscreen import apply_fullscreen, covers_fullscreen
@@ -425,7 +430,10 @@ class ExamViewerWindow(QMainWindow):
         # perangkat ini. Re-entry berikutnya diblokir oleh gate join
         # (ServerConfigDialog.is_submitted) — mencegah re-entry dalam window
         # grace server mengirim submit kosong yang MENIMPA jawaban asli.
-        config.mark_submitted(self._exam.id, self._token)
+        config.mark_submitted(
+            self._exam.id,
+            build_student_key(self._identity_data, self._token),
+        )
         # Presence: hapus heartbeat Redis (siswa tampil OFFLINE segera).
         self._stop_presence(completed=True)
         if self._security:
@@ -609,7 +617,10 @@ class ExamViewerWindow(QMainWindow):
         #    → JAWABAN DISK TIDAK BOLEH ditimpa {}. Kalau memori tidak kosong
         #    → dipakai apa adanya (siswa mungkin baru mengubah jawaban
         #    setelah auto-save terakhir).
-        config.mark_submitted(self._exam.id, self._token)
+        config.mark_submitted(
+            self._exam.id,
+            build_student_key(self._identity_data, self._token),
+        )
         memory = (
             self._answer_sheet.get_answers()
             if hasattr(self, '_answer_sheet') else {}
