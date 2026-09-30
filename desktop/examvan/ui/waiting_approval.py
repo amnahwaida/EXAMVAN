@@ -21,6 +21,10 @@ from ..models import Exam
 from ..utils import build_attempt_key, get_device_label
 
 
+# Lebih lama dari timeout HTTP `api.request_approval` (10 detik).
+_POLL_JOIN_TIMEOUT = 12.0
+
+
 class WaitingApprovalDialog(QDialog):
     """Dialog that polls the server for approval."""
 
@@ -57,6 +61,7 @@ class WaitingApprovalDialog(QDialog):
             build_attempt_key(self._token, self.identity_data)
         )
         self.is_waiting = True
+        self._poll_generation = 0
         # Stop token untuk thread poll.
         #
         # `is_waiting` dulu dipakai ganda: sebagai kondisi loop DAN sebagai
@@ -140,23 +145,45 @@ class WaitingApprovalDialog(QDialog):
         # dulu dan tunggu — kalau tidak, retry akan menghasilkan dua thread
         # yang keduanya memanggil request-approval.
         self._stop_polling()
+        # Generasi naik SETIAP poller baru. Poller lama memegangnya, dan
+        # keluar begitu melihat generasinya sudah bukan yang terbaru.
+        #
+        # Ini yang menutup race yang tidak bisa ditutup dengan join saja:
+        # `request_approval` punya timeout 10 detik, jadi `join(2s)` SELALU
+        # melepas thread lama sementara ia masih di dalam panggilan HTTP.
+        # Poller lama akan keluar 10 detik kemudian -- satu siklus
+        # persetujuan kemudian -- dan `reset=True`-nya bisa me-reset approval
+        # yang baru saja diberikan pengawas.
+        self._poll_generation += 1
         self._poll_stop.clear()
         self._poll_thread_obj = threading.Thread(
-            target=self._poll_thread, daemon=True
+            target=self._poll_thread,
+            args=(self._poll_generation,),
+            daemon=True,
         )
         self._poll_thread_obj.start()
 
-    def _stop_polling(self, timeout: float = 2.0) -> None:
-        """Set stop token lalu tunggu thread poll benar-benar berhenti."""
+    def _stop_polling(self, timeout: float = _POLL_JOIN_TIMEOUT) -> None:
+        """Set stop token lalu tunggu thread poll benar-benar berhenti.
+
+        Default-nya lebih panjang dari timeout HTTP `request_approval`
+        (10 dtk) supaya join benar-benar menunggu thread yang sedang
+        menunggu server selesai -- bukan menyerah dan meninggalkan dua
+        poller hidup. Poller generation juga bertahan hidup sebagai jaring
+        pengaman kalau request-nya benar-benar mentok.
+        """
         self._poll_stop.set()
         thread = self._poll_thread_obj
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
         self._poll_thread_obj = None
 
-    def _poll_thread(self):
+    def _poll_thread(self, generation: int = 0):
         first_check = True
         while not self._poll_stop.is_set():
+            # Poller basi: ada yang lebih baru. Keluar tanpa menebak.
+            if generation and generation != self._poll_generation:
+                return
             resp = api.request_approval(
                 self.server_url,
                 self.exam.id,
@@ -209,8 +236,14 @@ class WaitingApprovalDialog(QDialog):
                         "Hubungi pengawas bila perlu izin mengulang.\n"
                         'Klik "Periksa Lagi" setelah mendapat izin.',
                     )
+                    # Jangan menyentuh widget Qt dari thread poll:
+                    # QWidget::show() bukan thread-safe, dan dialog ini
+                    # sedang di-showMaximized() persis di detik pertama
+                    # thread berjalan -- maximize + thread = race paling
+                    # rawan di Windows. `_on_status_update` (slot GUI)
+                    # sudah menampilkan tombolnya, jadi baris ini tidak
+                    # diperlukan sama sekali.
                     self.is_waiting = True
-                    self.btn_retry.show()
                 else:
                     self._sig_status.emit("pending", "Menunggu Persetujuan", "Silakan tunggu pengawas menyetujui akses Anda.")
 

@@ -362,7 +362,9 @@ class SubmitCallSiteTokenTest(unittest.TestCase):
             api, "submit_with_retry", return_value=ok
         ) as sub, mock.patch.object(api, "complete_exam"), \
              mock.patch("examvan.config.load_answers", return_value={"1": "A"}), \
-             mock.patch("examvan.config.get", return_value={}), \
+             mock.patch("examvan.config.get",
+                        side_effect=lambda k, d=None:
+                        "ABCD1234" if k == "exam_token" else d), \
              mock.patch("examvan.config.load_start_time", return_value="t"), \
              mock.patch("examvan.config.clear_answers"), \
              mock.patch("examvan.utils.get_device_label", return_value="DESKTOP:m"):

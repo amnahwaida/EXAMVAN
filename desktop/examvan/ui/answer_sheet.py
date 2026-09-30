@@ -370,7 +370,12 @@ class AnswerSheetWidget(QWidget):
         line.setText(str(self._answers.get(num, "")))
         line.textChanged.connect(lambda text, n=num: self._on_answer_changed(n, text))
         layout.addWidget(line)
-        self._answer_widgets[num] = ("short", line)
+        # lewat _pending_entry, seperti _build_single_choice / _build_multi /
+        # _build_matching. Menulis langsung ke _answer_widgets membuat
+        # `build_from_questions` selalu melihat num sudah ada, sehingga
+        # SETIAP soal short_answer dilaporkan sebagai nomor bentrok --
+        # peringatan palsu ke siswa dan log.error ke guru, sekali per submit.
+        self._pending_entry = ("short", line)
 
     def _on_answer_changed(self, num: str, value: Any) -> None:
         self._answers[num] = value

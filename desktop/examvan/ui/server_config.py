@@ -220,13 +220,20 @@ class ServerConfigDialog(QDialog):
         self._server_url = url
 
         # Run health check + token lookup in background thread
+        # Status checkbox dibaca di thread GUI, DI SINI. `_connect_thread`
+        # berjalan di worker dan tidak boleh menyentuh QCheckBox -- baca
+        # widget Qt dari thread lain tidak thread-safe, dan di Windows
+        # dialog ini bisa sedang di-maximize bersamaan.
+        remember_url = self.chk_remember.isChecked()
         threading.Thread(
             target=self._connect_thread,
-            args=(url, token),
+            args=(url, token, remember_url),
             daemon=True,
         ).start()
 
-    def _connect_thread(self, url: str, token: str) -> None:
+    def _connect_thread(
+        self, url: str, token: str, remember_url: bool = True
+    ) -> None:
         """Background thread: health check → token lookup."""
         # Step 1: Health check
         health = api.check_health(url)
@@ -250,7 +257,7 @@ class ServerConfigDialog(QDialog):
         # `remember_url` hanya mengontrol apakah di-reload ke input berikutnya.
         config.set("server_url", url)
         config.set("exam_token", token)
-        config.set("remember_url", self.chk_remember.isChecked())
+        config.set("remember_url", remember_url)
 
         # Tidak ada gerbang "sudah dikerjakan" di titik mana pun.
         # Lihat _offer_pending_recovery() untuk penjelasan policies-nya.
@@ -323,7 +330,11 @@ class ServerConfigDialog(QDialog):
         """Kirim ulang jawaban tersimpan di background — TIDAK menyentuh Qt."""
         from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
 
-        token = self.input_token.text().strip().upper()
+        # Token dibaca dari config, BUKAN dari QLineEdit: pemanggilan ini
+        # berjalan di worker thread, dan membaca widget Qt dari luar
+        # thread GUI tidak thread-safe. `config.set("exam_token", ...)`
+        # sudah menyimpan token yang sama sebelum dialog ini muncul.
+        token = str(config.get("exam_token", "") or "").strip().upper()
         identity = config.get("identity_data", {}) or {}
         answers = config.load_answers(exam.id) or {}
         std = map_identity_to_standard(identity)

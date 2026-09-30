@@ -27,7 +27,11 @@ import time
 import unittest
 from unittest import mock
 
+import pathlib
+
 from examvan.security import windows_backend as wb
+from tests.test_windows_backend_binding import REQUIRED_PROTOTYPES
+REQUIRED_WIN32_NAMES = REQUIRED_PROTOTYPES
 
 
 class NoSubprocessSpawnTestCase(unittest.TestCase):
@@ -55,15 +59,42 @@ class NoSubprocessSpawnTestCase(unittest.TestCase):
         self.popen.assert_not_called()
 
     def test_clear_clipboard_uses_win32_api(self):
-        # The Win32 path is the authoritative one and must stay.
+        """Jalur Win32 adalah jalur otoritatif dan harus tetap dipakai.
+
+        Test ini sebelumnya memock `_OpenClipboard` dengan `create=True`,
+        yang berarti ia MENGARANG atribut yang memang hilang. Jadi testnya
+        hijau bukan karena Win32-nya bekerja, tapi karena ia memasang
+        pengganti untuk fungsi yang tidak pernah ada. Sekarang
+        `_bind()` benar-benar memasang prototype-nya, jadi `create=True`
+        dihapus dan windll dipalsukan supaya `_bind()` jalan di Linux.
+
+        Test ini gagal kalau prototype-nya hilang lagi.
+        """
+        from tests.test_windows_backend_binding import _fake_windll
+
+        import ctypes
+
         backend = wb.WindowsBackend()
         opened = mock.Mock(return_value=True)
-        with mock.patch.object(wb, "_OpenClipboard", opened, create=True), \
-             mock.patch.object(wb, "_EmptyClipboard", create=True) as emptied, \
-             mock.patch.object(wb, "_CloseClipboard", create=True):
-            backend.clear_clipboard()
+        with mock.patch.object(ctypes, "windll", _fake_windll(), create=True):
+            wb._bind()
+            with mock.patch.object(wb, "_OpenClipboard", opened), \
+                 mock.patch.object(wb, "_EmptyClipboard") as emptied, \
+                 mock.patch.object(wb, "_CloseClipboard"):
+                backend.clear_clipboard()
         opened.assert_called()
         emptied.assert_called()
+
+    def test_the_win32_mocks_do_not_fabricate_missing_attributes(self):
+        # Penjaga: kalau ada test lain yang memakai create=True untuk
+        # prototype Win32, ia akan mengarang ulang bug yang sama.
+        src = pathlib.Path(__file__).read_text(encoding="utf-8")
+        for name in REQUIRED_WIN32_NAMES:
+            self.assertNotIn(
+                f'"{name}", opened, create=True', src,
+                f"{name} di-mock dengan create=True: nama yang hilang akan "
+                f"dibuatkan dan testnya lulus tanpa menguji apa pun",
+            )
 
     def test_clear_clipboard_does_not_touch_qt_clipboard(self):
         # The enforcer clears the Qt clipboard inline on the GUI thread,

@@ -567,14 +567,36 @@ class ExamViewerWindow(QMainWindow):
         warning = ""
         if self._exam_warnings:
             warning = "\n\n" + "\n".join(self._exam_warnings)
-        reply = QMessageBox.question(
-            self,
-            "Konfirmasi Pengumpulan",
-            f"Anda telah menjawab {answered} dari {total} soal.\n\n"
-            f"Apakah yakin ingin mengumpulkan jawaban?" + warning,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        # Countdown DIHENTIKAN selama dialog konfirmasi terbuka.
+        #
+        # `QMessageBox.question` menjalankan nested event loop, jadi QTimer
+        # TETAP delivers di dalamnya. Kalau deadline tercapai saat dialog
+        # masih terbuka, `time_up` menembak -> `_auto_submit` ->
+        # `_auto_submit_and_exit` menutup window dan mengirim jawaban --
+        # sementara siswa masih membaca dialog dan belum menekan apa pun.
+        #
+        # Di Windows kejadian ini lebih sering: native blocking, latensi
+        # mouse yang lebih tinggi, plus `_enforce_fullscreen` yang menambah
+        # WindowStateChange tepat di sekitar dialog ini.
+        self._timer_widget._timer.stop()
+        try:
+            reply = QMessageBox.question(
+                self,
+                "Konfirmasi Pengumpulan",
+                f"Anda telah menjawab {answered} dari {total} soal.\n\n"
+                f"Apakah yakin ingin mengumpulkan jawaban?" + warning,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+        finally:
+            # Countdown harus hidup lagi apa pun jawabannya. Kalau deadline
+            # sudah lewat selama dialog terbuka, `refresh_deadline`
+            # menembak `time_up` di tick berikutnya dan auto-submit berjalan
+            # seperti seharusnya -- dengan atau tanpa konfirmasi.
+            self._timer_widget._timer.start()
+            self._timer_widget._fired_time_up = False
+            self._timer_widget.refresh_deadline()
+
         if reply != QMessageBox.Yes:
             return
 
@@ -756,46 +778,68 @@ class ExamViewerWindow(QMainWindow):
     def _submit_thread(
         self, base_url, exam_id, name, number, sclass, answers, start_time, mac, identity
     ) -> None:
-        resp = api.submit_with_retry(
-            base_url, exam_id, name, number, sclass, answers, start_time, mac, identity,
-            # The server rejects a submit without X-Exam-Token outright
-            # (exams.go:1016-1023). Without this every submit failed with
-            # "Token tidak disertakan".
-            token=self._token,
-            on_retry=lambda attempt, total: self._sig_status.emit(
-                f"Submit gagal, percobaan {attempt}/{total}..."
-            ),
-        )
-
-        # Async path (202): server hanya MENGANTRI jawaban — belum durable.
-        # Poll /result sampai worker mengonfirmasi ("done") sebelum menganggap
-        # sukses; copy lokal TIDAK boleh di-clear pada 202 mentah (mirror
-        # Android: clearSavedAnswers hanya setelah konfirmasi durable). Jika
-        # worker gagal → resp.success=False → _on_submit_result menampilkan
-        # error dan TIDAK menghapus jawaban (re-entry memulihkan dari disk).
-        if resp.status == "queued" and resp.job_id:
-            self._sig_status.emit("Jawaban diterima server, menunggu konfirmasi...")
-            resp = api.poll_queued_result(
-                base_url,
-                exam_id,
-                self._token,
-                mac,
-                resp.job_id,
-                identity,
+        # SELALU emit _sig_submit_result, apa pun yang terjadi.
+        #
+        # Tanpa try/except, satu exception dari api (UnicodeDecodeError dari
+        # body non-UTF-8, TimeoutError, ConnectionError) mematikan thread ini
+        # tanpa sinyal apa pun. `_submitting` hanya di-reset di
+        # `_on_submit_result`, jadi ia mengunci True SELAMANYA: tombol submit
+        # mati, `closeEvent` menolak menutup (dijaga
+        # `_submitted or _submitting`), dan deadline auto-submit ditolak
+        # penjaganya. Satu-satunya jalan keluar: Task Manager -- dengan
+        # jawaban belum terkirim.
+        try:
+            resp = api.submit_with_retry(
+                base_url, exam_id, name, number, sclass, answers, start_time,
+                mac, identity,
+                # The server rejects a submit without X-Exam-Token outright
+                # (exams.go:1016-1023). Without this every submit failed with
+                # "Token tidak disertakan".
+                token=self._token,
+                on_retry=lambda attempt, total: self._sig_status.emit(
+                    f"Submit gagal, percobaan {attempt}/{total}..."
+                ),
             )
 
-        # Fix #2 (parity Android): tampilkan `congrats_message` custom guru
-        # saat sukses (bukan hanya resp.message bawaan server).
-        if resp.success:
-            message = resp.congrats_message or resp.message or "Jawaban berhasil dikumpulkan."
-        else:
-            message = resp.message
-        self._sig_submit_result.emit(resp.success, message)
+            # Async path (202): server hanya MENGANTRI jawaban — belum
+            # durable. Poll /result sampai worker mengonfirmasi ("done")
+            # sebelum menganggap sukses; copy lokal TIDAK boleh di-clear pada
+            # 202 mentah (mirror Android: clearSavedAnswers hanya setelah
+            # konfirmasi durable). Jika worker gagal -> resp.success=False ->
+            # _on_submit_result menampilkan error dan TIDAK menghapus jawaban
+            # (re-entry memulihkan dari disk).
+            if resp.status == "queued" and resp.job_id:
+                self._sig_status.emit(
+                    "Jawaban diterima server, menunggu konfirmasi...")
+                resp = api.poll_queued_result(
+                    base_url,
+                    exam_id,
+                    self._token,
+                    mac,
+                    resp.job_id,
+                    identity,
+                )
+
+            # Fix #2 (parity Android): tampilkan `congrats_message` custom
+            # guru saat sukses (bukan hanya resp.message bawaan server).
+            if resp.success:
+                message = (resp.congrats_message or resp.message
+                           or "Jawaban berhasil dikumpulkan.")
+            else:
+                message = resp.message
+            self._sig_submit_result.emit(resp.success, message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("submit thread crashed", exc_info=True)
+            self._sig_submit_result.emit(
+                False,
+                f"Gagal mengirim jawaban: {exc}\n\n"
+                "Jawaban TIDAK hilang -- masih tersimpan di perangkat ini. "
+                "Tekan 'Kumpulkan Jawaban' lagi, atau hubungi pengawas.",
+            )
 
     # -------------------------------------------------------------------
     # Window events
     # -------------------------------------------------------------------
-
     @property
     def is_strict(self) -> bool:
         """True when this exam runs with the strictest lockdown.
