@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 
 from .. import api
 from ..models import Exam
-from ..utils import get_device_label
+from ..utils import build_attempt_key, get_device_label
 
 
 class WaitingApprovalDialog(QDialog):
@@ -46,7 +46,16 @@ class WaitingApprovalDialog(QDialog):
         # siswa tampil 2× di monitoring dan approval tidak pernah di-revoke
         # worker. Satu identitas untuk ketiga endpoint (pola DEVICE:<AndroidId>
         # di Android).
-        self.mac_address = get_device_label()
+        #
+        # Di-scope dengan build_attempt_key (token + identitas siswa) supaya
+        # label menandai KURSI yang sedang dipakai, bukan mesin fisik. Tanpa
+        # itu, satu PC lab hanya bisa dipakai satu kali: server menegakkan
+        # "satu perangkat satu percobaan" dan siswa berikutnya diblokir.
+        # Kuncinya identik dengan yang dipakai ExamViewer karena keduanya
+        # dibangun dari token + identity_data yang sama.
+        self.mac_address = get_device_label(
+            build_attempt_key(self._token, self.identity_data)
+        )
         self.is_waiting = True
         # Stop token untuk thread poll.
         #

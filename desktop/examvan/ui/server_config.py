@@ -332,14 +332,18 @@ class ServerConfigDialog(QDialog):
 
     def _recovery_submit_thread(self, exam) -> None:
         """Kirim ulang jawaban tersimpan di background — TIDAK menyentuh Qt."""
-        from ..utils import get_device_label, map_identity_to_standard
+        from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
 
         token = self.input_token.text().strip().upper()
         identity = config.get("identity_data", {}) or {}
         answers = config.load_answers(exam.id) or {}
         std = map_identity_to_standard(identity)
         start_time = config.load_start_time(exam.id)
-        mac = get_device_label()
+        # Scoped dengan token + identitas yang sama seperti ExamViewer, jadi
+        # jawaban yang dikirim ulang menimpa baris yang sama di server.
+        # Tanpa scope, label mesin tidak akan cocok dengan label kursi yang
+        # dipakai saat ujian berjalan dan muncul baris kedua.
+        mac = get_device_label(build_attempt_key(token, identity))
         try:
             resp = api.submit_with_retry(
                 self._server_url, exam.id,

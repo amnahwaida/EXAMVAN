@@ -872,7 +872,7 @@ INNO_PARAMETRIC_PREFIXES = ("ini:", "cm:", "reg:", "param:", "drive:", "code:")
 _ENV_CONSTANT = re.compile(r"\{%[A-Za-z_][A-Za-z0-9_]*(?:\|[^}]*)?\}")
 
 # Constant yang penyebutnya mirip constant tapi TIDAK ada di Inno Setup.
-# Dipisah supaya pesan kegagalan menyebut替代 yang benar.
+# Dipisah supaya pesan kegagalan menyebut penggantinya.
 NOT_INNO_CONSTANTS = {
     "userprofile": "{%USERPROFILE} (environment variable)",
     "userhome": "{%USERPROFILE} (environment variable)",

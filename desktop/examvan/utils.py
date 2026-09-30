@@ -14,9 +14,13 @@ from typing import Dict, Optional
 
 from PyQt5.QtWidgets import QApplication
 
-# Cached device label — see get_device_label() for why it must be stable for
-# the whole process, not just per call.
-_device_label_cache: Optional[str] = None
+# Cached device labels, satu per attempt_key. Lihat get_device_label() untuk
+# alasan nilainya harus stabil sepanjang proses, bukan hanya per panggilan.
+_device_label_cache: Dict[str, str] = {}
+
+# Machine id mentah (tanpa scope). Dibaca SATU kali lalu dipakai ulang, supaya
+# enumerasi adapter yang berubah-ubah di tengah sesi tidak mengubah label.
+_machine_id_cache: Optional[str] = None
 
 
 def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
@@ -100,38 +104,84 @@ def get_mac_address() -> str:
     return ":".join(f"{(mac >> i) & 0xFF:02X}" for i in range(40, -1, -8))
 
 
-def get_device_id() -> str:
-    """Generate stable device identifier: SHA256(MAC + hostname)."""
-    mac = get_mac_address()
-    hostname = socket.gethostname()
-    raw = f"{mac}:{hostname}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+def get_device_id(scope: Optional[str] = None) -> str:
+    """Stable device identifier: SHA256(MAC + hostname), di-scope opsional.
+
+    `scope` mengikat identitas ke satu percobaan ujian (lihat
+    `build_attempt_key`). Tanpa scope, hasilnya identitas MESIN seperti
+    sebelumnya. Dengan scope, hasilnya "kursi yang sedang dipakai satu
+    siswa pada satu sesi ujian" -- tetap stabil sepanjang satu percobaan,
+    tapi berbeda antar siswa.
+    """
+    global _machine_id_cache
+    if _machine_id_cache is None:
+        mac = get_mac_address()
+        hostname = socket.gethostname()
+        raw = f"{mac}:{hostname}"
+        _machine_id_cache = hashlib.sha256(raw.encode()).hexdigest()[:32]
+    if scope:
+        # Machine id di-hash ulang dengan scope, bukan diabaikan: dengan
+        # begitu dua PC berbeda yang kebetulan memakai token dan identitas
+        # yang sama tidak pernah terlihat sebagai satu perangkat.
+        return hashlib.sha256(
+            f"{_machine_id_cache}:{scope}".encode()
+        ).hexdigest()[:32]
+    return _machine_id_cache
 
 
-def get_device_label() -> str:
+def build_attempt_key(
+    token: str, identity_data: Optional[Dict[str, str]] = None
+) -> str:
+    """Kunci per percobaan: token ujian + identitas siswa.
+
+    Ini yang membuat lab sekolah bisa dipakai. Label perangkat lama
+    melekat pada MESIN (`SHA256(MAC + hostname)`), sehingga satu PC hanya
+    boleh satu kali Percobaan ujian selamanya -- tidak peduli berapa siswa
+    yang memakai PC itu. Server menegakkan "satu perangkat satu percobaan",
+    dan dalam lab keenam siswa berikutnya diblokir.
+
+    Yang benar adalah "perangkat" = kursi yang SEDANG DIPAKAI. Kuncinya
+    sudah tersedia di keempat call site (token dan identity_data keduanya
+    sampai ke `ExamViewer` dan `WaitingApprovalDialog`), dan karena hanya
+    machine-id + kunci yang di-hash, mengetik ulang nama dengan spasi
+    berbeda tidak mengubah label di tengah sesi.
+    """
+    std = map_identity_to_standard(identity_data or {})
+    parts = [token or ""]
+    for key in ("student_name", "exam_number", "student_class"):
+        parts.append(str(std.get(key, "")))
+    return "|".join(parts)
+
+
+def get_device_label(attempt_key: Optional[str] = None) -> str:
     """Return 'DESKTOP:<device_id>' (universal label for desktop clients).
 
-    Cached for the lifetime of the process. This label is not cosmetic — it
-    is the key in four places: `X-Device-Id` for the PDF download, and
-    `mac_address` for request-approval, submit, and presence. If it changed
-    mid-session the PDF gate would stop matching the approval row (no
-    download), and the stale approval would never be revoked — which is
-    exactly the failure the comment in `api.download_pdf` (:155-160)
-    describes happening when the two call sites used different identities.
+    Cached untuk setiap attempt_key sepanjang proses. Label ini bukan
+    kosmetik — ia kunci di empat tempat: `X-Device-Id` untuk unduhan PDF,
+    serta `mac_address` untuk request-approval, submit, dan presence. Kalau
+    berubah di tengah sesi, gate PDF tidak match baris approval (tidak ada
+    unduhan) dan approval lama tidak pernah di-revoke.
 
-    Caching removes the whole class of problem: there is now nothing that
-    can make the four call sites disagree. It also insulates the session
-    from `uuid.getnode()` changing under us, which on Windows 10/11 it can
-    (randomized MAC addresses, and it returns whichever adapter enumerates
-    first on a machine with Wi-Fi + Ethernet + Bluetooth + VPN).
+    `attempt_key` (lihat `build_attempt_key`) mengikat label ke satu
+    percobaan ujian, bukan ke mesin fisik. Tanpa itu, satu PC lab hanya
+    bisa dipakai satu kali. Empat call site WAJIB memakai kunci yang sama
+    — itu sebabnya label dihitung sekali di constructor, bukan di setiap
+    tempat.
+
+    Caching menutup seluruh kelas masalah: tidak ada lagi yang bisa membuat
+    keempat call site berbeda. Caching juga mengisolasi sesi dari
+    `uuid.getnode()` yang bisa berubah di tengah jalan (MAC acak di Windows
+    10/11, dan ia mengembalikan adapter mana pun yang ter-enumerate duluan
+    di mesin dengan Wi-Fi + Ethernet + Bluetooth + VPN).
     """
-    global _device_label_cache
-    if _device_label_cache is None:
-        _device_label_cache = f"DESKTOP:{get_device_id()}"
-    return _device_label_cache
+    key = attempt_key or ""
+    if key not in _device_label_cache:
+        _device_label_cache[key] = f"DESKTOP:{get_device_id(key or None)}"
+    return _device_label_cache[key]
 
 
 def reset_device_label_cache() -> None:
-    """Drop the cached device label. For tests only."""
-    global _device_label_cache
-    _device_label_cache = None
+    """Drop the cached device labels. For tests only."""
+    global _machine_id_cache
+    _machine_id_cache = None
+    _device_label_cache.clear()

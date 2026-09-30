@@ -63,7 +63,7 @@ from PyQt5.QtWidgets import (
 from .. import APP_VERSION, api, config, notify
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
-from ..utils import get_device_label, map_identity_to_standard
+from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
 from .fullscreen import apply_fullscreen, covers_fullscreen
@@ -140,7 +140,15 @@ class ExamViewerWindow(QMainWindow):
         # tampil ONLINE di dashboard monitoring pengawas; login dikirim sekali
         # di awal, logout/complete saat ujian selesai.
         self._std_identity = map_identity_to_standard(identity_data)
-        self._device_label = get_device_label()
+        # Dihitung SEKALI di sini, lalu dipakai ulang untuk download PDF,
+        # submit, dan presence. Kalau dihitung ulang di tiap call site,
+        # keempatnya bisa berbeda dan gate PDF tidak match baris approval.
+        # Di-scope dengan token + identitas siswa: label berarti "kursi yang
+        # sedang dipakai siswa ini", bukan "mesin ini". See
+        # utils.build_attempt_key untuk alasannya.
+        self._device_label = get_device_label(
+            build_attempt_key(self._token, identity_data)
+        )
         self._presence_active = True
         self._send_access_log("login")
         self._heartbeat_timer = QTimer(self)
@@ -309,7 +317,12 @@ class ExamViewerWindow(QMainWindow):
                 # (mac_address): DESKTOP:<hash>. Sebelumnya di sini dipakai
                 # get_mac_address() (MAC mentah) → gate PDF tidak match baris
                 # approval → unduhan ditolak.
-                device_id=get_device_label(),
+                #
+                # WAJIB self._device_label, bukan get_device_label() langsung:
+                # yang terakhir tanpa attempt_key menghasilkan label MESIN,
+                # sedangkan approval memakai label KURSI. Keduanya tidak akan
+                # match, dan PDF tidak pernah terunduh.
+                device_id=self._device_label,
             )
             self._sig_pdf_ready.emit()
         except Exception as e:
@@ -637,7 +650,7 @@ class ExamViewerWindow(QMainWindow):
                 std.get("student_class", ""),
                 answers,
                 self._timer_widget.get_start_time_iso(),
-                get_device_label(),
+                self._device_label,
                 self._identity_data,
             ),
             daemon=True,
@@ -720,7 +733,7 @@ class ExamViewerWindow(QMainWindow):
                 std.get("student_class", ""),
                 answers,
                 self._timer_widget.get_start_time_iso(),
-                get_device_label(),
+                self._device_label,
                 self._identity_data,
             ),
             daemon=True,
