@@ -222,3 +222,69 @@ class RepeatRequiredTest(unittest.TestCase):
         dlg._on_status_update("repeat_required", "Sudah Dikerjakan", "x")
         self.assertTrue(dlg.btn_retry.isVisible() or not dlg.btn_retry.isHidden())
         self.assertIn("Periksa", dlg.btn_retry.text())
+
+
+class NonJsonStatusTest(unittest.TestCase):
+    """Status `error` harus terlihat, bukan dissolved jadi "Menunggu".
+
+    `api._make_request` mengembalikan status "error" saat server membalas
+    sesuatu yang bukan JSON (halaman blokir proxy, captive portal, WAF).
+    Kalau status itu tidak ditangani, ia jatuh ke cabang `else` yang
+    menampilkan "Menunggu Persetujuan" -- dan polling berjalan tiap 5 detik
+    SELAMANYA tanpa satu pesan pun.
+
+    Siswa lalu duduk menghadap layar yang tidak akan pernah berubah, dan
+    menyimpulkan aplikasi-nya yang macet, padahal jaringannya yang bermasalah.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _app()
+
+    def _drive(self, resp):
+        from examvan.models import RequestApprovalResponse
+
+        dlg = WaitingApprovalDialog(
+            Exam(id=1, name="Ujian", status="active"),
+            "https://x", {"nama": "Andi"}, token="ABCD1234",
+        )
+        seen = []
+        dlg._sig_status.connect(lambda k, t, m: seen.append((k, t, m)))
+        dlg._stop_polling()
+        dlg._poll_stop.clear()
+        dlg._poll_stop.wait = lambda _t=0.0: dlg._poll_stop.set()
+        with mock.patch(
+            "examvan.ui.waiting_approval.api.request_approval",
+            side_effect=[resp, OSError("selesai")],
+        ):
+            dlg._poll_thread()
+        return dlg, seen
+
+    def test_error_status_is_surfaced_not_hidden_as_pending(self):
+        from examvan.models import RequestApprovalResponse
+
+        _, seen = self._drive(RequestApprovalResponse(
+            success=False, status="error",
+            message="Server tidak mengembalikan JSON yang valid.",
+        ))
+        kinds = [k for k, _, _ in seen]
+        self.assertIn(
+            "error", kinds,
+            f"status 'error' harus tampil sebagai error, dapat {kinds}",
+        )
+        self.assertNotIn(
+            "pending", kinds,
+            "status 'error' tidak boleh ditampilkan sebagai 'Menunggu "
+            "Persetujuan' -- itu membuat polling berjalan selamanya "
+            "tanpa pesan",
+        )
+
+    def test_the_reason_reaches_the_student(self):
+        from examvan.models import RequestApprovalResponse
+
+        _, seen = self._drive(RequestApprovalResponse(
+            success=False, status="error",
+            message="Server tidak mengembalikan JSON yang valid.",
+        ))
+        message = next(m for k, _, m in seen if k == "error")
+        self.assertIn("JSON", message)

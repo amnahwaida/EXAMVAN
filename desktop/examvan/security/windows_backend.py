@@ -154,6 +154,13 @@ def _bind() -> None:
     _kernel32 = windll.kernel32
     _advapi32 = windll.advapi32
 
+    # Prototype WAJIB di-set di sini. Tanpa baris ini, _bound tetap False
+    # dan setiap pemanggilan Win32 berakhir NameError yang tertelan
+    # log.warning -- baner tetap menulis "STRICT" padahal tidak ada satu pun
+    # proteksi yang aktif. Lihat _win32_prototypes.
+    globals().update(_win32_prototypes(_user32, _kernel32, _advapi32))
+    _bound = True
+
 # PEP 562. Dipanggil hanya ketika nama tidak ada sebagai global, yaitu
 # sebelum _bind() sempat berjalan. Setelah _bind(), semua nama ada sebagai
 # global asli sehingga fungsi ini tidak pernah dipanggil lagi.
@@ -178,6 +185,38 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+# ---------------------------------------------------------------------------
+# Keyboard hook callback
+# ---------------------------------------------------------------------------
+
+# GLOBALS — prevent GC of callback and hook handles
+_hook_id: Optional[HHOOK] = None
+_hook_thread: Optional[threading.Thread] = None
+_hook_thread_id: Optional[int] = None
+_hook_callback: Any = None  # Keep CFUNCTYPE wrapper reference
+_hook_proc_wrapper: Any = None  # Extra guard against GC
+
+# Guard: hook installed flag (thread-safe via hook message queue)
+_hook_ready = threading.Event()
+
+
+def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
+    """Set every Win32 prototype we use and return them keyed by global name.
+
+    INI HARUS DIPANGGIL DARI _bind(). Blok ini sebelumnya berada di modul
+    __getattr__ SETELAH `raise AttributeError`, jadi tidak pernah dieksekusi:
+    yang terjadi hanya _user32/_kernel32/_advapi32 yang ter-assign, semua
+    prototype tetap hilang, dan `_bound` tidak pernah jadi True.
+
+    Akibatnya setiap fitur Windows gagal dengan NameError yang tertelan
+    log.warning -- keyboard hook (Alt+Tab, Win, Ctrl+Shift+Esc), capture
+    protection (anti-screenshot), prevent_sleep, clipboard Win32, dan deteksi
+    multi-monitor -- sementara baner tetap menulis "STRICT".
+
+    Dipisah jadi fungsi supaya tidak butuh statement `global` berisi 17 nama:
+    assignment-nya jadi variabel lokal, lalu caller memindahkannya ke
+    globals(). Daftar prototype jadi bisa diuji tanpa menyentuh windll.
+    """
     # Keyboard hook
     _SetWindowsHookExW = _user32.SetWindowsHookExW
     _SetWindowsHookExW.restype = HHOOK
@@ -256,20 +295,8 @@ def __getattr__(name: str):
 
     SM_CMONITORS = 80
 
-
-# ---------------------------------------------------------------------------
-# Keyboard hook callback
-# ---------------------------------------------------------------------------
-
-# GLOBALS — prevent GC of callback and hook handles
-_hook_id: Optional[HHOOK] = None
-_hook_thread: Optional[threading.Thread] = None
-_hook_thread_id: Optional[int] = None
-_hook_callback: Any = None  # Keep CFUNCTYPE wrapper reference
-_hook_proc_wrapper: Any = None  # Extra guard against GC
-
-# Guard: hook installed flag (thread-safe via hook message queue)
-_hook_ready = threading.Event()
+    return {k: v for k, v in locals().items()
+            if k.startswith("_") and not k.startswith("__")}
 
 
 def should_block_key(

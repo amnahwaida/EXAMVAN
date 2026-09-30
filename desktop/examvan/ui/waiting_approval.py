@@ -173,8 +173,16 @@ class WaitingApprovalDialog(QDialog):
             if self._poll_stop.is_set():
                 break
 
-            if not resp.success and resp.status == "pending" and resp.message:
-                # Connection error
+            if not resp.success and resp.status in ("pending", "error") and resp.message:
+                # Koneksi terganggu, atau server membalas sesuatu yang bukan
+                # JSON (halaman blok proxy, captive portal, WAF).
+                #
+                # Status "error" HARUS ditangani di sini. Kalau tidak, ia
+                # jatuh ke cabang `else` yang menampilkan "Menunggu
+                # Persetujuan" -- dan polling berjalan tiap 5 detik
+                # SELAMANYA tanpa satu pesan pun, sehingga siswa duduk
+                # menghadap layar yang tidak akan berubah dan mengira
+                # hanya menunggu tanpa tahu jaringannya bermasalah.
                 self._sig_status.emit("error", "Koneksi Terganggu", f"Mencoba menghubungkan ulang...\n{resp.message}")
             else:
                 if resp.status == "approved":

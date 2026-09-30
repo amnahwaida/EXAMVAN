@@ -61,12 +61,36 @@ def _make_request(
 
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8").strip()
-        # Try JSON first; fall back to wrapping plain text
+        raw = resp.read().decode("utf-8", errors="replace").strip()
+        # Try JSON first.
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            return {"success": True, "status": raw, "message": raw}
+            # BUKAN sukses. Response non-JSON hampir selalu berarti kita
+            # tidak bicara dengan server EXAMVAN sama sekali: halaman blok
+            # proxy/captive portal, 403 dari WAF, atau login page.
+            #
+            # Versi sebelumnya mengembalikan success=True di sini, dan itu
+            # merusak dua hal sekaligus:
+            #   * check_health melaporkan True saat jaringan diblokir
+            #   * submit_exam melaporkan sucesso, exam_viewer menghapus
+            #     jawaban dari disk, lalu siswa diberi notifikasi "Terkumpul"
+            #     -- padahal server tidak menerima apa pun
+            #
+            # Jawabannya sekarang failure yang jujur, dan teks aslinya
+            # dibawa supaya diagnosis (log, atau pesan ke siswa) bisa
+            # menyebutkan apa yang sebenarnya terjadi.
+            return {
+                "success": False,
+                "error_code": "non_json_response",
+                "status": "error",
+                "message": (
+                    "Server tidak mengembalikan JSON yang valid. "
+                    "Kemungkinan jaringan diblokir proxy sekolah, captive "
+                    "portal, atau WAF. Isi respons: " + raw[:200]
+                ),
+                "raw": raw[:2000],
+            }
 
 
 def _url_join(base: str, path: str) -> str:

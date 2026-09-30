@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+_log = logging.getLogger(__name__)
 
 
 _CONFIG_DIR = Path.home() / ".config" / "examvan"
@@ -76,9 +79,17 @@ def _save() -> None:
         return
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = _CONFIG_FILE.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(_cache, f, indent=2, ensure_ascii=False)
-    tmp.replace(_CONFIG_FILE)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_cache, f, indent=2, ensure_ascii=False)
+        tmp.replace(_CONFIG_FILE)
+    except OSError as exc:
+        # Sama seperti clear_answers: `set()` dipanggil dari thread GUI
+        # (mis. `_connect_thread` yang menyimpan URL+token sebelum gate),
+        # dan exception dari sana mematikan seluruh app lewat qFatal.
+        # Config yang gagal ditulis berarti token/URL belum tersimpan --
+        # sesuatu yang bisa diamati dan dicoba lagi, bukan crash.
+        _log.warning("could not write config: %s", _CONFIG_FILE, exc_info=True)
 
 
 def get(key: str, default: Any = None) -> Any:
@@ -135,14 +146,32 @@ def load_answers(exam_id: int) -> Optional[Dict[str, Any]]:
 
 
 def clear_answers(exam_id: int) -> None:
-    """Remove saved answers after successful submit."""
-    # Remove both legacy .json and new .dat
-    path = _CONFIG_DIR / f"answers_{exam_id}.dat"
-    if path.exists():
-        path.unlink()
-    legacy = path.with_suffix(".json")
-    if legacy.exists():
-        legacy.unlink()
+    r"""Remove saved answers after successful submit.
+
+    NEVER melempar. Panggilan ini berjalan di `_cleanup_after_submit`, yaitu
+    statement pertama setelah submit sukses, dan pemanggilnya adalah slot
+    Qt -- exception apa pun di sini jadi `qFatal()` lalu SIGABRT.
+
+    `PermissionError` bukan hipotesis: jawaban ditulis ulang tiap ~500ms,
+    Defender sering memindai file tepat setelah ditulis dan memegang handle
+    beberapa ratus milidetik, dan `unlink()` di Windows tidak bisa
+    menghapus file yang sedang dibuka. OneDrive/Dropbox di lab sekolah juga
+    routinely mengunci %USERPROFILE%\.config.
+
+    Kalau file tidak terhapus, akibatnya file yatim -- tidak fatal, dan
+    bisa dibersihkan nanti. Yang fatal adalah aplikasi mati tepat setelah
+    jawaban sudah sampai server: siswa tidak melihat konfirmasi, dan tetap
+    tampil ONLINE di dashboard pengawas.
+    """
+    for path in (_CONFIG_DIR / f"answers_{exam_id}.dat",
+                 _CONFIG_DIR / f"answers_{exam_id}.json"):
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+        # Sengaja ditelan, tapi harus meninggalkan jejak di log.
+            _log.warning("could not remove saved answers: %s", path,
+                         exc_info=True)
 
 
 def resolve_submit_answers(memory_answers: Dict[str, Any], exam_id: int) -> Dict[str, Any]:
