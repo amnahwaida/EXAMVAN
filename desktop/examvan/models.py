@@ -15,6 +15,20 @@ from .security_levels import (
 )
 
 
+def _as_dict(data: Any) -> Dict[str, Any]:
+    """Kawat bisa membawa apa saja — proxy/WAF salah config, captive
+    portal, atau server yang sedang rusak menjawab JSON valid tapi bukan
+    object (`[]`, `123`, `null`, `"ok"`). Semua from_json mengasumsikan
+    dict; tanpa normalisasi ini AttributeError/TypeError lolos dari setiap
+    except di api.py (yang hanya menangkap URLError/OSError/JSONDecodeError)
+    dan menjatuhkan dialog persis saat siswa membutuhkannya.
+
+    Salah bentuk = "tidak ada jawaban": None masuk sebagai dict kosong,
+    dan from_json memetakan default failure — bukan exception.
+    """
+    return data if isinstance(data, dict) else {}
+
+
 @dataclass
 class IdentityField:
     key: str
@@ -32,6 +46,7 @@ class HealthResponse:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "HealthResponse":
+        data = _as_dict(data)
         return cls(
             success=bool(data.get("success")),
             status=data.get("status", ""),
@@ -60,27 +75,49 @@ class Exam:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "Exam":
-        fields_raw = data.get("identity_fields", [])
-        fields = [
-            IdentityField(
-                key=f.get("key", ""),
-                label=f.get("label", ""),
-                required=bool(f.get("required", False)),
-            )
-            for f in fields_raw
-        ]
+        data = _as_dict(data)
+        # identity_fields bisa datang berupa string/angka/dict dari server
+        # yang rusak (atau di-edit di tengah jalan); hanya list yang
+        # diiterasi, dan hanya item dict yang dipetakan — sisanya dibuang
+        # alih-alih AttributeError 'str' object has no attribute 'get'.
+        fields_raw = data.get("identity_fields")
+        fields: List[IdentityField] = []
+        if isinstance(fields_raw, list):
+            for f in fields_raw:
+                if not isinstance(f, dict):
+                    continue
+                fields.append(
+                    IdentityField(
+                        key=f.get("key", ""),
+                        label=f.get("label", ""),
+                        required=bool(f.get("required", False)),
+                    )
+                )
+        questions = data.get("questions")
+        if not isinstance(questions, list):
+            questions = []
+        # id/size_mb: konversi angka yang salah bentuk = 0 (default),
+        # bukan ValueError yang menjatuhkan dialog join.
+        try:
+            exam_id = int(data.get("id", 0))
+        except (TypeError, ValueError):
+            exam_id = 0
+        try:
+            size_mb = float(data.get("size_mb", 0))
+        except (TypeError, ValueError):
+            size_mb = 0.0
         return cls(
-            id=int(data.get("id", 0)),
+            id=exam_id,
             name=data.get("name", ""),
             status=data.get("status", ""),
             security_level=data.get("security_level", DEFAULT_LEVEL),
             strict_mode=bool(data.get("strict_mode", False)),
             identity_fields=fields,
             panel_color=data.get("panel_color", "#6366f1"),
-            size_mb=float(data.get("size_mb", 0)),
+            size_mb=size_mb,
             start_time=data.get("start_time"),
             end_time=data.get("end_time"),
-            questions=data.get("questions") or [],
+            questions=questions,
         )
 
     # ------------------------------------------------------------------
@@ -135,13 +172,15 @@ class TokenExamResponse:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "TokenExamResponse":
+        data = _as_dict(data)
         exam = None
-        if "exam" in data and data["exam"]:
-            exam = Exam.from_json(data["exam"])
-        elif "data" in data and data["data"]:
-            exam_data = data["data"]
-            if isinstance(exam_data, dict):
-                exam = Exam.from_json(exam_data)
+        # Nested "exam"/"data" yang bukan dict (list dari server rusak)
+        # tidak boleh dipaksa jadi Exam.
+        for key in ("exam", "data"):
+            candidate = data.get(key)
+            if isinstance(candidate, dict):
+                exam = Exam.from_json(candidate)
+                break
         return cls(
             success=bool(data.get("success")),
             exam=exam,
@@ -187,9 +226,15 @@ class SubmitResponse:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "SubmitResponse":
+        data = _as_dict(data)
+        # "score": "abc" dulu melempar ValueError di tengah jalur submit;
+        # nilai yang tidak bisa dikonversi = tidak ada skor (None).
         score = data.get("score")
         if score is not None:
-            score = float(score)
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                score = None
         return cls(
             success=bool(data.get("success")),
             message=data.get("message", ""),
@@ -207,6 +252,7 @@ class RequestApprovalResponse:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "RequestApprovalResponse":
+        data = _as_dict(data)
         return cls(
             success=bool(data.get("success", "status" in data)),
             status=data.get("status", "pending"),

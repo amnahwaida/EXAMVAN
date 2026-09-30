@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -14,7 +15,7 @@ import urllib.request
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import APP_VERSION
-from .models import Exam, HealthResponse, SubmitResponse, TokenExamResponse
+from .models import Exam, HealthResponse, SubmitResponse, TokenExamResponse, _as_dict
 from .utils import map_identity_to_standard
 
 log = logging.getLogger(__name__)
@@ -251,7 +252,13 @@ def download_pdf(
     tmp_path = dest_path + ".tmp"
     try:
         with _pdf_opener().open(req, timeout=120) as resp:
-            total = int(resp.headers.get("Content-Length", -1))
+            # Content-Length dari proxy rusak ("11 MB!") dulu melempar
+            # ValueError di tengah try: download sah ikut gagal. Nilai
+            # yang tidak bisa dibaca = unknown (-1).
+            try:
+                total = int(resp.headers.get("Content-Length", -1))
+            except (TypeError, ValueError):
+                total = -1
             read_bytes = 0
             chunk_size = 65536
             with open(tmp_path, "wb") as f:
@@ -264,14 +271,27 @@ def download_pdf(
                     if progress_cb:
                         progress_cb(read_bytes, total)
 
+        # Validasi magic number SEBELUM rename atomik. Server yang salah
+        # menjawab 200 dengan halaman blok proxy dulu ditulis utuh jadi
+        # exam.pdf: viewer crash dengan traceback tanpa pesan yang bisa
+        # dipahami siswa (atau pengawas). Pesan errornya sengaja bisa
+        # dibaca manusia — paling sering ini jaringan/WAF, bukan app.
+        with open(tmp_path, "rb") as f:
+            head = f.read(5)
+        if not head.startswith(b"%PDF"):
+            os.unlink(tmp_path)
+            raise ValueError(
+                "Server tidak mengembalikan berkas PDF yang sah "
+                "(kemungkinan halaman blok proxy/WAF). Coba lagi atau "
+                "hubungi pengawas."
+            )
+
         # Atomic rename on success
-        import os
         os.replace(tmp_path, dest_path)
         return dest_path
 
     except Exception:
         # Clean up temp file on failure
-        import os
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -459,7 +479,10 @@ def send_access_log(
             body=body,
             timeout=10,
         )
-        return bool(data.get("success", False))
+        # _as_dict: respons non-object (proxy rusak) dulu melempar
+        # AttributeError melewati except di bawah — best-effort yang
+        # kontraknya boolean, dipanggil dari jalur cleanup/Qt slot.
+        return bool(_as_dict(data).get("success", False))
     except (urllib.error.URLError, OSError, json.JSONDecodeError):
         return False
 
@@ -488,7 +511,7 @@ def complete_exam(
             body=body,
             timeout=10,
         )
-        return bool(data.get("success", False))
+        return bool(_as_dict(data).get("success", False))
     except (urllib.error.URLError, OSError, json.JSONDecodeError):
         return False
 
