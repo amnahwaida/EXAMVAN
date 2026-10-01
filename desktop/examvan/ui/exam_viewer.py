@@ -244,7 +244,7 @@ from ..utils import (
 )
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
-from .congratulations import CongratulationsDialog
+from .congratulations import CongratulationsWindow
 from .fullscreen import apply_fullscreen, covers_fullscreen
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
@@ -663,12 +663,20 @@ class ExamViewerWindow(QMainWindow):
         # Android sudah punya `CongratulationsActivity` (pesan guru, badge
         # nama ujian, identitas siswa, tombol copy link hasil) dan server
         # sudah menyediakan `GET /hasil/<token>` + short-link `/<token>`.
-        # Desktop cuma menampilkan message box lalu menutup jendela, jadi
-        # siswa tidak pernah melihat identitasnya maupun cara membuka
-        # hasil. `SecurityEnforcer` sudah `deactivate()` di atas, jadi
-        # clipboard TIDAK lagi disapu — itulah sebabnya link hasil di
-        # layar ini dibersihkan otomatis oleh dialog-nya sendiri.
-        CongratulationsDialog(
+        # Desktop dulu cuma menampilkan dialog modal kecil di atas jendela
+        # ujian -- siswa tidak pernah melihat identitasnya maupun cara
+        # membuka hasil. Sekarang: halaman selamat tampil fullscreen
+        # sebagai halaman tersendiri (parity Android
+        # `CongratulationsActivity`), dan jendela ujian baru ditutup saat
+        # halamannya ditutup siswa. `SecurityEnforcer` sudah
+        # `deactivate()` di atas, jadi clipboard TIDAK lagi disapu — itulah
+        # sebabnya link hasil di layar ini dibersihkan otomatis oleh
+        # halamannya sendiri.
+        #
+        # `parent=None` dan referensinya ditahan di `self._congrats_ref`:
+        # halaman ini harus HIDUP setelah viewer ditutup, bukan ikut ter-GC
+        # bersama jendela ujian.
+        congrats = CongratulationsWindow(
             server_url=self._server_url,
             exam_token=self._token,
             exam_name=getattr(self._exam, "name", ""),
@@ -682,10 +690,19 @@ class ExamViewerWindow(QMainWindow):
                 self._identity_data.get("kelas") or self._identity_data.get("kelas_id") or ""
             ),
             congrats_message=message,
-            parent=self,
-        ).exec_()
-        # closeEvent already handles self.closed.emit() when _submitted
-        self.close()
+        )
+        congrats.setAttribute(Qt.WA_DeleteOnClose)
+        # Halaman selamat dulu, viewer kemudian: `__main__` menampilkan
+        # ServerConfigDialog siswa berikutnya dari sinyal `closed` viewer,
+        # jadi viewer TIDAK BOLEH ditutup di sini -- kalau tidak, dialog
+        # konfigurasi menimpa halaman selamat yang sedang dibaca siswa.
+        # Viewer menutup dirinya saat halaman ditutup (page_closed), dan
+        # WA_DeleteOnClose menghapus halaman tepat setelahnya.
+        congrats.page_closed.connect(
+            lambda: QTimer.singleShot(0, self.close)
+        )
+        congrats.show_fullscreen()
+        self._congrats_ref = congrats
 
     # -------------------------------------------------------------------
     # WebSocket events

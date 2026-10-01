@@ -87,7 +87,7 @@ class IdentityDialog(QDialog):
         else:
             card.setStyleSheet("QWidget#identityCard { background-color: #ffffff; border: 1px solid #ccd0da; border-radius: 12px; }")
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(10)
+        card_layout.setSpacing(18)
         card_layout.setContentsMargins(40, 40, 40, 40)
 
         # Exam name
@@ -99,12 +99,23 @@ class IdentityDialog(QDialog):
 
         card_layout.addSpacing(16)
 
-        # Dynamic fields
+        # Dynamic fields -- dikelompokkan per field, bukan lemparan label
+        # dan input dengan jarak seragam. Laporan lapangan: "jarak antar
+        # label terlalu lebar". Pengukurannya: label->input dan
+        # input->label berikutnya sama-sama 10px, jadi label terasa
+        # melayang tanpa jelas milik siapa. Perbaikannya hierarki, bukan
+        # sekadar memperkecil angka: setiap field dibungkus satu sub-layout
+        # dengan spacing rapat (label menempel ke inputnya, 4px), dan
+        # JARAK ANTAR FIELD yang melebar (card spacing 18px). Mata membaca
+        # "label + kotak" sebagai satu unit, lalu berhenti sejenak sebelum
+        # unit berikutnya.
         for field in self._fields:
+            group = QVBoxLayout()
+            group.setSpacing(4)
             lbl = QLabel(field.label + (" *" if field.required else ""))
             lbl.setStyleSheet("font-weight: bold;" if field.required else "")
             lbl.setWordWrap(True)
-            card_layout.addWidget(lbl)
+            group.addWidget(lbl)
 
             inp = QLineEdit()
             inp.setPlaceholderText(f"Masukkan {field.label.lower()}")
@@ -112,8 +123,9 @@ class IdentityDialog(QDialog):
             saved_val = self._saved.get(field.key, "")
             if saved_val:
                 inp.setText(str(saved_val))
-            card_layout.addWidget(inp)
+            group.addWidget(inp)
             self._inputs[field.key] = inp
+            card_layout.addLayout(group)
 
         card_layout.addSpacing(12)
 

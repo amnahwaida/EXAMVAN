@@ -187,8 +187,7 @@ class RecoverySubmitTest(RecoveryGateTestCase):
                 mock.patch.object(api, "complete_exam", return_value=True) as cm, \
                 mock.patch.object(QMessageBox, "information"), \
                 mock.patch(
-                    "examvan.ui.congratulations.CongratulationsDialog.exec_",
-                    return_value=0,
+                    "examvan.ui.congratulations.CongratulationsWindow.show_fullscreen",
                 ) as shown:
             dlg._recovery_submit_thread(_exam())
         self.assertTrue(

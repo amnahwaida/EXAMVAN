@@ -7,14 +7,16 @@ di-custom guru, badge nama ujian, baris identitas siswa, dan tombol
 "Copy Link" untuk short-link `{serverUrl}/{examToken}` yang me-redirect ke
 `/hasil/<token>`.
 
-Desktop hanya menampilkan `QMessageBox.information()` lalu menutup
-jendela, jadi siswa tidak pernah mendapatidentitas siswa, nama ujian, maupun
-link hasil -- meski server sudah menyediakan targetnya
-(`GET /hasil/:token` plus short-link redirect `/<token>` di
-`webui/cmd/server/main.go`). formatnya juga terpusat di
-`ResultsLinkPolicy` Android; di desktop ini tidak ada padanannya sama
-sekali, jadi format URL akan ditulis ulang di beberapa tempat begitu
-ditambahkan.
+Desktop dulu menampilkan `QMessageBox`, lalu diperbaiki menjadi dialog modal
+-- dan modal pun masih terasa POP-UP: kotak kecil di atas jendela ujian,
+countdown tetap kelihatan di belakangnya, X kecil satu-satunya jalan keluar.
+Sekarang ini HALAMAN tersendiri (`CongratulationsWindow`, QMainWindow
+non-modal fullscreen) yang menggantikan jendela ujian; jendela ujian baru
+ditutup saat halaman ini ditutup siswa, supaya dialog konfigurasi siswa
+berikutnya tidak menimpa halaman yang sedang dibaca. Server menyediakan
+targetnya (`GET /hasil/:token` plus short-link redirect `/<token>` di
+`webui/cmd/server/main.go`); format URL mengikuti `ResultsLinkPolicy`
+Android.
 
 Kenapa clipboard harus DIBERSIHKAN otomatis
 -------------------------------------------
@@ -37,16 +39,19 @@ menghapus sesuatu yang siswa salin sendiri setelahnya.
 
 from __future__ import annotations
 
+import os
 import time
 import unittest
 from unittest import mock
 
-from PyQt5.QtWidgets import QApplication
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow
 
 from examvan.models import Exam
 from examvan.ui.congratulations import (
     CLIPBOARD_CLEAR_SECONDS,
-    CongratulationsDialog,
+    CongratulationsWindow,
 )
 from examvan.utils import build_result_link
 
@@ -90,7 +95,7 @@ class ResultLinkFormatTestCase(unittest.TestCase):
         )
 
 
-class CongratulationsDialogContentTestCase(unittest.TestCase):
+class CongratulationsContentTestCase(unittest.TestCase):
     """Isi layar: pesan guru, nama ujian, identitas."""
 
     @classmethod
@@ -108,7 +113,7 @@ class CongratulationsDialogContentTestCase(unittest.TestCase):
             congrats_message="Good job, kamuHebat!",
         )
         params.update(kwargs)
-        dlg = CongratulationsDialog(**params)
+        dlg = CongratulationsWindow(**params)
         self.addCleanup(dlg.deleteLater)
         return dlg
 
@@ -224,7 +229,7 @@ class CopyLinkAndAutoClearTestCase(unittest.TestCase):
             congrats_message="Selesai",
         )
         params.update(kwargs)
-        dlg = CongratulationsDialog(**params)
+        dlg = CongratulationsWindow(**params)
         self.addCleanup(dlg.deleteLater)
         return dlg
 
@@ -326,6 +331,154 @@ class CopyLinkAndAutoClearTestCase(unittest.TestCase):
         dlg = self._dialog()
         self.assertIn("30", dlg.copy_button().toolTip())
 
+
+class ItIsAPageNotAPopupTestCase(unittest.TestCase):
+    """Laporan lapangan: "jadikan halaman sendiri, bukan pop-up".
+
+    Dua hal yang membuat versi lama terasa pop-up:
+      1. bentuknya QDialog modal di atas jendela ujian;
+      2. satu-satunya jalan keluar adalah X kecil di title bar.
+    Kontrak sekarang: QMainWindow non-modal dengan tombol "Selesai" yang
+    jelas, dan menutup halaman mengumumkan `page_closed` ke pemanggil.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _page(self, **kwargs):
+        params = dict(
+            server_url="https://examvan.my.id",
+            exam_token="ABCD1234",
+            exam_name="Ujian",
+            student_name="SITI",
+        )
+        params.update(kwargs)
+        page = CongratulationsWindow(**params)
+        self.addCleanup(page.deleteLater)
+        return page
+
+    def test_it_is_a_standalone_window_not_a_modal_dialog(self):
+        page = self._page()
+        self.assertIsInstance(page, QMainWindow)
+        self.assertNotIsInstance(page, QDialog)
+        self.assertFalse(
+            page.isModal(),
+            "halaman selamat tidak boleh memblokir jendela lain -- "
+            "itu definisi pop-up yang dikeluhkan",
+        )
+
+    def test_there_is_a_visible_finish_button(self):
+        page = self._page()
+        page.show()
+        self.app.processEvents()
+        self.assertTrue(page.finish_button().isVisible())
+        self.assertTrue(page.finish_button().isEnabled())
+
+    def test_the_finish_button_closes_the_page(self):
+        page = self._page()
+        page.show()
+        self.app.processEvents()
+        closed = []
+        page.page_closed.connect(lambda: closed.append(True))
+        page.finish_button().click()
+        self.app.processEvents()
+        self.assertTrue(closed, "tombol Selesai menutup halaman")
+        self.assertFalse(page.isVisible())
+        self.assertTrue(page.is_closed())
+
+    def test_closing_via_the_title_bar_also_announces_page_closed(self):
+        # X di title bar, Alt+F4, atau WM close harus berperilaku sama
+        # dengan tombol Selesai -- siswa tidak boleh terjebak di halaman
+        # yang tidak bisa ditutup lewat cara standar Windows.
+        page = self._page()
+        closed = []
+        page.page_closed.connect(lambda: closed.append(True))
+        page.close()
+        self.assertEqual(closed, [True])
+
+    def test_page_closed_fires_exactly_once(self):
+        # Penerima sinyal (ExamViewer) menutup dirinya begitu halaman
+        # ditutup; sinyal ganda berarti alur berikutnya (dialog konfigurasi)
+        # dijalankan dua kali.
+        page = self._page()
+        closed = []
+        page.page_closed.connect(lambda: closed.append(True))
+        page.close()
+        page.close()
+        self.assertEqual(closed, [True])
+
+
+class ViewerHandsOverToThePageTestCase(unittest.TestCase):
+    """Alur `_cleanup_after_submit`: halaman tampil, viewer menutup belakangan.
+
+    `__main__` menampilkan ServerConfigDialog siswa berikutnya dari sinyal
+    `closed` viewer. Kalau viewer ditutup BERSAMAAN dengan menampilkan
+    halaman selamat, dialog konfigurasi menimpa halamannya -- persis
+    keluhan "pop-up" dalam bentuk baru. Kontrak: halaman dulu, viewer
+    ditutup ketika halaman ditutup siswa.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _viewer(self):
+        import threading
+
+        from examvan.ui import exam_viewer as ev
+
+        win = ev.ExamViewerWindow.__new__(ev.ExamViewerWindow)
+        win._exam = Exam(id=1, name="Ujian", status="active")
+        win._token = "ABCD1234"
+        win._server_url = "https://exam.example"
+        win._identity_data = {"nama": "Andi", "nomor_ujian": "N01"}
+        win._submitted = True
+        win._submitting = False
+        win._submit_lock = threading.Lock()
+        win._security = None
+        win._timer_widget = mock.Mock()
+        win._btn_submit = mock.Mock()
+        win._pdf_viewer = mock.Mock()
+        win._pdf_path = None
+        win._std_identity = {"student_name": "Andi"}
+        win._device_label = "DESKTOP:test"
+        win._presence_active = False
+        win._heartbeat_timer = mock.Mock()
+        win._ws = mock.Mock()
+        return win
+
+    def test_the_page_shows_and_the_viewer_closes_only_after_it(self):
+        from examvan.ui import exam_viewer as ev
+
+        win = self._viewer()
+        viewer_closed = []
+        # Spy di-level Python, bukan `win.closed.connect(...)`: stub ini
+        # melewati QWidget.__init__, jadi sinyal Qt-nya tidak bisa dipakai.
+        # Yang diuji adalah PEMANGGILAN self.close(), dan itulah yang
+        # memicu sinyal `closed` di produksi (closeEvent).
+        win.close = lambda *a, **k: viewer_closed.append(True)
+
+        with mock.patch.object(ev.config, "clear_answers"), \
+                mock.patch.object(ev.config, "mark_submitted"), \
+                mock.patch.object(ev.api, "complete_exam"):
+            win._cleanup_after_submit("Hebat!")
+
+        self.app.processEvents()
+        # Halaman selamat tampil SEKARANG; viewer belum menutup dirinya.
+        page = win._congrats_ref
+        self.assertTrue(page.isVisible(), "halaman selamat tidak tampil")
+        self.assertEqual(
+            viewer_closed, [],
+            "viewer ditutup bersamaan dengan menampilkan halaman selamat -- "
+            "dialog konfigurasi siswa berikutnya akan menimpanya",
+        )
+        self.assertEqual(page.congrats_text(), "Hebat!")
+
+        # Siswa menutup halaman -> viewer baru menutup dirinya.
+        page.close()
+        self.app.processEvents()
+        self.assertEqual(viewer_closed, [True])
 
 
 class TeacherMessageSurvivesTheQueuedPollTestCase(unittest.TestCase):

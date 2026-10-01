@@ -684,7 +684,7 @@ def poll_queued_result(
             # `congrats_message` HANYA ada di respons 202; `/result`
             # mengirim `message` generik saja. Tanpa-carry ini, objek
             # respons 202 ditimpa dan pesan guru hilang -- padahal
-            # `CongratulationsDialog` menjadikan pesan itu seluruh isi
+            # `CongratulationsWindow` menjadikan pesan itu seluruh isi
             # headline-nya, jadi fiturnya mati di jalur normal (antrean).
             if previous_congrats and not resp.congrats_message:
                 resp.congrats_message = previous_congrats

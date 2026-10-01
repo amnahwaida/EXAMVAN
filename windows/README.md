@@ -223,7 +223,61 @@ cd windows
    ├─ Timer countdown / elapsed
    ├─ Auto-save jawaban tiap perubahan
    ├─ Auto-submit saat waktu habis / fokus hilang
-   └─ Kumpulkan manual → konfirmasi → selesai
+   └─ Kumpulkan manual → konfirmasi → halaman selamat
+
+4. Halaman Selamat (fullscreen, bukan pop-up)
+   ├─ Pesan ucapan dari guru
+   ├─ Identitas siswa + nama ujian
+   ├─ Copy link hasil (auto-hapus dari clipboard 30 detik)
+   └─ Tombol "Selesai" → kembali ke dialog konfigurasi
+```
+
+Tampilan form identitas (label menempel ke inputnya, jeda jelas antar
+kolom) dan halaman selamat:
+
+![Form identitas siswa](../docs/screenshots/identity-form.png)
+
+![Halaman selamat setelah submit](../docs/screenshots/congratulations.png)
+
+---
+
+## Halaman Selamat Setelah Submit
+
+Setelah jawaban berhasil dikumpulkan (submit manual yang dikonfirmasi
+server), siswa tidak lagi disambut message box kecil — melainkan
+**halaman penuh fullscreen** yang menggantikan jendela ujian:
+
+- **Pesan ucapan guru** — teks `congrats_message` yang ditulis guru di
+  halaman admin tampil utuh sebagai isi utama halaman; kalau kosong,
+  dipakai teks bawaan yang tetap ramah.
+- **Identitas siswa + nama ujian** — nama, nomor ujian, dan kelas siswa
+  ditampilkan di kartu identitas (field kosong otomatis disembunyikan).
+- **Link hasil + tombol Copy Link** — short-link `{server}/{token}`
+  mengarah ke halaman hasil. Karena PC lab dipakai bersama dan token
+  adalah kredensial kelas, link yang disalin **otomatis dihapus dari
+  clipboard 30 detik kemudian** — kecuali siswa sempat menyalin sesuatu
+  yang lain setelahnya (miliknya, tidak dihapus).
+- **Tombol "Selesai"** — satu-satunya jalan keluar yang tampil; menutup
+  halaman dan menampilkan kembali dialog konfigurasi untuk siswa
+  berikutnya. Menutup lewat X / Alt+F4 berperilaku sama.
+
+Jendela ujian ditutup **setelah** halaman selamat ditutup siswa, jadi
+dialog konfigurasi tidak pernah menimpa halaman yang sedang dibaca.
+
+Catatan alur khusus:
+
+- **Auto-submit** (waktu habis, ujian dihentikan pengawas, fokus hilang
+  di level medium/strict) tetap menutup jendela segera dan melapor lewat
+  notifikasi Windows — parity `autoSubmitAndExit` Android; siswa tidak
+  pernah terjebak di layar terkunci saat jaringan mati.
+- **Recovery "Kirim Lagi"** (submit sebelumnya gagal, jawaban masih di
+  disk) juga berakhir di halaman selamat yang sama setelah sukses.
+
+Tangkapan layar di atas dirender ulang setiap UI berubah:
+
+```cmd
+cd desktop
+QT_QPA_PLATFORM=offscreen .venv\Scripts\python.exe tools\render_screenshots.py
 ```
 
 ---
@@ -411,7 +465,10 @@ dihapus pada 202 mentah.
    gagal dipicu (PowerShell diblokir policy, helper tidak ada) → fallback
    aman ke recovery re-entry: jawaban tetap tersimpan, tidak ada jalan buntu.
 10. **`congrats_message` custom guru** ditampilkan saat sukses (submit manual
-    maupun auto) — bukan hanya pesan bawaan server.
+    maupun auto) — bukan hanya pesan bawaan server. Submit manual kini
+    berakhir di **halaman selamat fullscreen** (pesan guru, identitas,
+    copy link hasil, tombol Selesai) — lihat
+    [Halaman Selamat Setelah Submit](#halaman-selamat-setelah-submit).
 11. **Countdown akurat setelah suspend** — deadline dihitung ulang dari
     `end_time` absolut + skew saat window aktif kembali (monotonic clock
     tidak termasuk waktu tidur laptop).

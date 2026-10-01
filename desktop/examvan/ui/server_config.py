@@ -390,10 +390,15 @@ class ServerConfigDialog(QDialog):
         # identitas, dan link hasil -- bukan message box. Di recovery ini
         # siswa mungkin sudah keluar dari ruang ujian jadi menampilkan
         # link hasil jauh lebih berguna daripada "Pesan Berhasil".
-        from .congratulations import CongratulationsDialog
+        #
+        # Halaman non-modal tersendiri, bukan dialog modal di atas dialog
+        # konfigurasi. Referensinya ditahan di `self._congrats_ref` supaya
+        # tidak ter-GC saat slot ini kembali, dan WA_DeleteOnClose membuat
+        # Qt menghapusnya ketika siswa menekan "Selesai".
+        from .congratulations import CongratulationsWindow
 
         identity = config.get("identity_data", {}) or {}
-        CongratulationsDialog(
+        congrats = CongratulationsWindow(
             server_url=self._server_url,
             exam_token=str(config.get("exam_token", "") or ""),
             exam_name=getattr(self._exam, "name", ""),
@@ -405,8 +410,10 @@ class ServerConfigDialog(QDialog):
                 identity.get("kelas") or identity.get("kelas_id") or ""
             ),
             congrats_message=msg,
-            parent=self,
-        ).exec_()
+        )
+        congrats.setAttribute(Qt.WA_DeleteOnClose)
+        congrats.show_fullscreen()
+        self._congrats_ref = congrats
 
     def _offer_pending_recovery(self) -> bool:
         """True bila siswa boleh lanjut. Tidak pernah menolak.
