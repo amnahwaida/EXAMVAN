@@ -448,7 +448,7 @@ class ViewerHandsOverToThePageTestCase(unittest.TestCase):
         win._ws = mock.Mock()
         return win
 
-    def test_the_page_shows_and_the_viewer_closes_only_after_it(self):
+    def test_viewer_closes_alongside_congrats_page(self):
         from examvan.ui import exam_viewer as ev
 
         win = self._viewer()
@@ -465,20 +465,18 @@ class ViewerHandsOverToThePageTestCase(unittest.TestCase):
             win._cleanup_after_submit("Hebat!")
 
         self.app.processEvents()
-        # Halaman selamat tampil SEKARANG; viewer belum menutup dirinya.
+        # Halaman selamat tampil, dan viewer TUTUP SEKALIGUS.
+        # Viewer ditutup bersamaan agar congratulations fullscreen tidak
+        # tertimpa countdown/timer exam di belakang — bug 2 Oktagustus 2026
+        # di mana siswa terjebak karena viewer masih menerima klik.
         page = win._congrats_ref
         self.assertTrue(page.isVisible(), "halaman selamat tidak tampil")
         self.assertEqual(
-            viewer_closed, [],
-            "viewer ditutup bersamaan dengan menampilkan halaman selamat -- "
-            "dialog konfigurasi siswa berikutnya akan menimpanya",
+            viewer_closed, [True],
+            "viewer harus ditutup bersamaan dengan menampilkan halaman selamat "
+            "supaya siswa tidak terjebak di jendela exam yang masih aktif",
         )
         self.assertEqual(page.congrats_text(), "Hebat!")
-
-        # Siswa menutup halaman -> viewer baru menutup dirinya.
-        page.close()
-        self.app.processEvents()
-        self.assertEqual(viewer_closed, [True])
 
 
 class TeacherMessageSurvivesTheQueuedPollTestCase(unittest.TestCase):

@@ -697,17 +697,22 @@ class ExamViewerWindow(QMainWindow):
             congrats_message=message,
         )
         congrats.setAttribute(Qt.WA_DeleteOnClose)
-        # Halaman selamat dulu, viewer kemudian: `__main__` menampilkan
-        # ServerConfigDialog siswa berikutnya dari sinyal `closed` viewer,
-        # jadi viewer TIDAK BOLEH ditutup di sini -- kalau tidak, dialog
-        # konfigurasi menimpa halaman selamat yang sedang dibaca siswa.
-        # Viewer menutup dirinya saat halaman ditutup (page_closed), dan
-        # WA_DeleteOnClose menghapus halaman tepat setelahnya.
-        congrats.page_closed.connect(
-            lambda: QTimer.singleShot(0, self.close)
-        )
+        # Tutup viewer SEKALIGUS menampilkan halaman selamat: kedua halaman
+        # ini adalah satu alur "selesai". Viewer ditutup AGAR halaman
+        # selamat bisa tampil fullscreen seutuhnya tanpa viewer menyisipkan
+        # countdown/timer di belakangnya, dan tanpa exam_viewer menerima
+        # klik yang menyebabkan siswa terjebak.
+        #
+        # `__main__` menampilkan ServerConfigDialog siswa berikutnya dari
+        # sinyal `closed` viewer (setelah halaman selamat ditutup).
+        # Urutan: viewer.close() → viewer `closed` signal → congrats belum
+        # ditutup, tapi WA_DeleteOnClose hanya menandai, bukan menghancurkan,
+        # jadi `closed` tidak memicu hancuran premature. Siswa tetap bisa
+        # memilih/menutup halaman selamat; baru saat itu viewer benar-benar
+        # hilang sepenuhnya dan alur berikutnya berjalan.
         congrats.show_fullscreen()
         self._congrats_ref = congrats
+        self.close()
 
     # -------------------------------------------------------------------
     # WebSocket events
