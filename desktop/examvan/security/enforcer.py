@@ -365,6 +365,34 @@ class SecurityEnforcer(QObject):
         self._poll_timer.start()
         log.info("Focus poll timer started (%dms interval)", FOCUS_POLL_INTERVAL_MS)
 
+    def _app_popup_open(self) -> bool:
+        """True selagi popup MILIK APLIKASI INI terbuka.
+
+        Contohnya daftar pilihan QComboBox di lembar jawaban (soal
+        menjodohkan) dan menu konteks. Popup itu window top-level
+        TERPISAH, jadi guard fokus harus memperlakukannya sebagai "siswa
+        sedang memakai app", bukan "siswa keluar dari ujian":
+
+          * di strict, `raise_()` + `activateWindow()` pada window ujian
+            mengembalikan aktivasi ke window induk -- popup kehilangan
+            fokus dan QComboBox menutup dirinya sendiri. Siswa klik
+            dropdown, popup berkedip lalu hilang sebelum sempat memilih:
+            laporan lapangan "jawaban yang ada dropdownnya susah diklik";
+          * di medium, aktivasi yang berpindah ke popup bisa terbaca
+            sebagai ApplicationInactive -- countdown 3 detik berjalan dan
+            auto-submit menembak saat siswa masih memilih opsi.
+
+        Popup selalu berumur pendek dan hanya bisa dibuka dari dalam
+        window ujian (klik atau keyboard), jadi menutup mata selama popup
+        terbuka tidak membuka jalan keluar: begitu popup ditutup, polling
+        berikutnya (<=500 ms) menilai fokus seperti biasa lagi.
+        """
+        try:
+            app = QApplication.instance()
+            return bool(app is not None and app.activePopupWidget() is not None)
+        except Exception:
+            return False
+
     def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
         # `isActiveWindow() == False` selama dialog modal terbuka itu
         # NORMAL, bukan tanda murid keluar dari ujian. Tanpa cek ini
@@ -373,6 +401,12 @@ class SecurityEnforcer(QObject):
         if not self._active or self._focus_guard_paused:
             return
         if state == Qt.ApplicationInactive:
+            # Popup aplikasi sendiri (dropdown QComboBox, menu) juga
+            # membuat window induk terlihat "tidak aktif" di sebagian
+            # platform -- itu bukan alasan memulai countdown auto-submit.
+            # Lihat _app_popup_open().
+            if self._app_popup_open():
+                return
             log.warning("Focus lost — starting 3s auto-submit countdown")
             self._focus_timer.start()
         elif state == Qt.ApplicationActive:
@@ -392,6 +426,12 @@ class SecurityEnforcer(QObject):
         if not self._active or not self._window or self._focus_guard_paused:
             return
 
+        # Popup aplikasi sendiri sedang terbuka: JANGAN raise/activate
+        # (menutup popup yang sedang dipakai siswa) dan jangan mulai
+        # countdown. Lihat _app_popup_open().
+        if self._app_popup_open():
+            return
+
         if self._strict:
             self._window.raise_()
             self._window.activateWindow()
@@ -407,6 +447,15 @@ class SecurityEnforcer(QObject):
 
     def _on_focus_timeout(self) -> None:
         if not self._active or self._focus_guard_paused:
+            return
+        if self._app_popup_open():
+            # Sabuk pengaman terakhir: jangan pernah mengirim jawaban
+            # siswa di tengah dia memilih opsi dari dropdown. Tunda satu
+            # siklus; kalau fokusnya memang benar-benar lepas, popup
+            # sudah tertutup sendiri saat itu dan countdown menembak
+            # seperti biasa.
+            log.info("Focus timeout tertunda: popup aplikasi masih terbuka")
+            self._focus_timer.start()
             return
         log.warning("Focus lost timeout — triggering auto-submit")
         self.auto_submit.emit()
