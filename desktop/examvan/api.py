@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import logging
@@ -22,6 +23,38 @@ log = logging.getLogger(__name__)
 
 # Platform label for User-Agent
 _PLATFORM = "Windows" if sys.platform == "win32" else "Linux"
+
+# Kelas exception jaringan yang DITANGKAP setiap pemanggil API.
+#
+# Audit 2 Okt 2026 (HIGH H1): daftar lama hanya
+# (URLError, OSError, JSONDecodeError). `http.client.HTTPException` TIDAK
+# termasuk — padahal itulah kelas untuk kegagalan protokol HTTP yang
+# paling sering di jaringan lab sekolah: `BadStatusLine` (proxy mati di
+# tengah respons), `IncompleteRead` (respons terpotong), `RemoteDisconnected`
+# (connection di-close tanpa jawaban), `InvalidURL`. Semua itu dulu lolos
+# dari setiap except, thread pemanggil mati diam-diam, dan siswa menghadap
+# status yang tidak pernah berubah ("Menghubungkan..." / countdown yang
+# tidak pernah submit) tanpa satu baris log pun.
+#
+# URLError adalah subclass OSError, jadi tuple ini tetap menangkap semua
+# yang lama — hanya menambah yang terlewat.
+_NETWORK_ERRORS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    OSError,
+    json.JSONDecodeError,
+)
+
+# Pesan untuk HTTP 426 Upgrade Required (gate versi aplikasi server —
+# system_apps.go / exams.go): server menolak klien yang lebih LAMA dari
+# versi minimum yang ditetapkan. Dulu pesannya cuma "HTTP 426" atau teks
+# bawaan server — siswa tidak tahu harus apa. Pesan ini menyebut langkah
+# yang benar: minta pengawas memperbarui aplikasi.
+_VERSION_REJECT_MESSAGE = (
+    "Versi aplikasi EXAMVAN di perangkat ini sudah kedaluwarsa "
+    "(server menolak dengan HTTP 426). Minta pengawas memperbarui "
+    "aplikasi EXAMVAN di perangkat ini, lalu coba lagi."
+)
 
 # Server time skew (ms) — selisih jam perangkat vs server, dihitung dari
 # `server_time_utc` pada GET /api/health (mirror ApiClient.serverTimeSkewMs
@@ -65,7 +98,17 @@ def _make_request(
         hdrs["Content-Type"] = "application/json; charset=utf-8"
 
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    # `opener` yang sama dengan download PDF: redirect buang header
+    # kredensial (X-Exam-Token, X-Device-Id, ...).
+    #
+    # Audit 2 Okt 2026 (HIGH H17): dulu `_make_request` memakai
+    # `urllib.request.urlopen` bawaan yang MENERUSKAN semua custom header
+    # ke target redirect. Handler anti-redirect hanya dipasang di
+    # download_pdf — submit, exam_result, access-log, dan complete semuanya
+    # lewat sini, jadi token kelas ikut terkirim ke target redirect mana
+    # pun yang dijawab server (origin storage, halaman login proxy, dsb.),
+    # dan tercatat di access log sana. Satu opener, semua jalur.
+    with _pdf_opener().open(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8", errors="replace").strip()
         # Try JSON first.
         try:
@@ -138,7 +181,7 @@ def check_health(base_url: str) -> HealthResponse:
         if skew is not None:
             set_server_skew_ms(skew)
         return resp
-    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+    except _NETWORK_ERRORS as e:
         return HealthResponse(success=False, status=f"Error: {e}")
 
 
@@ -157,6 +200,12 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
         )
         return TokenExamResponse.from_json(data)
     except urllib.error.HTTPError as e:
+        if e.code == 426:
+            # Gate versi aplikasi: upgrade dulu, ulang tidak akan berubah.
+            return TokenExamResponse(
+                success=False, error="version_rejected",
+                message=_VERSION_REJECT_MESSAGE,
+            )
         try:
             body = json.loads(e.read().decode("utf-8"))
             return TokenExamResponse.from_json(body)
@@ -164,7 +213,7 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
             return TokenExamResponse(
                 success=False, error=str(e), message=f"HTTP {e.code}"
             )
-    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+    except _NETWORK_ERRORS as e:
         return TokenExamResponse(success=False, error=str(e), message=str(e))
 
 
@@ -184,6 +233,11 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
 #
 # Yang memeriksa header itu hanya exams.go di origin pertama, jadi "sudah
 # lolos gate" terasa aman padahal tidak.
+#
+# Catatan (audit 2 Okt 2026, HIGH H17): handler ini kini dipakai oleh
+# SEMUA request lewat `_make_request` juga — bukan hanya download PDF.
+# Nama fungsi tetap `_pdf_opener` demi test yang ada, tapi pembacaannya
+# sekarang: "opener anti-bocor-kredensial".
 _REDIRECT_SENSITIVE_HEADERS = frozenset(
     {"x-exam-token", "x-device-id", "authorization", "cookie"}
 )
@@ -374,6 +428,12 @@ def submit_exam(
         )
         return SubmitResponse.from_json(data)
     except urllib.error.HTTPError as e:
+        if e.code == 426:
+            # Gate versi aplikasi (exams.go): upgrade dulu — ulang tidak
+            # mengubah apa pun, jadi jangan dianggap retryable.
+            return SubmitResponse(
+                success=False, message=_VERSION_REJECT_MESSAGE, http_status=426
+            )
         try:
             body_data = json.loads(e.read().decode("utf-8"))
             resp = SubmitResponse.from_json(body_data)
@@ -383,7 +443,7 @@ def submit_exam(
         # (401/403/404) from a transient one (408/429/5xx, network).
         resp.http_status = e.code
         return resp
-    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+    except _NETWORK_ERRORS as e:
         return SubmitResponse(success=False, message=str(e))
 
 
@@ -483,7 +543,7 @@ def send_access_log(
         # AttributeError melewati except di bawah — best-effort yang
         # kontraknya boolean, dipanggil dari jalur cleanup/Qt slot.
         return bool(_as_dict(data).get("success", False))
-    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+    except _NETWORK_ERRORS:
         return False
 
 
@@ -512,7 +572,7 @@ def complete_exam(
             timeout=10,
         )
         return bool(_as_dict(data).get("success", False))
-    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+    except _NETWORK_ERRORS:
         return False
 
 
@@ -540,17 +600,20 @@ def exam_result(
 
     The server gate admits the poller via the exam token (X-Exam-Token) —
     same credential used on join — plus the device's own job_id/mac_address.
+
+    Audit 2 Okt 2026: `identity_data` TIDAK LAGI dikirim di query string.
+    URL tercatat apa adanya oleh setiap proxy di jalur sekolah; menaruh
+    identitas siswa (nama, nomor ujian) di URL berarti menitipkannya di
+    access log pihak ketiga. Server hanya memakainya sebagai fallback
+    pencocokan baris DB (`($3 = '' OR identity_data = $3)`) — pencocokan
+    utama tetap `mac_address` (label per percobaan, unik), jadi mengosong-
+    kannya tidak mengubah hasil polling. Parameter dipertahankan demi
+    kompatibilitas pemanggil, tapi tidak masuk URL.
     """
     params = [
         f"job_id={urllib.parse.quote(job_id)}" if job_id else None,
         f"mac_address={urllib.parse.quote(mac_address)}" if mac_address else None,
     ]
-    if identity_data:
-        params.append(
-            "identity_data=" + urllib.parse.quote(
-                json.dumps(identity_data, ensure_ascii=False)
-            )
-        )
     qs = "&".join(p for p in params if p)
     url = _url_join(base_url, f"/api/exams/{exam_id}/result")
     if qs:
@@ -579,6 +642,10 @@ def exam_result(
         # = 12000/menit: 500 perangkat yang mulai polling sefase menghabiskan
         # bucket bersama dan siswa lain ikut kena 429.
         code = e.code
+        if code == 426:
+            return SubmitResponse(
+                success=False, message=_VERSION_REJECT_MESSAGE, http_status=426
+            )
         try:
             body_data = json.loads(e.read().decode("utf-8"))
             resp = SubmitResponse.from_json(body_data)
@@ -590,7 +657,7 @@ def exam_result(
                 success=False, message=f"HTTP {code}: {e.reason}",
                 http_status=code,
             )
-    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+    except _NETWORK_ERRORS as e:
         # http_status sengaja None: tidak ada HTTP sama sekali, jadi ini
         # kategori "masih dicoba", bukan "ditolak".
         return SubmitResponse(success=False, message=str(e))
@@ -777,10 +844,24 @@ def request_approval(
         )
         return RequestApprovalResponse.from_json(data)
     except urllib.error.HTTPError as e:
+        # Audit 2 Okt 2026 (HIGH H2): kode status DIBAWA NAIK, dan kegagalan
+        # parse body TIDAK lagi jatuh ke status "pending". 401/403/404 dari
+        # server adalah verdict yang tidak berubah dengan mencoba lagi;
+        # membagikan status "pending" membuat dialog persetujuan polling
+        # SELAMANYA untuk permintaan yang sudah ditolak permanen.
+        code = e.code
         try:
             body_data = json.loads(e.read().decode("utf-8"))
-            return RequestApprovalResponse.from_json(body_data)
+            resp = RequestApprovalResponse.from_json(body_data)
+            resp.http_status = code
+            return resp
         except Exception:
-            return RequestApprovalResponse(success=False, message=f"HTTP {e.code}")
-    except Exception as e:
-        return RequestApprovalResponse(success=False, message=str(e))
+            return RequestApprovalResponse(
+                success=False, status="error",
+                message=f"HTTP {code}: {e.reason}", http_status=code,
+            )
+    except _NETWORK_ERRORS as e:
+        # Tidak ada HTTP sama sekali: status "error" supaya dialog
+        # persetujuan menampilkan pesan jaringan, bukan diam-diam dihitung
+        # "masih menunggu pengawas".
+        return RequestApprovalResponse(success=False, status="error", message=str(e))

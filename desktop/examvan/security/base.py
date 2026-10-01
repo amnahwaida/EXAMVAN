@@ -117,6 +117,26 @@ class SecurityBackend(ABC):
         ...
 
     # ------------------------------------------------------------------
+    # Pointer confinement (strict)
+    # ------------------------------------------------------------------
+    # Non-abstract: bukan semua platform punya padanan yang berarti
+    # (Linux/X11 membutuhkan XGrabPointer + event pumping tersendiri),
+    # jadi default-nya no-op dan hanya Windows yang meng-override.
+
+    def confine_pointer(self, window: Any) -> None:
+        """Constrain the pointer inside the exam window (strict mode).
+
+        Best-effort re-assertion point: sistem/aplikasi lain bisa me-reset
+        confinement kapan saja, jadi enforcer memanggil ini berulang kali
+        selama strict aktif. Default: tidak didukung di platform ini.
+        """
+        return None
+
+    def release_pointer(self) -> None:
+        """Undo confine_pointer()."""
+        return None
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

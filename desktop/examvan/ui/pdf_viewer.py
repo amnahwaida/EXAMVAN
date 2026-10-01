@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os
 import sys
 from typing import Optional
@@ -240,25 +241,42 @@ class PdfWidget(QWidget):
         if not self._doc or self._total_pages == 0:
             return
 
-        with _suppress_mupdf_warnings():
-            page = self._doc[self._current_page]
-            mat = fitz.Matrix(self._zoom, self._zoom)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
+        # Audit 2 Okt 2026 (HIGH H11): get_pixmap() dapat gagal jika dokumen
+        # rusak, halaman kosong, atau MuPDF lepas dari memori. Sekantan sebelumnya
+        # melempar ke event loop Qt → aplikasi crash saat navigasi halaman. Bungkam
+        # dan tampilkan placeholder agar ujian tetap berlanjut.
+        try:
+            with _suppress_mupdf_warnings():
+                page = self._doc[self._current_page]
+                mat = fitz.Matrix(self._zoom, self._zoom)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
 
-        # Convert fitz pixmap to QImage
-        img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(img)
+            # Convert fitz pixmap to QImage
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(img)
 
-        self._page_label.setPixmap(pixmap)
-        # Set label size hint to pixmap size so scrollbar appears
-        self._page_label.setMinimumSize(pixmap.size())
-        self._page_label.resize(pixmap.size())
-        self._lbl_page.setText(f"Halaman {self._current_page + 1} / {self._total_pages}")
-        self._lbl_zoom.setText(f"{int(self._zoom * 100)}%")
+            self._page_label.setPixmap(pixmap)
+            # Set label size hint to pixmap size so scrollbar appears
+            self._page_label.setMinimumSize(pixmap.size())
+            self._page_label.resize(pixmap.size())
+            self._lbl_page.setText(f"Halaman {self._current_page + 1} / {self._total_pages}")
+            self._lbl_zoom.setText(f"{int(self._zoom * 100)}%")
 
-        # Update button states
-        self._btn_prev.setEnabled(self._current_page > 0)
-        self._btn_next.setEnabled(self._current_page < self._total_pages - 1)
+            # Update button states
+            self._btn_prev.setEnabled(self._current_page > 0)
+            self._btn_next.setEnabled(self._current_page < self._total_pages - 1)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Gagal render halaman %d: %s", self._current_page, e
+            )
+            # Bersihkan pixmap yang mungkin masih terpasang, lalu
+            # tunjukkan teks placeholder. clear()+setText memastikan
+            # label menampilkan teks, bukan pixmap kosong.
+            self._page_label.clear()
+            self._page_label.setText(
+                f"Halaman {self._current_page + 1} / {self._total_pages}\n"
+                "(gagal merender)"
+            )
 
     def wheelEvent(self, event) -> None:
         """Ctrl+scroll to zoom, otherwise scroll normally."""

@@ -185,8 +185,7 @@ class TokenExamResponse:
             success=bool(data.get("success")),
             exam=exam,
             error=data.get("error"),
-            message=data.get("message"),
-        )
+            message=data.get("message"),        )
 
 
 @dataclass
@@ -197,6 +196,10 @@ class SubmitResponse:
     job_id: Optional[str] = None
     score: Optional[float] = None
     congrats_message: Optional[str] = None
+    # Kode kesalahan klien (bukan server) saat respons tidak bisa dipercaya
+    # sebagai hasil submit — mis. "non_json_response" (halaman blok proxy).
+    # Dipakai `retryable` untuk memutuskan apakah mengulang masih ada harapan.
+    error_code: Optional[str] = None
     # HTTP status when the request actually completed. None means the request
     # never got a response (network down, DNS, timeout), which is retryable.
     http_status: Optional[int] = None
@@ -215,9 +218,19 @@ class SubmitResponse:
         hiccup.
 
         submit_with_retry used to retry unconditionally, which turned a 401
-        into seven seconds of "percobaan 2/4... 3/4... 4/4..." followed by the
-        same failure.
+        into seven seconds of "percobaan 2/4... 3/4... 4/4..." followed by
+        the same failure.
+
+        Audit 2 Okt 2026: respons 200 yang ISINYA bukan JSON (halaman blok
+        proxy/WAF, captive portal) dulu dianggap "tidak ada HTTP sama
+        sekali" → retryable=True → empat percobaan penuh terhadap halaman
+        yang sama. Yang menjawab bukan server EXAMVAN; mengulang tidak
+        mengubah halamannya, hanya memakan waktu siswa di depan layar
+        "percobaan 2/4...". Sekarang error_code="non_json_response" adalah
+        verdict permanen juga.
         """
+        if self.error_code == "non_json_response":
+            return False
         if self.http_status is None:
             return True
         if self.http_status in (408, 429):
@@ -242,6 +255,7 @@ class SubmitResponse:
             job_id=data.get("job_id"),
             score=score,
             congrats_message=data.get("congrats_message"),
+            error_code=data.get("error_code"),
         )
 
 @dataclass
@@ -249,6 +263,16 @@ class RequestApprovalResponse:
     success: bool
     status: str = "pending"
     message: str = ""
+    # Kode HTTP respons yang benar-benar datang. None = tidak ada HTTP
+    # (jaringan/DNS/timeout).
+    #
+    # Audit 2 Okt 2026 (HIGH): kode ini dulu DIBUANG. HTTPError 401/403/404
+    # yang body-nya gagal di-parse jatuh ke default `status="pending"`, dan
+    # WaitingApprovalDialog memperlakukan "pending" sebagai "tunggu lagi"
+    # — polling tiap 5 detik SELAMANYA untuk penolakan yang tidak akan
+    # pernah berubah. Dengan kode ini dibawa naik, dialog bisa membedakan
+    # "masih menunggu" dari "ditolak permanen" dan berhenti.
+    http_status: Optional[int] = None
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "RequestApprovalResponse":
@@ -256,6 +280,6 @@ class RequestApprovalResponse:
         return cls(
             success=bool(data.get("success", "status" in data)),
             status=data.get("status", "pending"),
-            message=data.get("message", data.get("error", ""))
+            message=data.get("message", data.get("error", "")),
         )
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from typing import Any, Callable, Dict, Optional
 
 from PyQt5.QtCore import QObject, QTimer, QUrl, pyqtSignal
@@ -142,6 +143,10 @@ class ExamWebSocket(QObject):
 
     def _schedule_reconnect(self) -> None:
         delay = min(_RECONNECT_BASE_MS * (2 ** self._reconnect_attempts), _RECONNECT_MAX_MS)
+        # Jitter: campur ±25% agar banyak klien yang drop sama-sama tidak
+        # menghasilkan gempa bumi reconnect yang membebani server.
+        jitter = random.randint(-delay // 4, delay // 4)
+        delay = max(delay + jitter, _RECONNECT_BASE_MS)
         self._reconnect_attempts += 1
         log.info("WS reconnecting in %d ms (attempt %d)", delay, self._reconnect_attempts)
         self._reconnect_timer.start(delay)

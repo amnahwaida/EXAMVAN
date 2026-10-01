@@ -117,5 +117,38 @@ class LifecycleRobustnessTestCase(unittest.TestCase):
         self.ws.disconnect()
 
 
-if __name__ == "__main__":
-    unittest.main()
+class ReconnectJitterTest(unittest.TestCase):
+    """Retry delay harus punya jitter supaya banyak klien yang disconnect
+    sama-sama tidak menghasilkan gempa bumi reconnect ke server."""
+
+    def setUp(self):
+        if QCoreApplication.instance() is None:
+            self._app = QCoreApplication([])
+        else:
+            self._app = QCoreApplication.instance()
+
+    def test_first_attempt_delay_is_near_base(self):
+        ws = ExamWebSocket()
+        ws._reconnect_attempts = 0
+
+        # Capture the delay that would be used by mocking the timer.
+        with mock.patch.object(ws._reconnect_timer, "start") as start_mock:
+            ws._schedule_reconnect()
+            args = start_mock.call_args.args
+            # _RECONNECT_BASE_MS = 1000, jitter = +-250.
+            self.assertEqual(len(args), 1)
+            self.assertGreaterEqual(args[0], 750)
+            self.assertLessEqual(args[0], 1250)
+
+    def test_jitter_produces_different_delays(self):
+        """Two calls with the same attempt count should (almost certainly)
+        produce different delays thanks to randomness."""
+        delays = []
+        for _ in range(20):
+            ws = ExamWebSocket()
+            ws._reconnect_attempts = 0
+            with mock.patch.object(ws._reconnect_timer, "start") as start_mock:
+                ws._schedule_reconnect()
+                delays.append(start_mock.call_args.args[0])
+        # With 25% jitter over [-250, 250], 20 samples should have >1 unique value.
+        self.assertGreater(len(set(delays)), 1, "jitter tidak menghasilkan variasi")

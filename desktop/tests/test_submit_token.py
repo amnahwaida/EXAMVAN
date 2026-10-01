@@ -368,7 +368,7 @@ class SubmitCallSiteTokenTest(unittest.TestCase):
              mock.patch("examvan.config.load_start_time", return_value="t"), \
              mock.patch("examvan.config.clear_answers"), \
              mock.patch("examvan.utils.get_device_label", return_value="DESKTOP:m"):
-            ServerConfigDialog._recovery_submit_thread(stub, exam)
+            ServerConfigDialog._recovery_submit_thread(stub, exam, {"nama": "Budi"})
         self.assertEqual(sub.call_count, 1)
         self.assertEqual(sub.call_args.kwargs.get("token"), "ABCD1234")
 

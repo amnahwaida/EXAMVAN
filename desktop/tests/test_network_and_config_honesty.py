@@ -57,10 +57,17 @@ class _FakeResponse:
 
 
 def _respond_with(body: bytes):
-    """Patch urlopen supaya _make_request dapat body itu."""
+    """Patch _pdf_opener supaya _make_request dapat body itu.
+
+    Sekarang _make_request memakai _pdf_opener().open() (bukan
+    urllib.request.urlopen) -- lihat audit HIGH H17. Mock _pdf_opener
+    untuk mengembalikan objek opener yang .open() kembalikan _FakeResponse.
+    """
+    opener = mock.MagicMock()
+    opener.open.return_value = _FakeResponse(body)
     return mock.patch.object(
-        api.urllib.request, "urlopen",
-        return_value=_FakeResponse(body),
+        api, "_pdf_opener",
+        return_value=opener,
     )
 
 

@@ -90,6 +90,12 @@ class FakeBackend:
     def release_strict_mode(self, window):
         self.calls.append("release_strict_mode")
 
+    def confine_pointer(self, window):
+        self.calls.append("confine_pointer")
+
+    def release_pointer(self):
+        self.calls.append("release_pointer")
+
     def clear_clipboard(self):
         self.calls.append("clear_clipboard")
 

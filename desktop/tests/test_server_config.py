@@ -114,7 +114,7 @@ class SubmittedGateTest(RecoveryGateTestCase):
         for identity in (BUDI, SITI, {"nama": "Andi", "nomor_ujian": "N09"}):
             with self.subTest(identity=identity):
                 self.assertTrue(
-                    dlg._offer_pending_recovery(),
+                    dlg._offer_pending_recovery(identity),
                     f"{identity} seharusnya boleh masuk",
                 )
         self.assertEqual(statuses, [], "tidak boleh ada pesan penolakan")
@@ -128,7 +128,7 @@ class SubmittedGateTest(RecoveryGateTestCase):
         dlg = ServerConfigDialog()
         dlg._exam = _exam()
         dlg.input_token.setText("TOKLAB01")
-        self.assertTrue(dlg._offer_pending_recovery())
+        self.assertTrue(dlg._offer_pending_recovery(BUDI))
 
     def test_pending_answers_still_offer_recovery(self):
         # Yang tersisa bukan pembatasan: jawaban yang belum terkirim harus
@@ -143,7 +143,7 @@ class SubmittedGateTest(RecoveryGateTestCase):
         with mock.patch.object(
             QMessageBox, "question", return_value=QMessageBox.No
         ):
-            self.assertFalse(dlg._offer_pending_recovery())
+            self.assertFalse(dlg._offer_pending_recovery(BUDI))
         self.assertEqual(len(recovered), 1)
         self.assertEqual(recovered[0].id, 7)
 
@@ -189,7 +189,7 @@ class RecoverySubmitTest(RecoveryGateTestCase):
                 mock.patch(
                     "examvan.ui.congratulations.CongratulationsWindow.show_fullscreen",
                 ) as shown:
-            dlg._recovery_submit_thread(_exam())
+            dlg._recovery_submit_thread(_exam(), config.get("identity_data"))
         self.assertTrue(
             shown.called,
             "layar selamat tidak ditampilkan setelah pengiriman ulang",
@@ -219,7 +219,7 @@ class RecoverySubmitTest(RecoveryGateTestCase):
         dlg._sig_recovery_done.connect(lambda msg: done.append(msg))
         resp = SubmitResponse(success=False, message="server unreachable")
         with mock.patch.object(api, "submit_with_retry", return_value=resp):
-            dlg._recovery_submit_thread(_exam())
+            dlg._recovery_submit_thread(_exam(), config.get("identity_data"))
         self.assertEqual(done, [])
         # Jawaban TETAP di disk untuk percobaan berikutnya.
         self.assertEqual(config.load_answers(7), {"1": "A"})
@@ -274,7 +274,7 @@ class MarkerBookkeepingTest(RecoveryGateTestCase):
         # akan menghidupkan kembali blokir yang baru saja dihapus.
         config.set("submitted_7", True)
         self.assertFalse(config.is_submitted(7, "n01"))
-        self.assertTrue(self._dlg()._offer_pending_recovery())
+        self.assertTrue(self._dlg()._offer_pending_recovery(BUDI))
 
     def test_marker_key_is_stable_and_case_insensitive(self):
         from examvan.config import _submitted_key

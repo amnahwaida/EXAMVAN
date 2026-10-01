@@ -155,7 +155,7 @@ class RecoveryUsesTheIdentityJustTypedTestCase(_ConfigSandbox):
         dlg = self._dialog_with_pending_answers()
         seen = {}
 
-        dlg._offer_pending_recovery = lambda: (
+        dlg._offer_pending_recovery = lambda identity: (
             seen.__setitem__("during", config.get("identity_data", {})) or False
         )
 

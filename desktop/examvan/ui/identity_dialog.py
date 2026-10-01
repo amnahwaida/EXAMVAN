@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QTimer
@@ -18,6 +19,8 @@ from PyQt5.QtWidgets import (
 )
 
 from ..models import Exam, IdentityField
+
+log = logging.getLogger(__name__)
 
 
 class IdentityDialog(QDialog):
@@ -39,6 +42,23 @@ class IdentityDialog(QDialog):
         super().__init__(parent)
         self._exam = exam
         self._fields = exam.identity_fields if exam.identity_fields else self._DEFAULT_FIELDS
+        # Audit 2 Okt 2026 (HIGH H15): field key duplikat di API response
+        # membuat _inputs[key] ditimpa — siswa memasukkan dua entri dengan
+        # nama sama, salah satunya diam-diam hilang dari data yang dikirim.
+        # Deduplicate pertahankan field PERTAMA (biasanya required) dan
+        # log peringatan supaya backend tahu.
+        seen_keys: set = set()
+        deduped: List = []
+        for f in self._fields:
+            if f.key in seen_keys:
+                log.warning(
+                    "IdentityField key duplikat %r pada %s — hanya yang "
+                    "pertama yang dipakai", f.key, exam.name,
+                )
+                continue
+            seen_keys.add(f.key)
+            deduped.append(f)
+        self._fields = deduped
         self._inputs: Dict[str, QLineEdit] = {}
         self._saved = saved_data or {}
         self._setup_ui()

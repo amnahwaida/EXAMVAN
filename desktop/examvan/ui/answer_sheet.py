@@ -89,6 +89,25 @@ class _PopupWheelGuard(QObject):
         bar.setValue(bar.value() - delta)
 
 
+class _BrokenQuestion(Exception):
+    """Konfigurasi satu soal tidak sah — tidak bisa dijawab dengan benar.
+
+    Audit 2 Okt 2026 (HIGH H8): soal yang rusak dulu punya dua nasib yang
+    sama-sama salah dan TIDAK KONSISTEN satu sama lain:
+
+    * `choices` null/tipe salah → TypeError di tengah build → blok dilewati
+      (tanpa widget) TAPI tetap masuk hitungan "N / M terjawab" — siswa
+      memburu soal yang tidak bisa diajawab sampai waktu habis;
+    * `type` tidak dikenal → fallback diam-diam ke pilihan ganda A–E palsu
+      — siswa menjawab sesuatu yang tidak pernah dinilai sesuai tipenya.
+
+    Sekarang soal rusak DITANDAI: tidak ada widget, tidak masuk hitungan,
+    nomornya dikembalikan lewat `broken_question_numbers()` supaya
+    ExamViewer menampilkannya sebagai peringatan yang bisa dilaporkan
+    siswa ke pengawas (konfigurasi ujian harus diperbaiki guru).
+    """
+
+
 class AnswerSheetWidget(QWidget):
     """Dynamic answer sheet built from question config."""
 
@@ -103,6 +122,12 @@ class AnswerSheetWidget(QWidget):
         # Nomor soal yang bentrok pada build terakhir — konfigurasi ujian
         # yang rusak; lihat build_from_questions.
         self._duplicates: List[str] = []
+        # Nomor soal yang GAGAL dibangun (struktur tidak sah) pada build
+        # terakhir — lihat _BrokenQuestion. Tidak masuk hitungan terjawab.
+        self._broken_numbers: List[str] = []
+        # Nomor yang VALID untuk payload/hitungan, diisi oleh build terakhir.
+        # None = belum pernah build (hitungan fallback dihitung dari config).
+        self._counted_numbers: Optional[List[str]] = None
         self._pending_entry: Any = None
         self._setup_ui()
 
@@ -142,7 +167,49 @@ class AnswerSheetWidget(QWidget):
         self._layout.addWidget(self._scroll, 1)
 
     @staticmethod
-    def _question_number(raw: Any, position: int, taken: set) -> str:
+    def _canonical_number(raw: Any) -> Optional[str]:
+        """Nomor soal kanonik, atau None bila tidak sah.
+
+        Audit 2 Okt 2026 (HIGH H7): `str(int(raw))` memotong nomor
+        DESIMAL — server menerima dan menilai soal "2.5" dengan kunci
+        "2.5" (webui `normalizeQNum`), tapi klien mengirimnya sebagai "2".
+        Jawaban siswa mendarat di slot yang tidak ada di kunci guru dan
+        soal itu dinilai 0 TANPA pesan apa pun.
+
+        Sekarang: int → "3"; float 2.5 → "2.5"; string "2.5" → "2.5";
+        string "07" → "7" (normalisasi, sama dengan Android). bool dan
+        bentuk lain → None (bukan 1 — `int(True) == 1` dulu meloloskan
+        `"number": true` dari config yang rusak).
+        """
+        if isinstance(raw, bool):
+            return None
+        if isinstance(raw, int):
+            return str(raw)
+        if isinstance(raw, float):
+            if raw != raw:  # NaN
+                return None
+            if raw.is_integer():
+                return str(int(raw))
+            return repr(raw)
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return None
+            try:
+                return str(int(text))
+            except ValueError:
+                pass
+            try:
+                value = float(text)
+            except ValueError:
+                return None
+            if value.is_integer():
+                return str(int(value))
+            return repr(value)
+        return None
+
+    @classmethod
+    def _question_number(cls, raw: Any, position: int, taken: set) -> str:
         """Nomor soal sebagai string, tanpa PERNAH melempar.
 
         `int(q.get("number", 0))` sebelumnya melempat pada dua payload nyata
@@ -155,39 +222,31 @@ class AnswerSheetWidget(QWidget):
         `dict.get(k, default)` hanya memakai default saat kuncinya tidak
         ADA, jadi `{"number": null}` tetap memanggil `int(None)`.
 
-        NOMOR CADANGAN HARUS DI RUANG TERPISAH, bukan `position + 1`.
-        Versi sebelumnya memakai `position + 1`, yang berada di ruang yang
-        SAMA dengan nomor asli: guru mengosongkan kolom Nomor pada soal
-        pertama, soal kedua bernomor 1, keduanya jadi "1". Widget-nya
-        tetap ter-gambar (kunci internal jadi "1#1") tapi handler-nya
-        memakai `num`, bukan kunci internal -- jadi keduanya menulis
-        `self._answers["1"]` dan blok yang dijawab TERAKHIR menimpa yang
-        lain. Terverifikasi: menjawab soal 1 yang benar lalu menyinggung
-        blok tanpa nomor menghapus jawaban aslinya tanpa jejak.
-
-        Karena itu nomor cadangan diberi awalan yang tidak mungkin dipakai
-        nomor soal asli, dan dihindari bila sudah terpakai.
+        Nomor sah (termasuk DESIMAL — lihat _canonical_number) dipakai apa
+        adanya. Nomor CADANGAN diberi awalan "soal-" yang tidak mungkin
+        dipakai nomor asli (yang selalu numerik), dan tidak perlu loop
+        penghindaran tabrakan.
         """
-        try:
-            return str(int(raw))
-        except (TypeError, ValueError):
-            # Unik SECARA KONSTRUKSI: `position` berbeda untuk setiap soal,
-            # dan prefiks "soal-" tidak mungkin sama dengan nomor soal asli
-            # yang selalu numerik. Jadi tidak perlu loop penghindar
-            # tabrakan -- dan jebakan loop yang tidak bisa diuji hanya
-            # menambah cabang yang tidak pernah dieksekusi.
-            #
-            # `taken` tetap dipakai di `build_from_questions` untuk
-            # memisahkan nomor cadangan dari nomor ASLI -- yang boleh
-            # benar-benar kembar, dan itu yang dilaporkan ke siswa.
-            candidate = f"soal-{position + 1}"
-            log.warning(
-                "soal #%d punya nomor tidak valid (%r); memakai nomor %s. "
-                "Nilai ini akan ikut terkirim ke server, jadi perbaiki "
-                "nomornya di editor.",
-                position + 1, raw, candidate,
-            )
-            return candidate
+        canonical = cls._canonical_number(raw)
+        if canonical is not None:
+            return canonical
+        # Unik SECARA KONSTRUKSI: `position` berbeda untuk setiap soal,
+        # dan prefiks "soal-" tidak mungkin sama dengan nomor soal asli
+        # yang selalu numerik. Jadi tidak perlu loop penghindar
+        # tabrakan -- dan jebakan loop yang tidak bisa diuji hanya
+        # menambah cabang yang tidak pernah dieksekusi.
+        #
+        # `taken` tetap dipakai di `build_from_questions` untuk
+        # memisahkan nomor cadangan dari nomor ASLI -- yang boleh
+        # benar-benar kembar, dan itu yang dilaporkan ke siswa.
+        candidate = f"soal-{position + 1}"
+        log.warning(
+            "soal #%d punya nomor tidak valid (%r); memakai nomor %s. "
+            "Nilai ini akan ikut terkirim ke server, jadi perbaiki "
+            "nomornya di editor.",
+            position + 1, raw, candidate,
+        )
+        return candidate
 
     def build_from_questions(self, questions: List[Dict[str, Any]]) -> List[str]:
         """Build answer sheet from question config list.
@@ -232,16 +291,25 @@ class AnswerSheetWidget(QWidget):
         # bisa diangkut dua-duanya).
         seen: Dict[str, int] = {}
         duplicates: List[str] = []
-        # Di-set SEBELUM loop, bukan sesudahnya: kalau satu soal melempar
-        # exception, atribut ini tidak pernah ter-assign dan pemanggil masih
-        # membaca sisa build sebelumnya.
+        broken: List[str] = []
+        # Nomor soal yang widget-nya BERHASIL dibangun — inilah yang masuk
+        # hitungan terjawab dan payload. Di-set SEBELUM loop, bukan
+        # sesudahnya: kalau satu soal melempar exception, atribut-atribut
+        # ini tidak pernah ter-assign dan pemanggil masih membaca sisa
+        # build sebelumnya.
         self._duplicates = duplicates
+        self._broken_numbers = broken
+        counted: List[str] = []
 
-        # Nomor yang sudah dipakai nomor ASLI lain. Nomor cadangan tidak
+        # Nomor yang sudah dipakai nomor ASLI lain (kanonik — desimal
+        # "2.5" tetap "2.5", bukan terpotong). Nomor cadangan tidak
         # boleh masuk ke sini -- itulah yang membuat keduanya menabrak.
         reserved = {
-            str(q.get("number")) for q in questions
-            if str(q.get("number", "")).strip().lstrip("-").isdigit()
+            num for num in (
+                self._canonical_number(q.get("number"))
+                for q in questions if isinstance(q, dict)
+            )
+            if num is not None
         }
         for position, q in enumerate(questions):
             try:
@@ -260,35 +328,81 @@ class AnswerSheetWidget(QWidget):
                 self._container_layout.insertWidget(
                     self._container_layout.count() - 1, group
                 )
+                # Soal ini bisa dijawab → nomornya masuk hitungan
+                # (distinkt; dua soal bernomor sama = satu slot).
+                if num not in counted:
+                    counted.append(num)
+            except _BrokenQuestion as exc:
+                # Struktur soal tidak sah (HIGH H8): TIDAK dibuatkan widget
+                # dengan pilihan palsu, dan TIDAK dihitung — siswa tidak
+                # menghabiskan waktu memburu blok yang tidak ada. Nomornya
+                # dilaporkan lewat broken_question_numbers().
+                num = self._question_number(q.get("number"), position, reserved)
+                if num not in broken:
+                    broken.append(num)
+                log.warning(
+                    "soal #%d (%s) tidak sah dan dilewati: %s",
+                    position + 1, num, exc,
+                )
+                continue
             except Exception:
                 # Satu soal rusak TIDAK BOLEH menghentikan build: pemanggil
                 # ini adalah slot Qt tanpa try/except, jadi exception yang
                 # lolos membuat semua soal setelahnya tidak punya widget dan
                 # tidak bisa dijawab, `_duplicates` tak pernah terisi, dan
-                # label status tidak pernah diperbarui.
+                # label status tidak pernah diperbarui. Soal yang gagal di
+                # sini juga tidak boleh dihitung — sama seperti _BrokenQuestion.
                 log.exception("soal #%d gagal dibangun; dilewati", position + 1)
+                try:
+                    num = self._question_number(q.get("number"), position, reserved)
+                    if num not in broken:
+                        broken.append(num)
+                except Exception:
+                    pass
                 continue
 
         self._duplicates = duplicates
+        self._broken_numbers = broken
+        self._counted_numbers = counted
         self._update_count()
         return duplicates
+
+    def broken_question_numbers(self) -> List[str]:
+        """Nomor soal yang struktur tidak sah pada build terakhir.
+
+        Dipakai ExamViewer untuk menampilkan peringatan — soal ini tidak
+        bisa dijawab dan tidak dihitung, jadi siswa harus tahu bahwa itu
+        masalah konfigurasi (diperbaiki guru), bukan dia lupa menjawab.
+        """
+        return list(self._broken_numbers)
 
     def duplicate_question_numbers(self) -> List[str]:
         """Nomor soal yang bentrok pada build terakhir (lihat di atas)."""
         return list(self._duplicates)
 
     def question_numbers(self) -> List[str]:
-        """Nomor soal DISTINKT, sesuai urutan konfigurasi.
+        """Nomor soal DISTINKT yang BISA DIJAWAB, sesuai urutan konfigurasi.
 
         Inilah yang dihitung di label "N / M terjawab": payload submit memakai
         nomor soal sebagai kunci, jadi dua soal bernomor sama hanya
         menyumbang satu slot. Menghitung per blok akan melaporkan
         "2 / 2 terjawab" untuk satu jawaban.
+
+        Setelah build, hasilnya diambil dari daftar yang dihitung PADA SAAT
+        build (lihat `_counted_numbers`): soal yang strukturnya rusak
+        tidak punya widget dan TIDAK dihitung — konsisten dengan layar,
+        bukan berhitung ulang dari config dan melaporkan soal hantu
+        (audit HIGH H8).
         """
+        if self._counted_numbers is not None:
+            return list(self._counted_numbers)
         out: List[str] = []
         reserved = {
-            str(q.get("number")) for q in self._questions
-            if str(q.get("number", "")).strip().lstrip("-").isdigit()
+            num for num in (
+                self._canonical_number(q.get("number"))
+                for q in self._questions if isinstance(q, dict)
+            )
+            if num is not None
         }
         for position, q in enumerate(self._questions):
             # Memakai helper yang sama dengan build: nomor rusak tidak
@@ -334,15 +448,33 @@ class AnswerSheetWidget(QWidget):
         elif qtype == "short_answer":
             self._build_short_answer(num, q, layout)
         else:
-            # Fallback: single choice A-E
-            self._build_single_choice(
-                num, {"choices": ["A", "B", "C", "D", "E"]}, layout
+            # Tipe tidak dikenal/null TIDAK lagi difabricasi jadi pilihan
+            # ganda A–E (audit HIGH H8): pilihan palsu membuat siswa
+            # menjawab sesuatu yang tidak pernah dinilai sesuai tipenya.
+            # Lempar _BrokenQuestion → nomor dilaporkan, tidak dihitung.
+            raise _BrokenQuestion(
+                f"tipe soal tidak dikenal: {qtype!r}"
             )
 
         return group, self._pending_entry
 
+    @staticmethod
+    def _valid_string_list(value: Any) -> bool:
+        """True hanya untuk list berisi minimal satu item scalar."""
+        if not isinstance(value, list) or not value:
+            return False
+        return all(isinstance(item, (str, int, float)) for item in value)
+
     def _build_single_choice(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         choices = q.get("choices", ["A", "B", "C", "D", "E"])
+        # HIGH H8: choices null/tipe salah/kosong → soal rusak, BUKAN
+        # TypeError yang dilewati diam-diam dan tetap dihitung, dan BUKAN
+        # fallback A–E palsu.
+        if not self._valid_string_list(choices):
+            raise _BrokenQuestion(
+                f"choices tidak sah ({type(choices).__name__!s})"
+            )
+        choices = [str(c) for c in choices]
         btn_group = QButtonGroup(self)
         btn_group.setExclusive(True)
         for choice in choices:

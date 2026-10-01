@@ -20,6 +20,7 @@ from ctypes import (
     byref,
     c_char_p,
     c_int,
+    c_long,
     c_longlong,
     c_size_t,
     c_uint,
@@ -135,6 +136,17 @@ class KBDLLHOOKSTRUCT(Structure):
         ("flags", DWORD),
         ("time", DWORD),
         ("dwExtraInfo", c_void_p),
+    ]
+
+
+class RECT(Structure):
+    """Win32 RECT — dipakai ClipCursor untuk membatasi area pointer."""
+
+    _fields_ = [
+        ("left", c_long),
+        ("top", c_long),
+        ("right", c_long),
+        ("bottom", c_long),
     ]
 
 
@@ -293,6 +305,24 @@ def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
     _SystemParametersInfoW.restype = BOOL
     _SystemParametersInfoW.argtypes = [UINT, UINT, LPVOID, UINT]
 
+    # GetModuleHandleW (audit 2 Okt 2026, MEDIUM): tanpa restype, ctypes
+    # mengasumsikan c_int (32-bit). Pada Windows 64-bit, HMODULE adalah
+    # pointer 64-bit — nilai yang tidak kebetulan muat di 32 bit akan
+    # terpotong, dan SetWindowsHookExW lalu gagal (atau lebih buruk:
+    # berhasil dengan handle yang salah). Restype c_void_p menjaga nilai
+    # 64-bit utuh.
+    _GetModuleHandleW = _kernel32.GetModuleHandleW
+    _GetModuleHandleW.restype = c_void_p
+    _GetModuleHandleW.argtypes = [c_void_p]  # NULL = modul pemanggil
+
+    # ClipCursor (audit 2 Okt 2026, HIGH H6): kunci pointer ke dalam window
+    # ujian saat strict. Tanpa ini, keyboard hook saja masih menyisakan
+    # klik: pointer bebas ke taskbar/monitor lain, dan beberapa hal
+    # (Start menu, notifikasi) bisa dibuka tanpa keyboard sama sekali.
+    _ClipCursor = _user32.ClipCursor
+    _ClipCursor.restype = BOOL
+    _ClipCursor.argtypes = [POINTER(RECT)]
+
     # Registry (for dark mode detection)
     _RegOpenKeyExW = _advapi32.RegOpenKeyExW
     _RegOpenKeyExW.restype = c_int  # LONG
@@ -310,6 +340,11 @@ def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
     _GetSystemMetrics = _user32.GetSystemMetrics
     _GetSystemMetrics.restype = c_int
     _GetSystemMetrics.argtypes = [c_int]
+
+    # GetWindowRect for pointer confinement
+    _GetWindowRect = _user32.GetWindowRect
+    _GetWindowRect.restype = BOOL
+    _GetWindowRect.argtypes = [HWND, POINTER(RECT)]
 
     # NB: WM_QUIT dan SM_CMONITORS TIDAK didefinisikan di sini. Keduanya
     # konstanta, bukan prototype, dan filter `startswith("_")` pada return
@@ -540,7 +575,7 @@ def _hook_thread_func() -> None:
         _hook_id = _SetWindowsHookExW(
             WH_KEYBOARD_LL,
             cast(_hook_proc_wrapper, c_void_p),
-            _kernel32.GetModuleHandleW(None),
+            _GetModuleHandleW(None),
             0,  # 0 = global hook (no DLL needed for WH_KEYBOARD_LL)
         )
         if not _hook_id:
@@ -728,10 +763,18 @@ class WindowsBackend(SecurityBackend):
         # confinement is strict-only.
         hwnd = _get_hwnd(window)
         if hwnd:
-            # Remove window border via extended style
+            # Window style via extended style.
+            #
+            # WS_EX_TOOLWINDOW (audit 2 Okt 2026, HIGH H6) dulu didefinisikan
+            # tapi TIDAK PERNAH dipakai. Diterapkan di sini: sembunyikan
+            # window ujian dari Alt+Tab/taskbar Switcher supaya tidak bisa
+            # ditukar keluar lewat daftar window. Berlaku hanya di strict
+            # (dipanggil dari _activate_strict) dan dikembalikan bersama
+            # style lain saat enforcer melepas mode ini.
             try:
                 ex_style = _GetWindowLongW(HWND(hwnd), GWL_EXSTYLE)
                 ex_style &= ~WS_EX_LAYERED
+                ex_style |= WS_EX_TOOLWINDOW
                 _SetWindowLongW(HWND(hwnd), GWL_EXSTYLE, ex_style)
             except Exception:
                 pass
@@ -775,8 +818,17 @@ class WindowsBackend(SecurityBackend):
         if not hwnd:
             return
         try:
-            _SetWindowDisplayAffinity(HWND(hwnd), WDA_MONITOR)
-            log.info("Screen capture prevention enabled (WDA_MONITOR)")
+            ok = bool(_SetWindowDisplayAffinity(HWND(hwnd), WDA_MONITOR))
+            if not ok:
+                # Audit 2 Okt 2026 (MEDIUM): nilai balik dulu tidak dicek —
+                # kegagalan API (policy, window sudah dibongkar) berarti
+                # tanpa proteksi apa pun sementara log bilang aktif.
+                log.warning(
+                    "SetWindowDisplayAffinity returned FALSE — capture "
+                    "protection NOT active"
+                )
+            else:
+                log.info("Screen capture prevention enabled (WDA_MONITOR)")
         except Exception as e:
             log.warning("SetWindowDisplayAffinity failed: %s", e)
 
@@ -788,6 +840,46 @@ class WindowsBackend(SecurityBackend):
             _SetWindowDisplayAffinity(HWND(hwnd), WDA_NONE)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Pointer confinement (strict)
+    # ------------------------------------------------------------------
+
+    def confine_pointer(self, window: Any) -> None:
+        """Kunci pointer di dalam window ujian (strict mode).
+
+        Pelengkap keyboard hook (audit 2 Okt 2026, HIGH H6): dulu strict
+        hanya memblokir tombol, jadi pointer bebas mengklik taskbar,
+        Start menu (Win+X digantikan klik), dan monitor kedua. ClipCursor
+        menjebak pointer dalam satu rect sampai dilepas dengan
+        ClipCursor(NULL) — dan yang terakhir WAJIB dijalankan saat ujian
+        selesai, kalau tidak pointer siswa berikutnya terjebak juga.
+
+        Bukan batas keamanan mutlak: proses privileged bisa me-reset.
+        Enforcer memanggil ulang tiap poll (500 ms) untuk menutup itu.
+        """
+        hwnd = _get_hwnd(window)
+        if not hwnd:
+            return
+        try:
+            rect = RECT()
+            if not _GetWindowRect(HWND(hwnd), byref(rect)):
+                return
+            _ClipCursor(byref(rect))
+        except Exception as e:
+            log.warning("ClipCursor failed: %s", e)
+
+    def release_pointer(self) -> None:
+        """Lepas kunci pointer — ClipCursor(NULL). WAJIB dipanggil.
+
+        Tanpa ini, pointer tetap terkurung di rect window ujian yang sudah
+        ditutup: mesin lab menyisakan pointer yang tidak bisa keluar dari
+        area layar itu sampai reboot.
+        """
+        try:
+            _ClipCursor(None)
+        except Exception:
+            log.debug("ClipCursor(NULL) failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Clipboard
@@ -806,13 +898,31 @@ class WindowsBackend(SecurityBackend):
         visibly froze every few seconds. It was also redundant — the Win32
         call above empties the same clipboard, and the enforcer clears the
         Qt side inline on the GUI thread.
+
+        Audit 2 Okt 2026 (MEDIUM): CloseClipboard SEKARANG di finally —
+        dulu satu exception dari EmptyClipboard (clipboard dipegang proses
+        lain) melewatinya, dan clipboard yang tidak ditutup TERKUNCI untuk
+        seluruh sesi: tidak satu pun aplikasi (termasuk EXAMVAN sendiri)
+        bisa membukanya lagi. Kegagalan juga naik dari log.debug ke
+        log.warning — debug tidak pernah tampil di app.log produksi.
         """
+        opened = False
         try:
-            if _OpenClipboard(HWND(0)):
-                _EmptyClipboard()
-                _CloseClipboard()
+            opened = bool(_OpenClipboard(HWND(0)))
+            if not opened:
+                # Pemegang clipboard lain menolak buka — jangan crash;
+                # coba lagi di tick berikutnya.
+                log.warning("OpenClipboard failed — clipboard may be busy")
+                return
+            _EmptyClipboard()
         except Exception:
-            log.debug("EmptyClipboard failed", exc_info=True)
+            log.warning("EmptyClipboard failed", exc_info=True)
+        finally:
+            if opened:
+                try:
+                    _CloseClipboard()
+                except Exception:
+                    log.warning("CloseClipboard failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Sleep inhibition
@@ -823,7 +933,15 @@ class WindowsBackend(SecurityBackend):
             self._exec_state_handle = _SetThreadExecutionState(
                 ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED
             )
-            log.info("Sleep prevention enabled")
+            # Nilai balik = state SEBELUMNYA; 0 berarti panggilan gagal.
+            # Audit 2 Okt 2026 (MEDIUM): tanpa cek ini, kegagalan dulu
+            # dilaporkan "Sleep prevention enabled" — layar bisa mati/
+            # screensaver jalan di tengah ujian tanpa jejak di log.
+            if not self._exec_state_handle:
+                log.warning("SetThreadExecutionState returned 0 — sleep NOT prevented")
+                self._exec_state_handle = None
+            else:
+                log.info("Sleep prevention enabled")
         except Exception as e:
             log.warning("SetThreadExecutionState failed: %s", e)
 

@@ -61,6 +61,10 @@ REQUIRED_PROTOTYPES = [
     "_GetWindowLongW", "_SetWindowLongW",
     # screen saver
     "_SystemParametersInfoW",
+    # module handle (64-bit safe pointer)
+    "_GetModuleHandleW",
+    # pointer confinement
+    "_ClipCursor", "_GetWindowRect",
     # registry
     "_RegOpenKeyExW", "_RegQueryValueExW", "_RegCloseKey",
     # multi-monitor
@@ -83,7 +87,7 @@ def _fake_windll() -> types.SimpleNamespace:
                 "EmptyClipboard", "CloseClipboard", "SetThreadExecutionState",
                 "SetWindowDisplayAffinity", "GetWindowLongW", "SetWindowLongW",
                 "SystemParametersInfoW", "RegOpenKeyExW", "RegQueryValueExW",
-                "RegCloseKey", "GetSystemMetrics",
+                "RegCloseKey", "GetSystemMetrics", "GetModuleHandleW", "ClipCursor", "GetWindowRect",
             ]}
         )
     return types.SimpleNamespace(user32=lib(), kernel32=lib(), advapi32=lib())

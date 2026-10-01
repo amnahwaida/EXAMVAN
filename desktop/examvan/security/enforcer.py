@@ -86,6 +86,14 @@ class SecurityEnforcer(QObject):
         self._focus_guard_depth = 0
         self._focus_guard_resume = False
 
+        # Episode focus-loss STRICT (audit 2 Okt 2026, HIGH H5). Nilai True
+        # berarti "countdown sedang berjalan KARENA focus loss yang nyata",
+        # dan tidak boleh dibatalkan oleh re-aktivasi window yang kita picu
+        # sendiri lewat raise_()/activateWindow() di _poll_focus. Diselesaikan
+        # (False) oleh: timeout (auto-submit) atau interaksi nyata siswa
+        # (eventFilter — klik/ketik di window).
+        self._strict_focus_episode = False
+
     # ------------------------------------------------------------------
     # Modal-dialog suspension
     # ------------------------------------------------------------------
@@ -168,30 +176,53 @@ class SecurityEnforcer(QObject):
         return self._strict
 
     def activate(self) -> None:
-        """Activate security enforcement based on mode."""
+        """Activate security enforcement based on mode.
+
+        Audit 2 Okt 2026 (MEDIUM): exception-safe. Dulu satu exception dari
+        backend mana pun (mis. SetWindowsHookExW gagal hard, X11 error)
+        menghentikan sisa aktivasi — timer clipboard tidak jalan, fokus tidak
+        dipantau — sementara `_active` sudah True sehingga pemanggilan ulang
+        ditolak. Sekarang setiap tahap berdiri sendiri: gagal dicatat,
+        sisanya tetap aktif.
+        """
         if self._active:
             return
         self._active = True
-        self._backend.activate()
+        try:
+            self._backend.activate()
+        except Exception:
+            log.exception("backend activate failed — continuing")
         log.info("Activating security: level=%s, strict=%s", self._level, self._strict)
 
         # Check multi-monitor (Windows: display warning; Linux: log)
-        if self._backend.has_multiple_monitors():
-            log.warning("Multiple monitors detected — security risk")
-            if self._strict:
-                # In strict mode, the app stays fullscreen on primary monitor
-                log.warning("Strict mode active — secondary monitor not covered")
+        try:
+            if self._backend.has_multiple_monitors():
+                log.warning("Multiple monitors detected — security risk")
+                if self._strict:
+                    # In strict mode, the app stays fullscreen on primary monitor
+                    log.warning("Strict mode active — secondary monitor not covered")
+        except Exception:
+            log.exception("multi-monitor check failed — continuing")
 
         # Low mode features (always active)
-        self._activate_low()
+        try:
+            self._activate_low()
+        except Exception:
+            log.exception("low-mode activation failed — continuing")
 
         # Medium-or-above. Uses the canonical level, so the server's "high"
         # lands here instead of falling through to a lockdown-free exam.
         if self._level != LEVEL_LOW or self._strict:
-            self._activate_medium()
+            try:
+                self._activate_medium()
+            except Exception:
+                log.exception("medium-mode activation failed — continuing")
 
         if self._strict:
-            self._activate_strict()
+            try:
+                self._activate_strict()
+            except Exception:
+                log.exception("strict-mode activation failed — continuing")
 
     def deactivate(self) -> None:
         """Deactivate all security enforcement."""
@@ -208,8 +239,19 @@ class SecurityEnforcer(QObject):
 
         self._backend.release_strict_mode(self._window)
         self._backend.release_capture_protection(self._window)
+        self._backend.release_pointer()
         self._backend.allow_sleep()
         self._backend.deactivate()
+
+        # Lepas event filter episode focus-loss (lihat _activate_medium):
+        # tanpa ini filter menempel pada window yang di-pindahkan ke
+        # pemanggil lain, dan SecurityEnforcer berikutnya memasang filter
+        # kedua — handler dipanggil dua kali per event.
+        if self._window is not None:
+            try:
+                self._window.removeEventFilter(self)
+            except Exception:
+                pass
 
         # Linux specific GNOME restore (if Linux)
         if sys.platform != "win32":
@@ -305,7 +347,16 @@ class SecurityEnforcer(QObject):
             target=self._clear_clipboard_worker, name="clipboard-clear", daemon=True
         )
         self._clipboard_thread = thread
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            # Audit 2 Okt 2026 (MEDIUM): start bisa gagal (resource habis,
+            # interpreter sedang shutdown) — tanpa reset ini, latch
+            # `_clipboard_busy` True SELAMANYA dan tidak ada satu pun
+            # pembersihan clipboard berikutnya yang jalan.
+            with self._clipboard_lock:
+                self._clipboard_busy = False
+            log.warning("could not start clipboard clear thread", exc_info=True)
 
     def _clear_clipboard_worker(self) -> None:
         try:
@@ -359,6 +410,14 @@ class SecurityEnforcer(QObject):
             except Exception:
                 pass
 
+        # Filter event untuk episode focus-loss strict (H5): interaksi nyata
+        # siswa (klik/ketik DI window ujian) adalah satu-satunya yang
+        # membatalkan countdown ketika episode sedang berjalan.
+        try:
+            self._window.installEventFilter(self)
+        except Exception:
+            pass
+
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(FOCUS_POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_focus)
@@ -393,6 +452,24 @@ class SecurityEnforcer(QObject):
         except Exception:
             return False
 
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
+        """Akhirkan episode focus-loss strict saat siswa benar-benar kembali.
+
+        `raise_()` + `activateWindow()` yang kita picu sendiri MENGEMBALIKAN
+        window jadi aktif, tapi itu bukan bukti siswa kembali — jendela
+        aktif bisa kosong, dengan siswa mengetik di jendela lain. Interaksi
+        nyata (tombol mouse atau tombol keyboard diterima window ini) satu-
+        satunya sinyal yang dipercaya untuk mengakhiri episode dan
+        mengizinkan countdown dibatalkan lagi oleh polling.
+        """
+        try:
+            from PyQt5.QtCore import QEvent
+            if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress):
+                self._strict_focus_episode = False
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
     def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
         # `isActiveWindow() == False` selama dialog modal terbuka itu
         # NORMAL, bukan tanda murid keluar dari ujian. Tanpa cek ini
@@ -411,6 +488,12 @@ class SecurityEnforcer(QObject):
             self._focus_timer.start()
         elif state == Qt.ApplicationActive:
             if self._focus_timer.isActive():
+                if self._strict and self._strict_focus_episode:
+                    # Episode focus-loss strict sedang berjalan: aktivasi
+                    # window — termasuk yang KITA picu sendiri tiap 500 ms
+                    # lewat activateWindow() — tidak boleh membatalkan
+                    # countdown. Lihat _poll_focus dan eventFilter.
+                    return
                 log.info("Focus regained — cancelling auto-submit countdown")
                 self._focus_timer.stop()
 
@@ -435,6 +518,33 @@ class SecurityEnforcer(QObject):
         if self._strict:
             self._window.raise_()
             self._window.activateWindow()
+            # Re-assert confinement pointer (murah — satu panggilan Win32):
+            # aplikasi lain boleh me-reset ClipCursor kapan pun, jadi tanpa
+            # ulangan ini kunci pointer lepas tanpa jejak. Lihat
+            # _activate_strict untuk penjelasannya.
+            self._backend.confine_pointer(self._window)
+            # Audit 2 Okt 2026 (HIGH H5): di strict, guard fokus tidak
+            # berfungsi sama sekali. Siklusnya: siswa keluar → poll melihat
+            # window tidak aktif → countdown 3 detik mulai → tick berikutnya
+            # activateWindow() membuat window aktif LAGI → cabang else
+            # membatalkan countdown → dua detik kemudian siklus berulang.
+            # Countdown tidak pernah selesai, auto-submit tidak pernah
+            # menembak, dan siswa bebas menjauh dari ujian selamanya
+            # (window mungkin kembali, tapi tidak ada konsekuensi).
+            #
+            # Perbaikannya: countdown yang dimulai dari focus loss NYATA
+            # dijalankan sampai selesai. Re-aktivasi oleh KITA sendiri tidak
+            # membatalkannya (episode flag); hanya interaksi nyata siswa
+            # (eventFilter: klik/ketik di window) yang mengakhirinya.
+            if not self._window.isActiveWindow():
+                if not self._focus_timer.isActive():
+                    log.warning("Poll: window not active — starting 3s countdown")
+                    self._strict_focus_episode = True
+                    self._focus_timer.start()
+            elif self._focus_timer.isActive() and not self._strict_focus_episode:
+                log.info("Poll: window active again — cancelling countdown")
+                self._focus_timer.stop()
+            return
 
         if not self._window.isActiveWindow():
             if not self._focus_timer.isActive():
@@ -458,6 +568,8 @@ class SecurityEnforcer(QObject):
             self._focus_timer.start()
             return
         log.warning("Focus lost timeout — triggering auto-submit")
+        # Episode selesai — countdown sudah membuahkan keputusannya.
+        self._strict_focus_episode = False
         self.auto_submit.emit()
 
     # ------------------------------------------------------------------
@@ -479,6 +591,14 @@ class SecurityEnforcer(QObject):
         # Platform-specific strict mode (keyboard hook on Windows,
         # X11 grabs + GNOME workspace lock on Linux)
         self._backend.set_strict_mode(self._window)
+
+        # Kunci pointer ke dalam window ujian (audit 2 Okt 2026, HIGH H6:
+        # dulu strict hanya keyboard hook — pointer bebas ke monitor lain/
+        # aplikasi lain, cukup untuk membuka Start menu dengan klik).
+        # Dipanggil ulang di tiap poll (lihat _poll_focus di atas memanggil
+        # confine via timer yang sama): sistem lain bisa me-reset
+        # confinement kapan pun.
+        self._backend.confine_pointer(self._window)
 
         # Kiosk session setup (Linux-only)
         if self._kiosk:

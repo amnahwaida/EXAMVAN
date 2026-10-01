@@ -231,6 +231,12 @@ class _SlowBackend:
     def release_strict_mode(self, w):
         pass
 
+    def confine_pointer(self, w):
+        pass
+
+    def release_pointer(self):
+        pass
+
     def has_multiple_monitors(self):
         return False
 

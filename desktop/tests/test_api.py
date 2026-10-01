@@ -123,11 +123,12 @@ class ExamResultTest(unittest.TestCase):
         self.assertTrue(resp.success)
         self.assertEqual(resp.status, "done")
         self.assertEqual(resp.score, 92.0)
-        # URL must carry job_id + mac_address + identity_data for the gate.
+        # URL must carry job_id + mac_address; identity_data is NOT sent in the
+        # query string (audit finding) to keep student identity out of logs.
         url = mk.call_args.args[0]
         self.assertIn("job_id=abc123", url)
         self.assertIn("mac_address=DESKTOP%3Aabcd1234", url)
-        self.assertIn("identity_data=", url)
+        self.assertNotIn("identity_data=", url)
 
     def test_pending(self):
         resp, _ = self._call({"success": True, "status": "pending"})
