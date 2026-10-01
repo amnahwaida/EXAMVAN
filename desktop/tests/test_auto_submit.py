@@ -9,6 +9,14 @@ Covers the desktop↔Android consistency fix (Agustus 2026):
   (including the teacher's custom congrats_message);
 - failure → answers stay on disk (recovery re-entry offers "Kirim Lagi");
 - F1: empty memory must NOT overwrite the disk copy when flushing.
+
+Ditambah review alur submit (Oktober 2026):
+- clear lintas sesi: kesuksesan TERLAMBAT dari thread background percobaan
+  LAMA tidak boleh menghapus jawaban milik percobaan BARU yang sudah
+  mulai menulis autosave-nya sendiri ke disk (BackgroundSuccessClearGuardTest);
+- lembar jawaban TERKUNCI selama submit berjalan (payload sudah snapshot;
+  edit selama itu tidak pernah terkirim dan hilang dua tempat saat sukses),
+  dan terbuka lagi di jalur gagal (ManualSubmitSheetLockTest).
 """
 
 from __future__ import annotations
@@ -321,6 +329,119 @@ class AutoSubmitDelegateTest(AutoSubmitTestCase):
             self.assertTrue(self._wait_notify("ok"))
             self.assertIsNone(config.load_answers(7))
             self.assertEqual(api.submit_with_retry.call_count, 1)
+        finally:
+            sub_patch.stop()
+
+
+class BackgroundSuccessClearGuardTest(AutoSubmitTestCase):
+    """Kesuksesan TERLAMBAT thread lama tidak boleh menghapus jawaban baru.
+
+    Timeline kejadian di lapangan: deadline → auto-submit → jendela ditutup
+    segera → thread background mengirim (jaringan mati, retry 7 dtk + poll
+    sampai ~77 dtk). Siswa re-entry DALAM rentang itu, mulai mengerjakan
+    lagi, autosave-nya menimpa disk. Jaringan pulih → thread LAMA sukses →
+    dulu `clear_answers(exam_id)` tanpa syarat: jawaban sesi baru hilang
+    dari disk, dan bila sesi baru mati mendadak, tidak ada yang bisa
+    dipulihkan.
+
+    Invariant sekarang: thread hanya menghapus disk bila isinya MASIH
+    persis payload yang baru dikonfirmasi server. Isi berbeda berarti
+    milik percobaan lain.
+    """
+
+    def _run_background_thread(self, answers):
+        resp = SubmitResponse(success=True, status="done", message="ok")
+        with mock.patch.object(api, "submit_with_retry", return_value=resp):
+            ExamViewerWindow._background_submit_thread(
+                None, "https://exam.example", 7, "ABCD1234",
+                "Budi", "N01", "9A", answers,
+                "2026-08-16T07:00:00Z", "DESKTOP:m", {"nama": "Budi"},
+            )
+
+    def test_a_late_success_does_not_clear_a_new_sessions_answers(self):
+        # Sesi baru sudah menulis autosave-nya sendiri sebelum thread lama
+        # sukses.
+        config.save_answers(7, {"1": "JAWABAN-SESI-BARU", "2": "B"})
+        self._run_background_thread({"1": "JAWABAN-SESI-LAMA"})
+        self.assertEqual(
+            config.load_answers(7), {"1": "JAWABAN-SESI-BARU", "2": "B"},
+            "thread percobaan LAMA menghapus jawaban percobaan BARU dari "
+            "disk -- recovery berikutnya tidak punya apa pun",
+        )
+
+    def test_the_same_payload_is_still_cleared_as_before(self):
+        # Negative control: tanpa race, clear berjalan seperti biasa --
+        # perbaikan ini tidak boleh membuat disk menumpuk selamanya.
+        config.save_answers(7, {"1": "A"})
+        self._run_background_thread({"1": "A"})
+        self.assertIsNone(config.load_answers(7))
+
+    def test_success_without_any_disk_copy_does_not_crash(self):
+        # Disk sudah tidak ada (mis. sesi baru belum pernah menyimpan).
+        # Guard harus memperlakukannya sebagai "bukan milik kita", bukan
+        # melempar dari thread daemon.
+        self._run_background_thread({"1": "A"})
+        self.assertIsNone(config.load_answers(7))
+
+
+class ManualSubmitSheetLockTest(AutoSubmitTestCase):
+    """Lembar jawaban terkunci selama submit manual berjalan.
+
+    Dulu hanya tombolnya yang dimatikan: siswa bisa terus mengetik sampai
+    77+ detik (retry + polling 202) padahal payload sudah snapshot -- edit
+    itu tidak pernah terkirim, dan saat sukses `clear_answers` menghapusnya
+    dari disk sementara `_save_answers` no-op karena `_submitted`. Hilang
+    dari DUA tempat sekaligus, padahal layar masih menampilkannya.
+    """
+
+    def test_sheet_locks_and_payload_flushes_when_submit_starts(self):
+        win = self._make_window(answers={"1": "A"})
+        # Patch lewat type(win), BUKAN exam_viewer.ExamViewerWindow: modul
+        # exam_viewer bisa saja di-reload oleh test lain (test_admin_password
+        # me-reload-nya untuk menguji pembacaan password saat import), jadi
+        # atribut module menunjuk KELAS BARU yang bukan kelas `win` -- patch
+        # di kelas baru tidak pernah menyentuh metode yang dipakai `win`,
+        # dan thread submit jalan sungguhan ke jaringan.
+        with mock.patch.object(type(win), "_submit_thread") as st:
+            win._do_submit()
+            self.assertFalse(
+                win._answer_sheet.isEnabled(),
+                "lembar masih bisa diedit setelah payload dikirim",
+            )
+            self.assertFalse(win._btn_submit.isEnabled())
+            # Payload persis yang dikirim tersimpan ke disk: bila proses
+            # mati di tengah polling, "Kirim Lagi" mengirim ulang payload
+            # yang SAMA, bukan copy autosave yang sedikit lebih lama.
+            self.assertEqual(config.load_answers(7), {"1": "A"})
+            self.assertTrue(st.called)
+
+    def test_failure_reopens_the_sheet_and_the_button(self):
+        win = self._make_window(answers={"1": "A"})
+        # type(win), bukan exam_viewer.ExamViewerWindow -- alasan di atas.
+        with mock.patch.object(type(win), "_submit_thread"):
+            win._do_submit()
+        self.assertFalse(win._answer_sheet.isEnabled())
+
+        with mock.patch.object(exam_viewer.QMessageBox, "warning"):
+            win._on_submit_result(False, "jaringan mati")
+
+        self.assertTrue(
+            win._answer_sheet.isEnabled(),
+            "submit gagal tapi lembar tetap terkunci -- siswa tidak bisa "
+            "memperbaiki jawaban sebelum mencoba lagi",
+        )
+        self.assertTrue(win._btn_submit.isEnabled())
+        self.assertEqual(win._btn_submit.text(), " Kumpulkan Jawaban")
+
+    def test_auto_submit_also_locks_the_sheet(self):
+        win = self._make_window(answers={"1": "A"})
+        resp = SubmitResponse(success=True, status="done", message="ok")
+        sub_patch = mock.patch.object(api, "submit_with_retry", return_value=resp)
+        sub_patch.start()
+        try:
+            win._auto_submit_and_exit()
+            self.assertFalse(win._answer_sheet.isEnabled())
+            self.assertTrue(self._wait_notify("ok"))
         finally:
             sub_patch.stop()
 

@@ -616,6 +616,11 @@ class ExamViewerWindow(QMainWindow):
             self._cleanup_after_submit(message)
         else:
             self._btn_submit.setEnabled(True)
+            # Lembar jawaban dibuka kembali: submit gagal, siswa berhak
+            # memperbaiki jawaban sebelum mencoba lagi. Lembar dikunci saat
+            # submit dimulai -- lihat _do_submit untuk alasannya.
+            self._answer_sheet.setEnabled(True)
+            self._btn_submit.setText(" Kumpulkan Jawaban")
             # Guard WAJIB: dialog ini muncul di SETIAP submit yang gagal,
             # dan `medium` adalah level default. Tanpa guard, countdown
             # 3 detik berjalan di belakangnya dan jendela menutup --
@@ -951,6 +956,10 @@ class ExamViewerWindow(QMainWindow):
         self._timer_widget.stop()
         self._btn_submit.setEnabled(False)
         self._btn_submit.setText("Mengumpulkan...")
+        if hasattr(self, "_answer_sheet"):
+            # Sama seperti jalur manual: setelah submit dimulai, edit lebih
+            # lanjut tidak pernah ikut terkirim -- lebih baik terkunci jelas.
+            self._answer_sheet.setEnabled(False)
         self._pdf_viewer.cleanup()
         if self._pdf_path:
             try:
@@ -1005,7 +1014,30 @@ class ExamViewerWindow(QMainWindow):
                     base_url, exam_id, token, mac, resp.job_id, identity,
                 )
             if resp.success:
-                config.clear_answers(exam_id)
+                # JANGAN menghapus jawaban yang bukan milik pengiriman ini.
+                #
+                # Auto-submit menutup jendela SEGERA dan submit berjalan di
+                # background: retry sampai ~7 dtk + polling sampai ~77 dtk.
+                # Dalam rentang itu siswa bisa re-entry dan MEMULAI percobaan
+                # baru yang menulis autosave-nya sendiri ke disk. Tanpa
+                # penjagaan ini, kesuksesan TERLAMBAT dari percobaan lama
+                # menghapus jawaban percobaan baru dari disk -- dan kalau
+                # sesi baru itu mati mendadak sesudahnya, tidak ada yang
+                # tersisa untuk dipulihkan (recovery "Kirim Lagi" melihat
+                # disk kosong).
+                #
+                # Invariant: clear HANYA bila isi disk masih persis payload
+                # yang baru saja dikonfirmasi server. Isi yang berbeda
+                # berarti milik percobaan lain -- bukan urusan thread ini.
+                current = config.load_answers(exam_id)
+                if current == answers:
+                    config.clear_answers(exam_id)
+                else:
+                    log.info(
+                        "skip clear_answers: disk berisi jawaban percobaan "
+                        "lain untuk exam %s (payload lama sudah durable)",
+                        exam_id,
+                    )
                 try:
                     api.complete_exam(base_url, exam_id, token, mac)
                 except Exception:
@@ -1035,6 +1067,7 @@ class ExamViewerWindow(QMainWindow):
             self._submitting = True
 
         self._btn_submit.setEnabled(False)
+        self._btn_submit.setText("Mengumpulkan...")
 
         # F1 fallback (mirror fix Android): saat deadline sudah lewat pada
         # re-entry (proses mati), timer time_up menembak SEBELUM restore
@@ -1046,6 +1079,25 @@ class ExamViewerWindow(QMainWindow):
         answers = config.resolve_submit_answers(
             self._answer_sheet.get_answers(), self._exam.id
         )
+
+        # Flush payload yang PERSIS dikirim ke disk, sebelum thread jalan.
+        # Dulu submit manual hanya mengandalkan autosave (debounce 500 ms):
+        # proses mati di tengah polling terkonfirmasi (sampai ~77 dtk)
+        # meninggalkan copy disk yang SEDIKIT LEBIH LAMA, dan recovery
+        # "Kirim Lagi" lalu menimpa jawaban yang sudah durable dengan
+        # payload basi itu. Jalur auto-submit sudah melakukan flush yang
+        # sama (AutoSubmitF1FlushTest).
+        config.save_answers(self._exam.id, answers)
+
+        # Kunci lembar jawaban SELAMA submit berjalan.
+        #
+        # Tanpa ini, siswa bisa terus mengetik sampai 77+ detik (retry 7 dtk
+        # + polling 202) padahal payload sudah snapshot: edit-nya tidak pernah
+        # terkirim, dan saat sukses `clear_answers` menghapusnya dari disk
+        # sementara `_save_answers` no-op karena `_submitted` -- hilang dari
+        # DUA tempat sekaligus, padahal layar masih menampilkannya. Lembar
+        # terbuka lagi di jalur gagal (lihat _on_submit_result).
+        self._answer_sheet.setEnabled(False)
 
         # Map dynamic identity keys to standard keys expected by Go backend
         std = map_identity_to_standard(self._identity_data)
