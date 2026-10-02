@@ -21,8 +21,13 @@ from PyQt5.QtWidgets import (
 
 from .. import APP_VERSION, __version__
 from .. import api, config
-from ..models import Exam
-from ..utils import build_student_key
+from ..models import Exam, SubmitResponse
+from ..utils import (
+    build_attempt_key,
+    build_student_key,
+    get_device_label,
+    map_identity_to_standard,
+)
 
 log = logging.getLogger(__name__)
 
@@ -373,6 +378,12 @@ class ServerConfigDialog(QDialog):
 
     # --- Slots (run on UI thread, connected via signals) ---
 
+    def reject(self) -> None:
+        # Escape/X MENUTUP window, bukan menyembunyikannya: dialog ini
+        # satu-satunya window (quitOnLastWindowClosed) — hide diam-diam
+        # meninggalkan aplikasi zombie tanpa jendela.
+        self.close()
+
     def enable_connect(self) -> None:
         """Hidupkan lagi tombol "Hubungkan" dan bersihkan status.
 
@@ -459,8 +470,6 @@ class ServerConfigDialog(QDialog):
         dibaca ulang dari config: nilainya harus PERSIS yang ditawarkan di
         dialog recovery, apa pun yang terjadi pada config selama proses.
         """
-        from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
-
         # Token dibaca dari config, BUKAN dari QLineEdit: pemanggilan ini
         # berjalan di worker thread, dan membaca widget Qt dari luar
         # thread GUI tidak thread-safe. `config.set("exam_token", ...)`
@@ -485,10 +494,30 @@ class ServerConfigDialog(QDialog):
                 # disertakan" — kirim ulang dari layar ini pun selalu gagal.
                 token=token,
             )
-            if resp.status == "queued" and resp.job_id:
-                resp = api.poll_queued_result(
-                    self._server_url, exam.id, token, mac, resp.job_id, identity,
-                )
+            if resp.status == "queued":
+                if resp.job_id:
+                    # M2: teruskan congrats 202 (mirror _submit_thread) —
+                    # `/result` tidak pernah mengirimkannya.
+                    queued_congrats = resp.congrats_message or ""
+                    resp = api.poll_queued_result(
+                        self._server_url, exam.id, token, mac, resp.job_id, identity,
+                        initial_congrats=queued_congrats,
+                    )
+                else:
+                    # M7: antre TANPA job_id = tidak ada konfirmasi yang
+                    # bisa di-poll — perlakukan sebagai GAGAL, jangan pernah
+                    # tampilkan halaman hijau atas dasar 202 mentah.
+                    log.warning(
+                        "recovery queued tanpa job_id untuk exam %s — "
+                        "dianggap gagal", exam.id,
+                    )
+                    resp = SubmitResponse(
+                        success=False,
+                        status="queued",
+                        message="Server mengantre jawaban tetapi tidak "
+                        "memberikan konfirmasi (job_id kosong). Jawaban "
+                        "tetap tersimpan — coba lagi.",
+                    )
             if resp.success:
                 config.clear_answers(exam.id)
                 try:
@@ -515,7 +544,9 @@ class ServerConfigDialog(QDialog):
 
     @pyqtSlot(str)
     def _recovery_done_slot(self, msg: str) -> None:
-        self.btn_connect.setEnabled(True)
+        # C1: kembalikan SELURUH UI koneksi dulu (tombol + input + flag),
+        # bukan hanya tombolnya — thread recovery mematikannya saat mulai.
+        self._enable_connect_ui()
         # Sama seperti jalur submit biasa: layar penuh berisi pesan guru,
         # identitas, dan link hasil -- bukan message box. Di recovery ini
         # siswa mungkin sudah keluar dari ruang ujian jadi menampilkan
@@ -532,18 +563,18 @@ class ServerConfigDialog(QDialog):
         identity = self._recovery_identity or (
             config.get("identity_data", {}) or {}
         )
+        # H2: identitas via pemetaan kanonik yang sama dengan submit dan
+        # approval — bukan lookup mentah "nama"/"nomor_ujian".
+        std = map_identity_to_standard(identity)
         congrats = CongratulationsWindow(
             server_url=self._server_url,
-            exam_token=str(config.get("exam_token", "") or ""),
+            exam_token=str(config.get("exam_token", "") or "").strip().upper(),
             exam_name=getattr(self._exam, "name", ""),
-            student_name=str(identity.get("nama", "")),
-            student_number=str(
-                identity.get("nomor_ujian") or identity.get("nomor") or ""
-            ),
-            student_class=str(
-                identity.get("kelas") or identity.get("kelas_id") or ""
-            ),
+            student_name=str(std.get("student_name", "")),
+            student_number=str(std.get("exam_number", "")),
+            student_class=str(std.get("student_class", "")),
             congrats_message=msg,
+            public_results=bool(getattr(self._exam, "public_results", True)),
         )
         congrats.setAttribute(Qt.WA_DeleteOnClose)
         congrats.show_fullscreen()
@@ -608,8 +639,16 @@ class ServerConfigDialog(QDialog):
         from .identity_dialog import IdentityDialog
 
         assert self._exam is not None
-        saved_identity = config.get("identity_data", {})
-
+        # M-6: cek monitor ganda strict LEBIH AWAL di sini — sebelum dialog
+        # identitas, sebelum approval membakar waktu pengawas. Backstop di
+        # `__main__.on_exam_selected` tetap ada untuk jalur lain.
+        if self._exam.is_strict and not self._strict_monitor_ok():
+            return
+        # H8 anti-prefill-silangan: identitas tersimpan hanya dipakai bila
+        # konteksnya (ujian + token) sama dengan yang sedang dibuka.
+        # Tanpa ini, identitas siswa A (dari PC/re-entry sebelumnya)
+        # mengisi form siswa B dan Enter saja cukup menjawab atas namanya.
+        saved_identity = self._prefill_identity_if_same_exam()
         dlg = IdentityDialog(self._exam, saved_data=saved_identity, parent=self)
         # Sekadar `showMaximized()`. Sebelumnya ada setGeometry(
         # availableGeometry()) di antara show() dan showMaximized() -- itu
@@ -641,6 +680,16 @@ class ServerConfigDialog(QDialog):
             # siswa boleh mengulang, tapi jawaban yang masih tertinggal di
             # disk milik dia dan jangan sampai hilang diam-diam.
             config.set("identity_data", identity)
+            # H8: ikat identitas tersimpan ke ujian + token ini supaya
+            # prefill berikutnya tidak dipakai siswa/ujian lain.
+            try:
+                token_now = self.validated_token
+            except Exception:
+                token_now = ""
+            config.set("identity_context", {
+                "exam_id": self._exam.id,
+                "token": str(token_now or "").strip().upper(),
+            })
 
             if not self._offer_pending_recovery(identity):
                 # UJIAN TIDAK DIMULAI. Identitas harus dibersihkan.
@@ -658,9 +707,98 @@ class ServerConfigDialog(QDialog):
                 # pembatalan layar persetujuan; jalur recovery membuka
                 # hole yang sama dari arah lain.
                 config.clear_identity()
+                try:
+                    config.set("identity_context", {})
+                except Exception:
+                    log.debug("clear identity_context gagal", exc_info=True)
+                dlg.deleteLater()
                 return
+            # UI koneksi dikembalikan SEBELUM emit: __main__.on_exam_selected
+            # menjalankan dialog persetujuan SYNCHRONOUS — bila ia kembali
+            # (batal), dialog ini muncul lagi dan tombolnya harus sudah hidup.
+            # JANGAN accept() di sini: on_exam_selected mengelola visibilitas
+            # sendiri (hide saat mulai, show saat batal); accept() menutup
+            # dialog yang baru saja ditampilkan lagi (zombie tanpa jendela).
+            self._enable_connect_ui()
             self.exam_selected.emit(self._exam, self._server_url, identity)
-            self.accept()
         else:
             self._enable_connect_ui()
             self.lbl_status.setText("")
+        # L2: dialog identitas dibuang setelah dipakai — widget + inputnya
+        # (nama siswa) tidak boleh tertinggal di memori proses untuk sesi
+        # berikutnya.
+        try:
+            dlg.deleteLater()
+        except Exception:
+            log.debug("deleteLater IdentityDialog gagal", exc_info=True)
+
+    def _prefill_identity_if_same_exam(self) -> Dict[str, str]:
+        """Identitas tersimpan HANYA bila konteksnya cocok (H8).
+
+        `identity_context` ditulis bersamaan dengan `identity_data`
+        (exam_id + token saat itu). Konteks beda → kembalikan {} supaya
+        form kosong untuk siswa/ujian berikutnya.
+        """
+        try:
+            token_now = self.validated_token
+        except Exception:
+            token_now = ""
+        token_now = str(token_now or "").strip().upper()
+        try:
+            ctx = config.get("identity_context", {}) or {}
+        except Exception:
+            return {}
+        if (
+            isinstance(ctx, dict)
+            and ctx.get("exam_id") == self._exam.id
+            and str(ctx.get("token") or "").strip().upper() == token_now
+            and token_now
+        ):
+            stored = config.get("identity_data", {}) or {}
+            return dict(stored) if isinstance(stored, dict) else {}
+        return {}
+
+    def _strict_monitor_ok(self) -> bool:
+        """Gate monitor-ganda strict lebih awal (M-6, fail-closed).
+
+        True → boleh lanjut. False → pesan sudah ditampilkan ke siswa dan
+        UI koneksi sudah dikembalikan; pemanggil cukup `return`.
+        """
+        try:
+            from ..security import get_backend
+
+            multi = bool(get_backend().has_multiple_monitors())
+            detect_ok = True
+        except Exception:
+            log.warning("deteksi multi-monitor gagal (strict) — tolak",
+                        exc_info=True)
+            multi = False
+            detect_ok = False
+        if not detect_ok:
+            # Fail-closed: detector exception berarti kita TIDAK TAHU
+            # berapa layar terpasang — menolak lebih aman daripada melepas
+            # ujian strict tanpa pengawasan.
+            QMessageBox.warning(
+                self,
+                "Tidak Dapat Memeriksa Layar",
+                "Ujian ini berjalan dalam mode ketat dan aplikasi tidak "
+                "dapat memastikan hanya satu layar yang terpasang.\n\n"
+                "Pastikan hanya satu layar terhubung lalu coba lagi, "
+                "atau hubungi pengawas.",
+            )
+            self._enable_connect_ui()
+            self.lbl_status.setText("Pemeriksaan layar gagal — coba lagi.")
+            return False
+        if multi:
+            QMessageBox.warning(
+                self,
+                "Monitor Ganda Terdeteksi",
+                "Ujian ini berjalan dalam mode ketat dan hanya boleh "
+                "menggunakan satu layar.\n\nLepaskan monitor kedua "
+                "lalu coba lagi.",
+            )
+            self._enable_connect_ui()
+            self.lbl_status.setText(
+                "Lepaskan monitor kedua lalu coba lagi.")
+            return False
+        return True

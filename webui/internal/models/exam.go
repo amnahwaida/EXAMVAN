@@ -49,6 +49,12 @@ type Exam struct {
 	// queueing it for a pengawas. Stored in the DB so it keeps working even
 	// when no pengawas monitoring page is open.
 	AutoApprove bool `json:"auto_approve"`
+	// PreviousActiveToken holds the active_token value superseded by the
+	// latest dynamic rotation (see examtoken.MaybeResetActiveToken), so
+	// result links built with the previous token keep resolving via
+	// GetExamByToken instead of 404-ing mid-exam. Nullable; nil when the
+	// token was never rotated.
+	PreviousActiveToken *string `json:"previous_active_token,omitempty"`
 	// TombstonedAt is set when this active-but-unstarted exam is
 	// auto-inactivated (policy B): the school's operator is cut off (voucher
 	// switch or manual suspension) or the creating account's active period
@@ -103,13 +109,13 @@ func ExamScheduleEnded(exam *Exam, now time.Time) bool {
 const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,
 created_by, created_at, identity_fields, panel_color,
-start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message, auto_approve`
+start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message, auto_approve, previous_active_token`
 
 // DefaultExamColumnsWithAlias for JOIN queries with e. prefix.
 const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.active_token, e.questions_json,
 e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
 e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message, e.auto_approve`
+e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message, e.auto_approve, e.previous_active_token`
 
 // scanExam scans a row into an Exam struct. The columns must match DefaultExamColumns order.
 func scanExam(row pgx.Row) (Exam, error) {
@@ -120,7 +126,7 @@ func scanExam(row pgx.Row) (Exam, error) {
 		&e.CreatedBy, &e.CreatedAt, &e.IdentityFields, &e.PanelColor,
 		&e.StartTime, &e.EndTime, &e.DelegatedTo,
 		&e.TokenMode, &e.TokenResetInterval, &e.TokenLastResetAt, &e.ExamStartedAt,
-		&e.TombstonedAt, &e.CongratsMessage, &e.AutoApprove,
+		&e.TombstonedAt, &e.CongratsMessage, &e.AutoApprove, &e.PreviousActiveToken,
 	)
 	return e, err
 }
@@ -146,9 +152,38 @@ func SetExamAutoApprove(ctx context.Context, pool *pgxpool.Pool, examID int, ena
 }
 
 // GetExamByToken retrieves an exam by its unique 8-character token.
+// Besides the live token/active_token columns it also matches the single
+// kept previous_active_token AND the exam_token_history table, so result
+// links built with a token superseded several rotations ago keep resolving
+// instead of 404-ing. The join/submit gate (examtoken.Matches) does NOT use
+// this — it stays strict on the active token only.
 func GetExamByToken(ctx context.Context, pool *pgxpool.Pool, token string) (Exam, error) {
-	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.token = $1 OR e.active_token = $1`
+	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.token = $1 OR e.active_token = $1 OR e.previous_active_token = $1 OR EXISTS (SELECT 1 FROM exam_token_history h WHERE h.exam_id = e.id AND h.token = $1)`
 	return scanExam(pool.QueryRow(ctx, sql, token))
+}
+
+// AppendExamTokenHistory records a superseded active token for an exam and
+// trims the per-exam history to the 5 newest rows, so result links survive
+// repeated dynamic rotations without growing the table unboundedly.
+// Duplicate (exam_id, token) pairs are ignored. q accepts a pool or an
+// already-open transaction (caller fusi dengan UPDATE rotasi dalam satu tx).
+func AppendExamTokenHistory(ctx context.Context, q execQuerier, examID int, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil
+	}
+	if _, err := q.Exec(ctx,
+		`INSERT INTO exam_token_history (exam_id, token) VALUES ($1, $2) ON CONFLICT (exam_id, token) DO NOTHING`,
+		examID, token); err != nil {
+		return fmt.Errorf("append exam token history: %w", err)
+	}
+	if _, err := q.Exec(ctx,
+		`DELETE FROM exam_token_history WHERE exam_id = $1 AND id NOT IN (
+			SELECT id FROM exam_token_history WHERE exam_id = $1 ORDER BY created_at DESC, id DESC LIMIT 5
+		)`, examID); err != nil {
+		return fmt.Errorf("trim exam token history: %w", err)
+	}
+	return nil
 }
 
 // ListExamsOpts holds optional filters for listing exams.
@@ -156,12 +191,12 @@ type ListExamsOpts struct {
 	Page       int
 	PerPage    int
 	Search     string
-	Status     string // optional: "active" or "inactive"
-	CreatedBy  *int   // optional: filter by creator
+	Status     string        // optional: "active" or "inactive"
+	CreatedBy  *int          // optional: filter by creator
 	Instansi   InstansiScope // optional: filter by creator's tenant (for operator view); bucket/empty = no filter
-	UserID     *int   // optional: include exams delegated to or assigned as pengawas
-	IsPengawas bool   // when true, only show exams where user is assigned as pengawas
-	IsGuru     bool   // when true, also include own exams
+	UserID     *int          // optional: include exams delegated to or assigned as pengawas
+	IsPengawas bool          // when true, only show exams where user is assigned as pengawas
+	IsGuru     bool          // when true, also include own exams
 }
 
 // ListExamsResult holds the paginated exam list and total count.
@@ -506,6 +541,7 @@ func CountRunningExamsByFamily(ctx context.Context, q queryRower, familyRoot, ex
 	}
 	return n, nil
 }
+
 // the given exam ids' creators, the number of running exams the instansi would
 // have if every selected exam were activated (school-pool semantics: running
 // exams of EVERY account in the instansi — the operator's included — count).
@@ -781,6 +817,9 @@ func DeleteExam(ctx context.Context, pool *pgxpool.Pool, id int) (*Exam, error) 
 	if _, err := tx.Exec(ctx, `DELETE FROM submissions WHERE exam_id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: delete submissions: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM exam_token_history WHERE exam_id = $1`, id); err != nil {
+		return nil, fmt.Errorf("delete exam: delete token history: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM exams WHERE id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: %w", err)
 	}
@@ -830,6 +869,7 @@ func BulkDeleteExams(ctx context.Context, pool *pgxpool.Pool, ids []int) ([]stri
 		`DELETE FROM exam_pengawas WHERE exam_id = ANY($1)`,
 		`DELETE FROM student_access_logs WHERE exam_id = ANY($1)`,
 		`DELETE FROM submissions WHERE exam_id = ANY($1)`,
+		`DELETE FROM exam_token_history WHERE exam_id = ANY($1)`,
 	} {
 		if _, err := tx.Exec(ctx, q, ids); err != nil {
 			return nil, fmt.Errorf("bulk delete: %w", err)
@@ -1004,7 +1044,7 @@ func UserCanAccessExam(ctx context.Context, pool *pgxpool.Pool, userID int, isSu
 				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
 				  -- Tenant match by canonical instansi_id (legacy name fallback
 				  -- for id-less rows) — see InstansiMatchSelfSQL.
-				  AND ` + InstansiMatchSelfSQL("me", "owner") + `
+				  AND `+InstansiMatchSelfSQL("me", "owner")+`
 			)
 		)`, examID, userID).Scan(&cnt)
 	if err != nil {
@@ -1037,7 +1077,7 @@ func UserCanControlExam(ctx context.Context, pool *pgxpool.Pool, userID int, isS
 				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
 				  -- Tenant match by canonical instansi_id (legacy name fallback
 				  -- for id-less rows) — see InstansiMatchSelfSQL.
-				  AND ` + InstansiMatchSelfSQL("me", "owner") + `
+				  AND `+InstansiMatchSelfSQL("me", "owner")+`
 			)
 		)`, examID, userID).Scan(&cnt)
 	if err != nil {
@@ -1069,7 +1109,7 @@ func FilterAccessibleExamIDs(ctx context.Context, pool *pgxpool.Pool, userID int
 				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
 				  -- Tenant match by canonical instansi_id (legacy name fallback
 				  -- for id-less rows) — see InstansiMatchSelfSQL.
-				  AND ` + InstansiMatchSelfSQL("me", "owner") + `
+				  AND `+InstansiMatchSelfSQL("me", "owner")+`
 			)
 		)`, ids, userID)
 	if err != nil {

@@ -95,9 +95,15 @@ class RestoreAnswersIsExactTestCase(unittest.TestCase):
     def test_a_full_answer_survives_a_restart(self):
         for value in ("Andi", "Budi", "A"):
             with self.subTest(value=value):
-                self.sheet.restore_answers({"7": {"Ibu Kota": value}})
+                # Lembar baru per nilai: restore_answers memakai setdefault
+                # (tidak menimpa jawaban yang sudah ada), jadi satu lembar
+                # untuk tiga nilai akan menahan nilai pertama selamanya.
+                sheet = AnswerSheetWidget()
+                self.addCleanup(sheet.deleteLater)
+                sheet.build_from_questions([_matching()])
+                sheet.restore_answers({"7": {"Ibu Kota": value}})
                 self.assertEqual(
-                    self.sheet.get_answers().get("7"), {"Ibu Kota": value}
+                    sheet.get_answers().get("7"), {"Ibu Kota": value}
                 )
 
     def test_numeric_prefix_collisions_are_also_safe(self):

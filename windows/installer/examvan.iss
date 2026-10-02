@@ -88,6 +88,10 @@ RestartApplications=no
 ; desktop/, jadi pemeriksaan itu tidak pernah bisa menyala. Mencegah dua
 ; installer jalan bersamaan adalah `SetupMutex`.
 SetupMutex={#SetupMutexName}
+; Pasangan single-instance dengan aplikasi: app membuat named mutex ini
+; saat jalan, sehingga installer menolak berjalan bersamaan dengan app
+; (dan sebaliknya, app tahu installer sedang berjalan).
+AppMutex=EXAMVAN_SingleInstance_v1
 MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -324,7 +328,10 @@ begin
   begin
     PwDir := ExpandConstant('{localappdata}\EXAMVAN');
     if not DirExists(PwDir) then
-      CreateDir(PwDir);
+      if not CreateDir(PwDir) then
+        RaiseException('Gagal membuat folder password admin exit:' + #13#10 +
+          PwDir + #13#10#13#10 +
+          'Instalasi dibatalkan sebelum ada perubahan.');
     PwFile := PwDir + '\admin_password.txt';
 
     // Password lama dimuat ke Values[0] HANYA untuk instalasi SENYAP.
@@ -484,15 +491,18 @@ begin
 
     if Found then
     begin
+      // DEFAULT = aman: tombol 1 (Yes) = PERTAHANKAN. MB_YESNO selalu
+      // menaruh Yes sebagai default, jadi pertanyaan harus dibalik supaya
+      // jawaban default tidak menghapus data: Yes=pertahankan, No=hapus.
       if MsgBox('Folder data EXAMVAN berikut masih ada:' + #13#10#13#10 +
                 PwDir + #13#10 +
                 '  -> password admin exit' + #13#10#13#10 +
                 LogDir + #13#10 +
                 '  -> jawaban ujian yang belum terkirim, config (URL server,' + #13#10 +
                 '     token, identitas), app.log, windows_state.json' + #13#10#13#10 +
-                'Hapus KEDUA folder ini juga?' + #13#10#13#10 +
-                'Pilih No bila masih ada jawaban yang belum terkirim.',
-                mbConfirmation, MB_YESNO) = IDYES then
+                'Pertahankan KEDUA folder ini?' + #13#10#13#10 +
+                'Pilih Yes bila masih ada jawaban yang belum terkirim.',
+                mbConfirmation, MB_YESNO) = IDNO then
       begin
         if DirExists(PwDir) then
           DelTree(PwDir, True, True, True);

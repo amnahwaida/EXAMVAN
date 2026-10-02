@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 
 from .. import api
 from ..models import Exam
-from ..utils import build_attempt_key, get_device_label
+from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
 
 
 # Lebih lama dari timeout HTTP `api.request_approval` (10 detik).
@@ -37,10 +37,16 @@ class WaitingApprovalDialog(QDialog):
         self.identity_data = identity_data
         self._token = token  # exam token — required by the server (anti-spam)
         
-        # Extract basic info
-        self.student_name = self._extract_field("nama", "name", "student_name")
-        self.exam_number = self._extract_field("nomor", "no", "nis", "number", "exam_number")
-        self.student_class = self._extract_field("kelas", "class", "student_class")
+        # Tiga field dihitung dari SATU pemanggilan map_identity_to_standard
+        # — implementasi tunggal yang sama dipakai submit (exam_viewer),
+        # recovery, dan approval. Dulu dialog ini punya penebak sendiri
+        # (_extract_field, substring per keyword) yang memetakan
+        # `nama_peserta` ke exam_number sementara submit memetakannya ke
+        # nama: baris approval dan baris submission tidak match.
+        _std = map_identity_to_standard(identity_data)
+        self.student_name = str(_std.get("student_name", ""))
+        self.exam_number = str(_std.get("exam_number", ""))
+        self.student_class = str(_std.get("student_class", ""))
 
         # Identitas PERANGKAT tunggal (DESKTOP:<hash>) — HARUS sama persis
         # dengan yang dipakai download PDF (X-Device-Id) dan submit
@@ -80,14 +86,6 @@ class WaitingApprovalDialog(QDialog):
 
         self._setup_ui()
         self._start_polling()
-
-    def _extract_field(self, *keywords) -> str:
-        for k, v in self.identity_data.items():
-            kl = k.lower()
-            for kw in keywords:
-                if kw in kl and v:
-                    return str(v)
-        return ""
 
     def _setup_ui(self):
         self.setWindowTitle("Menunggu Persetujuan")
@@ -198,20 +196,48 @@ class WaitingApprovalDialog(QDialog):
             # Poller basi: ada yang lebih baru. Keluar tanpa menebak.
             if generation and generation != self._poll_generation:
                 return
-            resp = api.request_approval(
-                self.server_url,
-                self.exam.id,
-                self.student_name,
-                self.exam_number,
-                self.student_class,
-                self.identity_data,
-                self.mac_address,
-                reset=first_check,
-                token=self._token
-            )
+            try:
+                resp = api.request_approval(
+                    self.server_url,
+                    self.exam.id,
+                    self.student_name,
+                    self.exam_number,
+                    self.student_class,
+                    self.identity_data,
+                    self.mac_address,
+                    reset=first_check,
+                    token=self._token
+                )
+            except Exception as e:
+                # request_approval sendiri best-effort, tapi Mock/patch di
+                # test atau bug tak terduga tetap bisa melempar ke sini.
+                # Tanpa ini thread poll mati diam-diam dan dialog menunggu
+                # selamanya tanpa pesan. Tampilkan sekali, lalu berhenti.
+                if generation and generation != self._poll_generation:
+                    return
+                self._sig_status.emit(
+                    "error", "Koneksi Terganggu",
+                    f"Mencoba menghubungkan ulang...\n{e}")
+                break
             first_check = False
 
             if self._poll_stop.is_set():
+                break
+
+            # Poller lama yang kembali TERLAMBAT (10 detik di dalam HTTP
+            # sementara retry sudah jalan): generasinya basi — jangan
+            # sentuh UI, apalagi me-reset approval yang baru diberikan.
+            if generation and generation != self._poll_generation:
+                return
+
+            # Verdict permanen 401/403/404 (token salah, akses ditolak,
+            # ujian tidak ada): server tidak akan berubah pikiran, jadi
+            # polling lagi tiap 5 detik SELAMANYA hanya memutar loop
+            # "Koneksi Terganggu". Perlakukan sebagai penolakan final
+            # dengan pesan ASLI server, lalu berhenti.
+            if getattr(resp, "http_status", None) in (401, 403, 404):
+                msg = resp.message or "Permintaan akses ditolak server."
+                self._sig_status.emit("rejected", "Akses Ditolak", msg)
                 break
 
             if not resp.success and resp.status in ("pending", "error") and resp.message:
@@ -274,8 +300,12 @@ class WaitingApprovalDialog(QDialog):
             self.icon_label.setText("✅")
             self.btn_cancel.setEnabled(False)
             self.btn_retry.hide()
-            # Auto close and proceed after a short delay
-            QTimer.singleShot(1500, self.accept)
+            # Auto close and proceed after a short delay — tapi hanya kalau
+            # poller yang memicu approval ini masih yang terbaru. Tanpa
+            # cek generasi, accept dari poller basi bisa menutup dialog
+            # yang sudah di-retry untuk siklus berikutnya.
+            QTimer.singleShot(
+                1500, lambda: self._on_approved_delay(self._poll_generation))
         elif status_type == "rejected":
             self.icon_label.setText("🚫")
             self.btn_cancel.setText("Kembali")
@@ -292,6 +322,19 @@ class WaitingApprovalDialog(QDialog):
             self.icon_label.setText("⏳")
             self.btn_retry.hide()
             self.btn_cancel.setText("Batal")
+
+    @pyqtSlot(int)
+    def _on_approved_delay(self, generation: int) -> None:
+        """Tutup dialog 1,5 detik setelah approval — hanya bila masih relevan.
+
+        Poller lama yang approval-nya datang terlambat (generasi basi)
+        atau dialog yang sudah dibatalkan/di-retry tidak boleh di-accept.
+        """
+        if generation != self._poll_generation:
+            return
+        if not self.is_waiting:
+            return
+        self.accept()
 
     def _retry_approval(self):
         # Stop dulu yang lama, baru buka yang baru — lihat _start_polling.

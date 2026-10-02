@@ -441,22 +441,26 @@ func main() {
 // dipakai registerRoutes dan dikunci oleh TestStudentRoutesRateLimitPerIP
 // (routes_nat_ratelimit_test.go).
 //
-// Kapasitas SATU NAT/WiFi sekolah dibatasi oleh nilai TERKECIL untuk traffic
-// serentak: limit WS 60/menit (koneksi gelombang pertama) adalah yang paling
-// rendah, jadi maksimal 60 perangkat per NAT. Endpoint lain sengaja dinaikkan
-// jauh di atas itu agar tidak pernah menjadi penghambat:
-//   - 1200/menit (≈20 req/dtk): join token, unduhan PDF, poll approval, poll
-//     hasil — semua dipicu serentak oleh seluruh ruangan;
-//   - 120/menit: submit, access-log, complete — burst di deadline.
+// SELURUH perangkat di belakang SATU NAT/WiFi sekolah berbagi SATU bucket
+// per-IP middleware (SetTrustedProxies mencakup rentang privat, jadi
+// c.ClientIP() sama untuk satu lab), sehingga budget per-IP HARUS menampung
+// satu ruangan penuh (500 perangkat), bukan satu perangkat:
+//   - 15000/menit (≈250 req/dtk): join token, unduhan PDF, request-approval,
+//     result polling — polling hasil saja sudah 500×24=12000/menit saat
+//     seluruh ruangan mem-poll bersamaan di deadline;
+//   - 1500/menit: submit, access-log, complete — burst submit 500 perangkat
+//     di deadline ditambah heartbeat berkala;
+//   - 600/menit: GET /ws/:room_id — 500 koneksi awal gelombang pertama plus
+//     headroom reconnect.
 //
 // Throttle yang sebenarnya (per perangkat / per ujian) di-enforce di dalam
 // handler keyed exam+MAC / per-token / per-exam (internal/handlers/api).
 const (
-	rateLimitExamsPerMinute = 60   // GET /api/exams — list (one-shot + pull-refresh)
-	rateLimitWavePerMinute  = 1200 // join token, unduhan PDF, request-approval, result
-	rateLimitBurstPerMinute = 120  // submit, access-log, complete (deadline burst)
-	rateLimitWSPerMinute    = 60   // GET /ws/:room_id — koneksi long-lived
-	rateLimitHasilPerMinute = 30   // GET /hasil/:token — halaman publik (anti-brute token)
+	rateLimitExamsPerMinute = 60    // GET /api/exams — list (one-shot + pull-refresh)
+	rateLimitWavePerMinute  = 15000 // join token, unduhan PDF, request-approval, result
+	rateLimitBurstPerMinute = 1500  // submit, access-log, complete (deadline burst)
+	rateLimitWSPerMinute    = 600   // GET /ws/:room_id — koneksi long-lived
+	rateLimitHasilPerMinute = 300   // GET /hasil[/:token] + /api/hasil/:token — IP ceiling (satu NAT sekolah = satu ruangan, 40+ siswa berbagi satu IP); anti-brute token yang sebenarnya di-enforce per-TOKEN di dalam handler (public.hasilTokenRateLimitMax, 60/menit per token)
 )
 
 func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
@@ -492,11 +496,12 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/download", middleware.RateLimitIP(60, time.Minute), public.DownloadPage())
 	r.GET("/download/apk", middleware.RateLimitIP(60, time.Minute), public.DownloadAPK())
 	r.GET("/download/app/:id", middleware.RateLimit(60, time.Minute), public.DownloadSystemApp())
-	// M1: the HTML result pages carry the SAME anti-brute-force budget as the
-	// API route below (30/menit per IP, comment at rateLimitHasilPerMinute):
-	// each page view runs 3–4 DB queries and the token is the brute-force
-	// surface — an unthrottled HTML route would let a caller enumerate/guess
-	// tokens through the page renderer (and hammer the DB) at line rate.
+	// M1: the HTML result pages carry the SAME IP ceiling as the
+	// API route below (lihat rateLimitHasilPerMinute): the token-brute-force
+	// throttle lives per-token inside the public handlers, the middleware is
+	// IP-only (middleware.RateLimitIP) so its budget must hold a whole room
+	// behind one school NAT instead of throttling classmates against each
+	// other.
 	r.GET("/hasil", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.CekHasilPage())
 	r.GET("/hasil/:token", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.HasilPage())
 
@@ -813,9 +818,14 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/admin", func(c *gin.Context) { c.Redirect(http.StatusFound, "/admin/dashboard") })
 }
 
-// shortURLRedirectHandler redirects /<8-char-token> to /hasil/<token>.
+// shortURLRedirectHandler redirects /<8-char-token> to hasil/<token>.
 // Uses regex to only match 8-character alphanumeric tokens (A-Z, 0-9),
 // so it won't catch legitimate paths like /login, /admin, /api, etc.
+//
+// The target is RELATIVE (no leading slash) so it resolves against the
+// request path: behind a reverse-proxy sub-path (/examvan/ABCD1234 →
+// /examvan/hasil/ABCD1234) the prefix is preserved, while a direct
+// deployment (/ABCD1234 → /hasil/ABCD1234) behaves exactly as before.
 func shortURLRedirectHandler() gin.HandlerFunc {
 	tokenRe := regexp.MustCompile(fmt.Sprintf(`^[A-Z0-9]{%d}$`, config.TokenLength))
 	return func(c *gin.Context) {
@@ -825,7 +835,7 @@ func shortURLRedirectHandler() gin.HandlerFunc {
 			c.Redirect(http.StatusFound, "/")
 			return
 		}
-		c.Redirect(http.StatusFound, "/hasil/"+token)
+		c.Redirect(http.StatusFound, "hasil/"+token)
 	}
 }
 

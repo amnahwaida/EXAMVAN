@@ -32,9 +32,10 @@ func MaybeResetActiveToken(ctx context.Context, pool *pgxpool.Pool, exam *models
 	var tokenResetInterval *int
 	var tokenLastResetAt *time.Time
 	var activeToken string
-	err = tx.QueryRow(ctx, 
-		`SELECT exam_started_at, token_reset_interval, token_last_reset_at, active_token 
-		 FROM exams WHERE id = $1 FOR UPDATE`, exam.ID).Scan(&examStartedAt, &tokenResetInterval, &tokenLastResetAt, &activeToken)
+	var previousActiveToken *string
+	err = tx.QueryRow(ctx,
+		`SELECT exam_started_at, token_reset_interval, token_last_reset_at, active_token, previous_active_token
+		 FROM exams WHERE id = $1 FOR UPDATE`, exam.ID).Scan(&examStartedAt, &tokenResetInterval, &tokenLastResetAt, &activeToken, &previousActiveToken)
 	if err != nil {
 		return err
 	}
@@ -52,15 +53,26 @@ func MaybeResetActiveToken(ctx context.Context, pool *pgxpool.Pool, exam *models
 		// Already updated by another concurrent request, sync memory representation and return
 		exam.ActiveToken = activeToken
 		exam.TokenLastResetAt = tokenLastResetAt
+		exam.PreviousActiveToken = previousActiveToken
 		return nil
 	}
 
 	newToken := helpers.GenerateExamToken()
 	resetAt := now.UTC()
-	_, err = tx.Exec(ctx, 
-		`UPDATE exams SET active_token = $1, token_last_reset_at = $2 WHERE id = $3`, 
-		newToken, resetAt, exam.ID)
+	_, err = tx.Exec(ctx,
+		`UPDATE exams SET active_token = $1, previous_active_token = $2, token_last_reset_at = $3 WHERE id = $4`,
+		newToken, activeToken, resetAt, exam.ID)
 	if err != nil {
+		return err
+	}
+
+	// Archive the superseded token: previous_active_token keeps only ONE
+	// generation, so without this the result link 404s after two rotations.
+	// GetExamByToken resolves via this history (capped at 5 per exam); the
+	// join/submit gate (Matches below) stays strict on the active token.
+	// Inside the same tx: a failed append rolls the rotation back too, so
+	// the two can never diverge.
+	if err := models.AppendExamTokenHistory(ctx, tx, exam.ID, activeToken); err != nil {
 		return err
 	}
 
@@ -70,6 +82,8 @@ func MaybeResetActiveToken(ctx context.Context, pool *pgxpool.Pool, exam *models
 
 	exam.ActiveToken = newToken
 	exam.TokenLastResetAt = &resetAt
+	prev := activeToken
+	exam.PreviousActiveToken = &prev
 	return nil
 }
 

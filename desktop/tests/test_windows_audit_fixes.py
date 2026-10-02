@@ -141,6 +141,7 @@ class SubmitThreadNeverStrandsTest(unittest.TestCase):
             win._submit_thread(
                 "https://exam.example", 1, "Andi", "N01", "9A", {"1": "A"},
                 "2026-01-01T00:00:00Z", "DESKTOP:h", {"nama": "Andi"},
+                "ABCD1234",
             )
         return win, results
 

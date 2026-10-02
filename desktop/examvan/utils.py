@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import platform
+import re
 import socket
+import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Dict, Optional
@@ -23,6 +25,25 @@ _device_label_cache: Dict[str, str] = {}
 _machine_id_cache: Optional[str] = None
 
 
+# Kata PERTAMA (setelah split non-alfanumerik) yang menandai tiap slot.
+# Hanya kata pertama yang dibaca — dispatch, bukan substring matching.
+# Dulu grup keyword dipindai sebagai substring di SELURUH kunci dengan
+# kata bersama (`peserta`/`exam`/`ujian` di banyak grup) sehingga
+# `nama_peserta` jatuh ke exam_number karena grup number diproses dulu.
+# Kata seperti ujian/exam/kode/tanggal/lahir/date/time SENGAJA tidak ada
+# di himpunan mana pun: kunci yang diawali kata tak dikenal DILEWATI
+# (tidak pernah ditebak) supaya server menolak dengan pesan yang jelas.
+_NUMBER_FIRST_WORDS = frozenset({"nomor", "number", "no", "nis", "nisn", "nip"})
+_NAME_FIRST_WORDS = frozenset({"nama", "name", "siswa", "student", "peserta"})
+_CLASS_FIRST_WORDS = frozenset({"kelas", "class", "rombel", "kelompok"})
+
+
+def _first_word(key: object) -> str:
+    """Kata pertama kunci, lowercase, pecah pada non-alfanumerik."""
+    words = [w for w in re.split(r"[^a-z0-9]+", str(key or "").lower()) if w]
+    return words[0] if words else ""
+
+
 def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
     """Map dynamic identity field keys to standard Go backend keys.
 
@@ -30,37 +51,51 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
       student_name, exam_number, student_class
 
     But exams can use custom keys like 'nama', 'nomor_ujian', 'kelas', etc.
-    This function semantically matches them by keyword scanning.
+    Pencocokan tiga lapis, deterministik terhadap urutan dict:
+
+    (a) kunci kanonik cocok persis dulu (case-insensitive), tanpa menebak;
+    (b) dispatch kata PERTAMA saja (lihat _NUMBER/_NAME/_CLASS_FIRST_WORDS);
+        kata pertama tak dikenal → kunci dilewati, tidak pernah ditebak;
+    (c) nilai yang sudah terpakai tidak dipakai ulang untuk slot lain.
     """
     result: Dict[str, str] = {}
     items = list(identity_data.items())
     if not items:
         return result
 
-    # Keyword groups for matching
-    name_kw = ("nama", "name", "siswa", "student", "peserta")
-    number_kw = ("nomor", "number", "no_", "ujian", "exam", "nis", "nip", "peserta")
-    class_kw = ("kelas", "class", "rombel", "kelompok")
-
-    def matches(key: str, keywords: tuple) -> bool:
-        k = key.lower()
-        return any(kw in k for kw in keywords)
-
-    assigned = set()  # track assigned values to avoid duplicates
-
-    # 1. Match by keyword (highest confidence)
+    # (a) Kunci kanonik cocok persis dulu — tanpa menebak.
     for key, val in items:
-        if "student_name" not in result and matches(key, name_kw):
+        kl = str(key or "").lower()
+        if kl == "student_name" and "student_name" not in result:
             result["student_name"] = val
-            assigned.add(val)
-    for key, val in items:
-        if "exam_number" not in result and matches(key, number_kw) and val not in assigned:
+        elif kl == "exam_number" and "exam_number" not in result:
             result["exam_number"] = val
-            assigned.add(val)
-    for key, val in items:
-        if "student_class" not in result and matches(key, class_kw) and val not in assigned:
+        elif kl == "student_class" and "student_class" not in result:
             result["student_class"] = val
+
+    # (b) Dispatch kata pertama. Kandidat per slot dikumpulkan lalu
+    # dipilih dalam urutan kunci ter-sortir supaya hasilnya TIDAK
+    # tergantung urutan dict (setiap kunci memetakan deterministik).
+    slots = (
+        ("exam_number", _NUMBER_FIRST_WORDS),
+        ("student_name", _NAME_FIRST_WORDS),
+        ("student_class", _CLASS_FIRST_WORDS),
+    )
+    assigned = set(result.values())  # track assigned values to avoid duplicates
+    for std_key, first_words in slots:
+        if std_key in result:
+            continue
+        candidates = sorted(
+            ((k, v) for k, v in items if _first_word(k) in first_words),
+            key=lambda kv: str(kv[0]),
+        )
+        for _key, val in candidates:
+            # (c) Nilai yang sudah diklaim slot lain tidak dipakai ulang.
+            if val in assigned:
+                continue
+            result[std_key] = val
             assigned.add(val)
+            break
 
     # 2. Sisa field yang TIDAK terpetakan TIDAK boleh dipaksakan ke slot
     #    standar.
@@ -90,13 +125,32 @@ def get_mac_address() -> str:
     """
     # Linux: sysfs is fastest and most reliable
     if not platform.system() == "Windows":
+        # Lewati interface virtual/loopback; utamakan fisik pertama,
+        # jatuh ke non-lo pertama bila hanya virtual yang ada.
+        _VIRTUAL_PREFIXES = (
+            "lo", "docker", "br-", "veth", "virbr", "vnet",
+            "tun", "tap", "vmnet",
+        )
         try:
+            first_fallback = None
+            for addr_path in sorted(Path("/sys/class/net").glob("*/address")):
+                mac = addr_path.read_text().strip()
+                iface = addr_path.parent.name
+                if mac == "00:00:00:00:00:00":
+                    continue
+                if any(iface == p or iface.startswith(p) for p in _VIRTUAL_PREFIXES):
+                    continue
+                return mac.upper()
+            # Fallback: non-lo pertama apa pun (termasuk virtual).
             for addr_path in sorted(Path("/sys/class/net").glob("*/address")):
                 mac = addr_path.read_text().strip()
                 iface = addr_path.parent.name
                 if iface != "lo" and mac != "00:00:00:00:00:00":
-                    return mac.upper()
-        except OSError:
+                    first_fallback = mac.upper()
+                    break
+            if first_fallback:
+                return first_fallback
+        except (OSError, ValueError, UnicodeDecodeError):
             pass
 
     # Cross-platform fallback via uuid
@@ -147,9 +201,11 @@ def build_attempt_key(
     berbeda tidak mengubah label di tengah sesi.
     """
     std = map_identity_to_standard(identity_data or {})
-    parts = [token or ""]
+    # Selaras dengan _student_key_and_source: bagian identitas di-strip +
+    # lower, token di-strip tapi huruf dipertahankan.
+    parts = [(token or "").strip()]
     for key in ("student_name", "exam_number", "student_class"):
-        parts.append(str(std.get(key, "")))
+        parts.append(str(std.get(key, "")).strip().lower())
     return "|".join(parts)
 
 
@@ -233,7 +289,12 @@ def build_result_link(server_url: str, exam_token: str) -> str:
     token = str(exam_token or "").strip()
     if not base or not token:
         return ""
-    return f"{base}/{token}"
+    # Buang query/fragment dari base (config yang diedit manual bisa
+    # membawa '?x=1'/'#frag' yang ikut ke link hasil).
+    base = base.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/{urllib.parse.quote(token, safe='')}"
 
 
 def get_device_label(attempt_key: Optional[str] = None) -> str:

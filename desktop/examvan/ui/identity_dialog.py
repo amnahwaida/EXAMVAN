@@ -41,24 +41,60 @@ class IdentityDialog(QDialog):
     ):
         super().__init__(parent)
         self._exam = exam
-        self._fields = exam.identity_fields if exam.identity_fields else self._DEFAULT_FIELDS
+        raw_fields = exam.identity_fields if exam.identity_fields else self._DEFAULT_FIELDS
         # Audit 2 Okt 2026 (HIGH H15): field key duplikat di API response
         # membuat _inputs[key] ditimpa — siswa memasukkan dua entri dengan
         # nama sama, salah satunya diam-diam hilang dari data yang dikirim.
-        # Deduplicate pertahankan field PERTAMA (biasanya required) dan
-        # log peringatan supaya backend tahu.
-        seen_keys: set = set()
-        deduped: List = []
-        for f in self._fields:
-            if f.key in seen_keys:
+        # Deduplicate pertahankan field PERTAMA, tapi bila SALAH SATU
+        # tabrakan `required`, hasil gabungannya required (tanda bintang
+        # tampil — itulah pemberitahuan ke siswa), dan log peringatan
+        # menyebut ujian + key supaya backend tahu.
+        #
+        # Key kosong/whitespace-only (C2) TIDAK lagi dibuang: dibuang
+        # berarti form kosong tetap lolos validasi (Accepted) lalu server
+        # membalas 400 selamanya. Key dinormalisasi strip, dan tiap field
+        # tanpa key mendapat kunci sintetis `field_<index>` (index = posisi
+        # di exam.identity_fields) supaya widget TETAP dibangun dan nilainya
+        # TETAP terkumpul.
+        #
+        # Salinan IdentityField baru dipakai (bukan item asli) supaya
+        # normalisasi strip + merge required tidak mengubah objek milik
+        # Exam/_DEFAULT_FIELDS bersama.
+        seen: Dict[str, IdentityField] = {}
+        self._fields: List[IdentityField] = []
+        # Kunci sintetis yang berasal dari key kosong — untuk aturan
+        # warisan `"": value` di get_identity_data dan penolakan
+        # multi-kosong-required di _on_submit.
+        self._empty_origin_keys: List[str] = []
+        for idx, f in enumerate(raw_fields):
+            norm_key = str(f.key or "").strip()
+            empty_origin = not norm_key
+            if empty_origin:
+                norm_key = f"field_{idx}"
+            if norm_key in seen:
+                first = seen[norm_key]
+                if f.required and not first.required:
+                    first.required = True
                 log.warning(
                     "IdentityField key duplikat %r pada %s — hanya yang "
-                    "pertama yang dipakai", f.key, exam.name,
+                    "pertama yang dipakai%s", norm_key, exam.name,
+                    " (gabungan required)" if f.required else "",
                 )
                 continue
-            seen_keys.add(f.key)
-            deduped.append(f)
-        self._fields = deduped
+            kept = IdentityField(
+                key=norm_key,
+                label=f.label,
+                required=bool(f.required),
+            )
+            seen[norm_key] = kept
+            self._fields.append(kept)
+            if empty_origin:
+                self._empty_origin_keys.append(norm_key)
+                log.warning(
+                    "IdentityField tanpa key (label %r) pada %s — "
+                    "memakai kunci sintetis %r",
+                    f.label, exam.name, norm_key,
+                )
         self._inputs: Dict[str, QLineEdit] = {}
         self._saved = saved_data or {}
         self._setup_ui()
@@ -130,6 +166,8 @@ class IdentityDialog(QDialog):
         # "label + kotak" sebagai satu unit, lalu berhenti sejenak sebelum
         # unit berikutnya.
         for field in self._fields:
+            # Key sudah dinormalisasi di __init__ (strip; kosong → sintetis
+            # `field_<index>`), jadi setiap field PASTI punya widget.
             group = QVBoxLayout()
             group.setSpacing(4)
             lbl = QLabel(field.label + (" *" if field.required else ""))
@@ -169,7 +207,27 @@ class IdentityDialog(QDialog):
         outer.addStretch(1)
 
     def _on_submit(self) -> None:
+        # C2: beberapa field tanpa key DAN salah satunya required berarti
+        # konfigurasi ujian rusak — server melewati yang non-required tapi
+        # MENOLAK yang required tanpa key yang jelas. Tolak gabungnya di
+        # sini (jangan accept): satu-satunya jalan adalah pengawas
+        # memperbaiki konfigurasinya. Beberapa-tapi-semua-opsional: lanjut
+        # (server melewati yang non-required).
+        if len(self._empty_origin_keys) > 1:
+            bad_labels = [
+                fld.label or fld.key for fld in self._fields
+                if fld.key in self._empty_origin_keys and fld.required
+            ]
+            if bad_labels:
+                QMessageBox.warning(
+                    self,
+                    "Konfigurasi Ujian Salah",
+                    f"konfigurasi ujian salah: field '{bad_labels[0]}' "
+                    f"tidak punya key — hubungi pengawas",
+                )
+                return
         errors = []
+        first_bad_key: Optional[str] = None
         for field in self._fields:
             inp = self._inputs.get(field.key)
             if not inp:
@@ -177,17 +235,40 @@ class IdentityDialog(QDialog):
             val = inp.text().strip()
             if field.required and not val:
                 errors.append(f"{field.label} wajib diisi")
+                if first_bad_key is None:
+                    first_bad_key = field.key
 
         if errors:
-            QMessageBox.warning(self, "Validasi", "\n".join(errors))
+            # Form panjang: tampilkan ~5 pertama + sisa dihitung, lalu
+            # fokus ke pelanggar pertama supaya siswa langsung tahu.
+            shown = errors[:5]
+            text = "\n".join(shown)
+            if len(errors) > 5:
+                text += f"\n…dan {len(errors) - 5} field lain"
+            QMessageBox.warning(self, "Validasi", text)
+            if first_bad_key is not None:
+                offender = self._inputs.get(first_bad_key)
+                if offender is not None:
+                    offender.setFocus()
             return
 
         self.accept()
 
     def get_identity_data(self) -> Dict[str, str]:
-        """Return {field_key: value} for all fields."""
-        return {
+        """Return {field_key: value} for all fields.
+
+        Kunci sintetis `field_<index>` ikut terkirim apa adanya. Bila
+        TEPAT SATU field tanpa key, nilainya JUGA dikirim di bawah kunci
+        warisan `""`: baris server lama menyimpan Key:"" dan mencari
+        `body.IdentityData[""]`.
+        """
+        data = {
             field.key: self._inputs[field.key].text().strip()
             for field in self._fields
             if field.key in self._inputs
         }
+        if len(self._empty_origin_keys) == 1:
+            only = self._empty_origin_keys[0]
+            if only in data:
+                data[""] = data[only]
+        return data

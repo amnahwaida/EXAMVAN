@@ -92,6 +92,7 @@ if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
     "%OUTPUT_DIR%\version_info.txt"
 if errorlevel 1 (
     echo [ERR] Gagal men-stamp version info.
+    pause
     exit /b 1
 )
 
@@ -136,6 +137,15 @@ rem ---- Verifikasi hasil ----
 for %%F in ("%OUTPUT_DIR%\EXAMVAN.exe") do set "SIZE=%%~zF"
 if not defined SIZE (
     echo [ERR] Build selesai tapi EXAMVAN.exe tidak ditemukan di %OUTPUT_DIR%
+    pause
+    exit /b 1
+)
+
+rem ---- Post-build gate: modul wajib harus benar-benar ikut terpaket ----
+rem Modul yang tidak ikut terpaket baru ketahuan saat dipanggil di PC siswa.
+"%VPY%" "%~dp0installer\list_exe_modules.py" --require examvan.api,examvan.ui.pdf_viewer,examvan.security.enforcer,examvan.security_levels "%OUTPUT_DIR%\EXAMVAN.exe"
+if errorlevel 1 (
+    echo [ERR] Modul wajib hilang dari EXAMVAN.exe. Lihat daftar di atas.
     pause
     exit /b 1
 )

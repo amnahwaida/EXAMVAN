@@ -240,6 +240,18 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS congrats_message TEXT;
 -- Server-side auto-approve: when TRUE, RequestApproval approves every device
 -- immediately (works even when no pengawas monitoring page is open).
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT FALSE;
+-- Migration: previous_active_token (safe to re-run)
+-- Stores the active_token value superseded by the latest dynamic rotation
+-- (examtoken.MaybeResetActiveToken) so result links built with the previous
+-- token keep resolving via GetExamByToken instead of 404-ing mid-exam.
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS previous_active_token TEXT;
+
+-- Index — exams.previous_active_token (partial: NULL/empty excluded). The
+-- OR-form GetExamByToken would seq-scan without it. Non-unique: a token
+-- value may legitimately appear as previous on an old row while active
+-- nowhere.
+CREATE INDEX IF NOT EXISTS idx_exams_previous_active_token ON exams(previous_active_token)
+WHERE previous_active_token IS NOT NULL AND previous_active_token <> '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0;
@@ -769,3 +781,30 @@ CREATE TABLE IF NOT EXISTS exam_repeat_grants (
 
 CREATE INDEX IF NOT EXISTS idx_repeat_grants_exam
     ON exam_repeat_grants (exam_id);
+
+-- ============================================================
+-- Migration: exam_token_history (past active tokens)
+-- ============================================================
+-- exams hanya menyimpan SATU previous_active_token, sehingga tautan hasil
+-- 404 setelah dua kali rotasi token dynamic. Tabel append-only ini menyimpan
+-- token-token active TERDAHULU per ujian (dibatasi 5 per ujian saat append)
+-- agar GetExamByToken tetap me-resolve tautan hasil lama via EXISTS.
+-- Gate join/submit (examtoken.Matches) tetap ketat: active token saja.
+-- Safe to re-run on every boot.
+CREATE TABLE IF NOT EXISTS exam_token_history (
+    id         SERIAL PRIMARY KEY,
+    exam_id    INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    token      TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(exam_id, token)
+);
+
+CREATE INDEX IF NOT EXISTS idx_exam_token_history_token ON exam_token_history(token);
+CREATE INDEX IF NOT EXISTS idx_exam_token_history_exam ON exam_token_history(exam_id);
+
+-- Backfill: adopsi previous_active_token yang saat ini tersimpan agar upgrade
+-- tidak kehilangan satu tautan lama yang selama ini masih ter-resolve.
+INSERT INTO exam_token_history (exam_id, token)
+SELECT id, previous_active_token FROM exams
+WHERE previous_active_token IS NOT NULL AND previous_active_token <> ''
+ON CONFLICT (exam_id, token) DO NOTHING;

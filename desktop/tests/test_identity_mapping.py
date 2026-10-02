@@ -113,11 +113,14 @@ class IdentityMappingTest(unittest.TestCase):
         self.assertEqual(map_identity_to_standard({}), {})
 
     def test_a_value_is_never_reused_for_two_slots(self):
+        # Grup NUMBER diproses dulu (lihat U-A): 'nis' adalah field nomor,
+        # jadi ia mengklaim nilai "Budi" lebih dulu dan 'nama' tidak boleh
+        # memakai ulang nilai yang sama untuk slot lain.
         out = map_identity_to_standard(
             {"nama": "Budi", "nis": "Budi", "kelas": "9A"}
         )
-        self.assertEqual(out["student_name"], "Budi")
-        self.assertIsNone(out.get("exam_number"))
+        self.assertEqual(out["exam_number"], "Budi")
+        self.assertIsNone(out.get("student_name"))
 
     def test_keys_are_matched_case_insensitively(self):
         out = map_identity_to_standard({"Nama": "Budi", "Kelas": "9A"})
@@ -193,6 +196,127 @@ class DeviceLabelStabilityTest(unittest.TestCase):
                         return_value="LAB-PC-01"):
             expected = get_device_label()
         self.assertEqual(WindowsBackend().get_device_label(), expected)
+
+
+class FirstWordDispatchRegressionTest(unittest.TestCase):
+    """H1: dispatch kata PERTAMA — `nama_peserta` adalah NAMA.
+
+    Dulu grup number dipindai dulu dengan kata bersama (`peserta` ada di
+    kedua grup) sehingga `nama_peserta` jatuh ke exam_number. Sekarang
+    hanya kata pertama yang dibaca; `ujian`/`exam`/`kode`/tanggal sebagai
+    kata pertama tidak pernah dispatch (dilewati, bukan ditebak).
+    """
+
+    CASES = [
+        # (kunci, slot yang diharapkan)
+        ("nama_peserta", "student_name"),
+        ("nama_ujian", "student_name"),
+        ("nomor_ujian", "exam_number"),
+        ("nomor_peserta", "exam_number"),
+        ("nisn", "exam_number"),
+        ("nis", "exam_number"),
+        ("no_ujian", "exam_number"),
+        ("kelas_siswa", "student_class"),
+        ("Nama_Peserta", "student_name"),  # case-insensitive
+        ("STUDENT_NAME", "student_name"),  # kanonik case-insensitive
+        ("Exam_Number", "exam_number"),
+        # Kata pertama tak dikenal → dilewati (tidak menebak slot mana pun)
+        ("ujian", None),
+        ("kode_ujian", None),
+        ("tanggal_lahir", None),
+        ("gelombang", None),
+    ]
+
+    def test_first_word_dispatch_table(self):
+        for key, want_slot in self.CASES:
+            with self.subTest(key=key):
+                out = map_identity_to_standard({key: "V"})
+                if want_slot is None:
+                    self.assertNotIn("V", out.values())
+                else:
+                    self.assertEqual(out.get(want_slot), "V")
+
+    def test_dispatch_is_dict_order_independent(self):
+        forward = {
+            "nama_peserta": "Budi",
+            "nomor_ujian": "N01",
+            "kelas_siswa": "9A",
+            "kode_ujian": "X",
+        }
+        backward = dict(reversed(list(forward.items())))
+        self.assertEqual(
+            map_identity_to_standard(forward),
+            map_identity_to_standard(backward),
+        )
+        self.assertEqual(
+            map_identity_to_standard(forward),
+            {"student_name": "Budi", "exam_number": "N01",
+             "student_class": "9A"},
+        )
+
+    def test_mixed_canonical_and_custom_agree(self):
+        out = map_identity_to_standard({
+            "STUDENT_NAME": "Budi",
+            "nomor_ujian": "N01",
+            "KELAS": "9A",
+        })
+        self.assertEqual(out["student_name"], "Budi")
+        self.assertEqual(out["exam_number"], "N01")
+        self.assertEqual(out["student_class"], "9A")
+
+
+class ApprovalSubmitAgreementTest(unittest.TestCase):
+    """H4: dialog approval memakai SATU implementasi yang sama dengan submit.
+
+    WaitingApprovalDialog tidak lagi punya penebak sendiri: tiga fieldnya
+    dihitung dari satu `map_identity_to_standard(identity_data)`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt5.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _dialog(self, identity):
+        from unittest import mock as _mock
+
+        from examvan.models import Exam
+        from examvan.ui.waiting_approval import WaitingApprovalDialog
+
+        with _mock.patch.object(
+            WaitingApprovalDialog, "_start_polling", lambda self: None
+        ):
+            dlg = WaitingApprovalDialog(
+                Exam(id=1, name="Ujian", status="active"),
+                "https://x", dict(identity), token="ABCD1234",
+            )
+        self.addCleanup(dlg.deleteLater)
+        return dlg
+
+    def test_approval_fields_equal_canonical_mapping(self):
+        identity = {
+            "nama_peserta": "Budi",
+            "nomor_ujian": "N01",
+            "kelas_siswa": "9A",
+        }
+        dlg = self._dialog(identity)
+        std = map_identity_to_standard(identity)
+        self.assertEqual(dlg.student_name, std.get("student_name", ""))
+        self.assertEqual(dlg.exam_number, std.get("exam_number", ""))
+        self.assertEqual(dlg.student_class, std.get("student_class", ""))
+        self.assertEqual(
+            (dlg.student_name, dlg.exam_number, dlg.student_class),
+            ("Budi", "N01", "9A"),
+        )
+
+    def test_no_private_extractor_remains(self):
+        from examvan.ui import waiting_approval as _wa
+
+        self.assertFalse(
+            hasattr(_wa.WaitingApprovalDialog, "_extract_field"),
+            "_extract_field harus dihapus — satu implementasi saja",
+        )
 
 
 if __name__ == "__main__":

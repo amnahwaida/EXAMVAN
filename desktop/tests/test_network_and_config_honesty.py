@@ -43,10 +43,13 @@ HTML_BLOCK_PAGE = (
 class _FakeResponse:
     """Respons urlopen yang mengembalikan body tidak_valid."""
 
-    def __init__(self, body: bytes):
+    def __init__(self, body: bytes, headers=None):
         self._body = body
+        self.headers = headers or {}
 
-    def read(self):
+    def read(self, size=-1):
+        if size is not None and size >= 0:
+            return self._body[:size]
         return self._body
 
     def __enter__(self):

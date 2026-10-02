@@ -11,9 +11,12 @@ from typing import Optional
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import QLabel, QWidget, QHBoxLayout
 
+import logging as _logging
 import time as _time
 
 from .. import api
+
+_log = _logging.getLogger(__name__)
 
 
 def compute_remaining_seconds(
@@ -29,6 +32,12 @@ def compute_remaining_seconds(
         return None
     try:
         end_wall = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+        if end_wall.tzinfo is None:
+            # end_time naive (tanpa offset): dulu raise di aritmetika
+            # naive-aware → None → ujian diam-diam jadi mode elapsed tanpa
+            # deadline. Asumsikan UTC supaya deadline tetap berlaku.
+            _log.error("end_time tanpa timezone, diasumsikan UTC: %r", end_time)
+            end_wall = end_wall.replace(tzinfo=timezone.utc)
         return (end_wall - now_utc).total_seconds() + (skew_ms / 1000.0)
     except Exception:
         return None
@@ -46,6 +55,9 @@ class ElapsedTimerWidget(QWidget):
         self._end_time = end_time
         self._end_mono: Optional[float] = None  # monotonic deadline
         self._fired_time_up = False
+        # Nilai start diabadikan SEKALI di sini: get_start_time_iso() tidak
+        # boleh dihitung ulang dari jam dinding tiap dipanggil (drift).
+        self._start_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         self._compute_deadline()
 
@@ -53,7 +65,12 @@ class ElapsedTimerWidget(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update)
         self._timer.start(1000)
-        self._update()
+        # JANGAN panggil self._update() langsung di sini: untuk ujian yang
+        # sudah lewat deadline itu meng-emit time_up SEBELUM ada listener
+        # yang terhubung, latch _fired_time_up terbakar selamanya dan
+        # re-entry tidak pernah auto-submit. Jadwalkan ke event loop agar
+        # listener sempat terhubung dulu.
+        QTimer.singleShot(0, self._update)
 
     def _compute_deadline(self) -> None:
         """Convert wall-clock deadline to monotonic time (dengan koreksi skew)."""
@@ -164,12 +181,9 @@ class ElapsedTimerWidget(QWidget):
     def get_start_time_iso(self) -> str:
         """Return the wall-clock start time in ISO format.
 
-        Derived from monotonic clock so system time changes don't affect it.
+        Nilai diabadikan saat __init__ supaya tidak drift dari jam dinding.
         """
-        elapsed = _time.monotonic() - self._start_mono
-        now_wall = datetime.now(timezone.utc)
-        start = now_wall - timedelta(seconds=elapsed)
-        return start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return self._start_iso
 
     def stop(self) -> None:
         self._timer.stop()

@@ -20,14 +20,63 @@ ditemukan (build gagal: kita tidak bisa membuktikan apa pun).
 from __future__ import annotations
 
 import argparse
+import struct
 import sys
 from pathlib import Path
 
+# Ukuran minimum exe onefile PyInstaller yang sah. Di bawah ini berarti
+# file terpotong / stub / bukan hasil build.
+_MIN_EXE_SIZE = 1 * 1024 * 1024
 
-def newest_source_mtime(root: Path) -> tuple[float, Path | None]:
-    """mtime file source terbaru di bawah `root` (python, bukan bytecode)."""
+# Pola source yang diawasi, relatif ke folder desktop/.
+# `../windows/build-exe.*` ikut diawasi: flag build (.bat/.ps1) menentukan
+# apa yang masuk ke exe, jadi exe bisa basi hanya karena script build-nya
+# berubah.
+_WATCHED_PATTERNS = (
+    "main.py",
+    "examvan/**/*.py",
+    "requirements.txt",
+    "../windows/installer/version_info.txt",
+    "../windows/installer/examvan.ico",
+    "../windows/build-exe.*",
+)
+
+
+def verify_artifact(exe: Path) -> str | None:
+    """Periksa exe-nya sendiri, bukan cuma jamnya.
+
+    Kembalikan pesan kesalahan bila bukan biner PE Windows yang sah
+    (magic MZ + signature PE\\0\\0 via e_lfanew + ukuran minimum),
+    atau None bila lolos.
+    """
+    try:
+        size = exe.stat().st_size
+        if size < _MIN_EXE_SIZE:
+            return (
+                f"EXAMVAN.exe hanya {size} byte (< 1MB) — "
+                f"bukan onefile PyInstaller yang sah"
+            )
+        with exe.open("rb") as f:
+            if f.read(2) != b"MZ":
+                return "EXAMVAN.exe tidak ber-magic MZ — bukan executable Windows"
+            f.seek(0x3C)
+            e_lfanew = struct.unpack("<I", f.read(4))[0]
+            f.seek(e_lfanew)
+            if f.read(4) != b"PE\0\0":
+                return "EXAMVAN.exe tanpa signature PE — file rusak atau bukan exe"
+    except OSError as exc:
+        return f"EXAMVAN.exe tidak bisa dibaca: {exc}"
+    return None
+
+
+def newest_source_mtime(root: Path) -> tuple[float, Path | None, dict[str, int]]:
+    """mtime file source terbaru di bawah `root` (python, bukan bytecode).
+
+    Kembalikan (mtime, path, jumlah_cocok_per_pola).
+    """
     newest = 0.0
     newest_path: Path | None = None
+    counts: dict[str, int] = {}
     # `main.py` WAJIB masuk daftar: itu satu-satunya entry point yang
     # benar-benar di-build PyInstaller (`build-exe.bat` / `build-windows.yml`).
     # Versi sebelumnya hanya melihatexamvan/`, `tests/`, `requirements.txt` --
@@ -40,37 +89,49 @@ def newest_source_mtime(root: Path) -> tuple[float, Path | None]:
     # Sisi lain: `tests/**` tidak berpengaruh apa pun ke binary. Diawasi
     # hanya karena tidak salah -- tapi jangan sampai ia menggantikan
     # entry point yang benar-benar penting.
-    for pattern in (
-        "main.py",
-        "examvan/**/*.py",
-        "requirements.txt",
-        "../windows/installer/version_info.txt",
-        "../windows/installer/examvan.ico",
-    ):
+    for pattern in _WATCHED_PATTERNS:
+        count = 0
         for path in root.glob(pattern):
             if "__pycache__" in path.parts:
                 continue
+            count += 1
             mtime = path.stat().st_mtime
             if mtime > newest:
                 newest, newest_path = mtime, path
-    return newest, newest_path
+        counts[pattern] = count
+    return newest, newest_path, counts
 
 
 def check(exe: Path, source_root: Path) -> tuple[int, str]:
     """(exit_code, pesan) — 0 berarti aman."""
     if not exe.exists():
         return 2, f"EXAMVAN.exe tidak ada: {exe}"
-    newest, newest_path = newest_source_mtime(source_root)
+    bad = verify_artifact(exe)
+    if bad is not None:
+        return 2, bad
+    newest, newest_path, counts = newest_source_mtime(source_root)
+    watched = ", ".join(f"{pat}={counts[pat]}" for pat in _WATCHED_PATTERNS)
+    empty = [pat for pat in _WATCHED_PATTERNS if counts[pat] == 0]
+    if empty:
+        return 2, (
+            f"pola yang diawasi tidak cocok dengan file apa pun: "
+            f"{', '.join(empty)} — guard buta terhadap perubahan di sana.\n"
+            f"       Cocok per pola: {watched}"
+        )
     if newest_path is None:
         return 2, f"tidak ada source di bawah {source_root} — tidak bisa memastikan"
     exe_mtime = exe.stat().st_mtime
     if exe_mtime >= newest:
-        return 0, f"OK: EXAMVAN.exe ({exe_mtime:.0f}) >= source ({newest:.0f})"
+        return 0, (
+            f"OK: EXAMVAN.exe ({exe_mtime:.0f}) >= source ({newest:.0f}). "
+            f"Cocok per pola: {watched}"
+        )
     return 1, (
         f"EXAMVAN.exe ({exe_mtime:.0f}) lebih tua dari source "
         f"({newest:.0f}, {newest_path.name}).\n"
         f"       Build akan mengemas kode LAMA dan student menerimanya.\n"
-        f"       Jalankan dulu:  windows\\build-exe.bat"
+        f"       Jalankan dulu:  windows\\build-exe.bat\n"
+        f"       Cocok per pola: {watched}"
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -66,6 +67,11 @@ class Exam:
     # client's. Use the canonical `level` / `is_strict` properties below.
     security_level: str = DEFAULT_LEVEL
     strict_mode: bool = False
+    # Apakah guru mempublikasikan hasil ke link /hasil/<token> (kolom
+    # `public_results` di exams.go, default 1). False → halaman selamat
+    # menyembunyikan tombol salin link. Default True = perilaku lama bila
+    # kunci tidak ada di respons.
+    public_results: bool = True
     identity_fields: List[IdentityField] = field(default_factory=list)
     panel_color: str = "#6366f1"
     size_mb: float = 0.0
@@ -88,8 +94,8 @@ class Exam:
                     continue
                 fields.append(
                     IdentityField(
-                        key=f.get("key", ""),
-                        label=f.get("label", ""),
+                        key=str(f.get("key") or ""),
+                        label=str(f.get("label") or f.get("key") or ""),
                         required=bool(f.get("required", False)),
                     )
                 )
@@ -106,14 +112,41 @@ class Exam:
             size_mb = float(data.get("size_mb", 0))
         except (TypeError, ValueError):
             size_mb = 0.0
+        raw_strict = data.get("strict_mode", False)
+        # String "false"/"0"/""/"no"/"off" -> False; "1"/"true"/"yes"/"on"
+        # -> True (strip + case-insensitive). Non-string ikut bool(v).
+        if isinstance(raw_strict, str):
+            _s = raw_strict.strip().lower()
+            if _s in ("", "0", "false", "no", "off"):
+                strict_mode = False
+            elif _s in ("1", "true", "yes", "on"):
+                strict_mode = True
+            else:
+                strict_mode = bool(raw_strict)
+        else:
+            strict_mode = bool(raw_strict)
+        raw_color = data.get("panel_color", "#6366f1")
+        panel_color = str(raw_color or "")
+        if not re.fullmatch(r"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?", panel_color):
+            panel_color = "#6366f1"
+        # Kunci PERSIS "public_results" seperti dikirim server (int 0/1).
+        # Absen → True (perilaku lama). Bentuk string ("0"/"false"/...)
+        # ditoleransi karena proxy/payload tangan bisa membawanya.
+        raw_public = data.get("public_results", True)
+        if isinstance(raw_public, str):
+            public_results = raw_public.strip().lower() not in (
+                "", "0", "false", "no", "off")
+        else:
+            public_results = bool(raw_public)
         return cls(
             id=exam_id,
-            name=data.get("name", ""),
+            name=str(data.get("name") or ""),
             status=data.get("status", ""),
             security_level=data.get("security_level", DEFAULT_LEVEL),
-            strict_mode=bool(data.get("strict_mode", False)),
+            strict_mode=strict_mode,
+            public_results=public_results,
             identity_fields=fields,
-            panel_color=data.get("panel_color", "#6366f1"),
+            panel_color=panel_color,
             size_mb=size_mb,
             start_time=data.get("start_time"),
             end_time=data.get("end_time"),

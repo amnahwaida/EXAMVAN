@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import random
+import time
+import urllib.parse
 from typing import Any, Callable, Dict, Optional
 
 from PyQt5.QtCore import QObject, QTimer, QUrl, pyqtSignal
@@ -43,6 +45,9 @@ class ExamWebSocket(QObject):
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setSingleShot(True)
         self._reconnect_timer.timeout.connect(self._do_connect)
+        # Waktu koneksi stabil (monotonic): reset counter hanya bila
+        # koneksi bertahan >= 10 detik (lihat _on_disconnected).
+        self._connect_time_mono: Optional[float] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -115,7 +120,7 @@ class ExamWebSocket(QObject):
 
         scheme = "wss" if self._base_url.startswith("https") else "ws"
         host = self._base_url.replace("https://", "").replace("http://", "")
-        url = QUrl(f"{scheme}://{host}/ws/{self._exam_id}?token={self._token}")
+        url = QUrl(f"{scheme}://{host}/ws/{self._exam_id}?token={urllib.parse.quote(self._token or '', safe='')}")
         log.info("WS connecting to /ws/%s", self._exam_id)
 
         if self._ws is not None:
@@ -128,11 +133,22 @@ class ExamWebSocket(QObject):
         self._ws.open(url)
 
     def _on_connected(self) -> None:
-        self._reconnect_attempts = 0
+        # Catat waktu koneksi; counter HANYA di-reset bila koneksi
+        # terbukti stabil (>= 10 dtk) saat disconnect. Reset langsung di
+        # sini membuat flapping (putus tiap 2 dtk) tidak pernah menaikkan
+        # backoff.
+        self._connect_time_mono = time.monotonic()
         log.info("WS connected to /ws/%s", self._exam_id)
 
     def _on_disconnected(self) -> None:
         log.info("WS disconnected from /ws/%s", self._exam_id)
+        now = time.monotonic()
+        if (
+            self._connect_time_mono is not None
+            and (now - self._connect_time_mono) >= 10.0
+        ):
+            self._reconnect_attempts = 0
+        self._connect_time_mono = None
         if self._should_reconnect:
             self._schedule_reconnect()
 
@@ -147,7 +163,9 @@ class ExamWebSocket(QObject):
         # menghasilkan gempa bumi reconnect yang membebani server.
         jitter = random.randint(-delay // 4, delay // 4)
         delay = max(delay + jitter, _RECONNECT_BASE_MS)
-        self._reconnect_attempts += 1
+        # Cap counter supaya 2**attempts tidak tumbuh tanpa batas pada
+        # flapping panjang (delay sendiri sudah di-cap MAX).
+        self._reconnect_attempts = min(self._reconnect_attempts + 1, 12)
         log.info("WS reconnecting in %d ms (attempt %d)", delay, self._reconnect_attempts)
         self._reconnect_timer.start(delay)
 

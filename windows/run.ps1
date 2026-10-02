@@ -52,7 +52,8 @@ if (-not (Test-Path $VenvPython)) {
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Gagal install dependencies"
         Write-Host "Coba install manual:"
-        Write-Host "  $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt")"
+        $reqFile = Join-Path $ProjectRoot 'desktop\requirements.txt'
+        Write-Host "  $VenvPython -m pip install -r `"$reqFile`""
         pause
         exit 1
     }
@@ -75,7 +76,8 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Gagal install dependencies"
         Write-Host "Coba install manual:"
-        Write-Host "  $VenvPython -m pip install -r (Join-Path $ProjectRoot " + '"desktop\requirements.txt"' + ")"
+        $reqFile = Join-Path $ProjectRoot 'desktop\requirements.txt'
+        Write-Host "  $VenvPython -m pip install -r `"$reqFile`""
         pause
         exit 1
     }

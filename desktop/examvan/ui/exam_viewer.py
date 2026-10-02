@@ -190,16 +190,33 @@ def _load_admin_password() -> Optional[str]:
     local_appdata = os.environ.get("LOCALAPPDATA")
     if not local_appdata:
         return None
+    _pw_path = os.path.join(local_appdata, "EXAMVAN", "admin_password.txt")
     try:
-        with open(
-            os.path.join(local_appdata, "EXAMVAN", "admin_password.txt"),
-            "r",
-            encoding="utf-8",
-        ) as f:
+        with open(_pw_path, "r", encoding="utf-8") as f:
             pw = f.read().strip()
-            return pw or None
-    except OSError:
+    except (OSError, ValueError):
+        # Berkas non-UTF8 (ANSI code page dari Notepad lama): coba encoding
+        # lokal sebelum menyerah. UnicodeDecodeError adalah ValueError.
+        try:
+            import locale
+            with open(
+                _pw_path, "r",
+                encoding=locale.getpreferredencoding(False) or "utf-8",
+                errors="strict",
+            ) as f:
+                pw = f.read().strip()
+        except (OSError, ValueError):
+            return None
+    if not pw:
         return None
+    # Migrasi plaintext -> hash: berkas lama berisi password apa adanya;
+    # tulis ulang sebagai hash best-effort (tidak pernah raise).
+    if not pw.startswith(_HASH_PREFIX):
+        try:
+            _store_admin_password(pw)
+        except Exception:
+            log.warning("migrasi admin password ke hash gagal", exc_info=True)
+    return pw
 
 
 def _password_matches(stored: Optional[str], typed: str) -> bool:
@@ -233,7 +250,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import APP_VERSION, api, config, notify
-from ..models import Exam
+from ..models import Exam, SubmitResponse
 from ..security.enforcer import SecurityEnforcer
 from ..utils import (
     build_attempt_key,
@@ -257,12 +274,20 @@ class ExamViewerWindow(QMainWindow):
     """Main exam window."""
 
     closed = pyqtSignal()
+    # C1: ditembak SETELAH alur selesai total — manual (halaman selamat
+    # ditutup siswa) maupun auto-submit background (sukses → halaman
+    # ditutup; gagal → langsung). `closed` tidak dipakai untuk ini karena
+    # ia menembak saat window TERTUTUP, sementara halaman selamat butuh
+    # window HIDUP-tersembunyi di belakangnya.
+    all_done = pyqtSignal()
 
     # Thread-safe signals for background -> UI updates
     _sig_status = pyqtSignal(str)
     _sig_pdf_ready = pyqtSignal()
     _sig_pdf_error = pyqtSignal(str)
     _sig_submit_result = pyqtSignal(bool, str)
+    # C1: hasil submit background (auto-submit) → slot GUI.
+    _sig_auto_submit_done = pyqtSignal(bool, str)
 
     def __init__(
         self,
@@ -306,18 +331,23 @@ class ExamViewerWindow(QMainWindow):
         self._sig_pdf_ready.connect(self._on_pdf_ready)
         self._sig_pdf_error.connect(self._on_pdf_error)
         self._sig_submit_result.connect(self._on_submit_result)
+        self._sig_auto_submit_done.connect(self._on_auto_submit_done)
+        # C1: True di antara window ditutup auto-submit dan hasil
+        # background tiba — `closed` yang menembak di rentang itu BUKAN
+        # akhir alur (halaman selamat belum tampil), jadi __main__
+        # menahannya.
+        self._auto_submit_pending = False
 
         self._setup_ui()
         # Persist start_time sejak awal (mirror Android loadExamContent) —
         # dipakai recovery re-entry saat mengirim ulang jawaban dari disk.
         config.save_start_time(self._exam.id, self._timer_widget.get_start_time_iso())
         self._init_security()  # Activate security BEFORE PDF loads
-        self._load_pdf_async()
 
-        # Presence (login/heartbeat/logout) — mirror Android WebSocketManager.
-        # Heartbeat HTTP berjalan selama sesi (interval 60 dtk) supaya siswa
-        # tampil ONLINE di dashboard monitoring pengawas; login dikirim sekali
-        # di awal, logout/complete saat ujian selesai.
+        # L-2 RACE: tiga assignment di bawah HARUS di atas _load_pdf_async().
+        # `_load_pdf_thread` membaca `self._device_label` (dan mengecek
+        # `_abandoned`): thread bisa jalan SEBELUM __init__ sampai ke baris
+        # assignment bila urutannya dibalik → AttributeError dari worker.
         self._std_identity = map_identity_to_standard(identity_data)
         # Dihitung SEKALI di sini, lalu dipakai ulang untuk download PDF,
         # submit, dan presence. Kalau dihitung ulang di tiap call site,
@@ -333,6 +363,12 @@ class ExamViewerWindow(QMainWindow):
             build_attempt_key(self._token, identity_data)
         )
         self._presence_active = True
+        self._load_pdf_async()
+
+        # Presence (login/heartbeat/logout) — mirror Android WebSocketManager.
+        # Heartbeat HTTP berjalan selama sesi (interval 60 dtk) supaya siswa
+        # tampil ONLINE di dashboard monitoring pengawas; login dikirim sekali
+        # di awal, logout/complete saat ujian selesai.
         self._send_access_log("login")
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.setInterval(60000)
@@ -349,7 +385,18 @@ class ExamViewerWindow(QMainWindow):
         # Restore saved answers
         saved = config.load_answers(exam.id)
         if saved:
-            QTimer.singleShot(500, lambda: self._answer_sheet.restore_answers(saved))
+            # Jangan pulihkan jawaban milik percobaan lain (PC lab dipakai
+            # bergantian): owner yang berbeda berarti jawaban ini bukan
+            # milik siswa sekarang — lihat config.resolve_submit_answers.
+            _owner = config.load_answers_owner(exam.id)
+            _mine = build_student_key(identity_data, token)
+            if _owner is not None and str(_owner.get("student_key", "") or "") and str(_owner.get("student_key", "") or "") != _mine:
+                log.warning(
+                    "restore jawaban exam %s dilewati: owner != percobaan ini",
+                    exam.id,
+                )
+            else:
+                QTimer.singleShot(500, lambda: self._answer_sheet.restore_answers(saved))
 
     def _setup_ui(self) -> None:
         # Window title: generic, no exam name leakage
@@ -379,7 +426,9 @@ class ExamViewerWindow(QMainWindow):
         # which crashed the whole window on `"security_level": null`) and
         # never renders a locked-down exam in the low-tier colour.
         mode = self._exam.display_level
-        bg, fg = SECURITY_COLORS.get(mode, SECURITY_COLORS["low"])
+        # Index langsung: tier tak dikenal harus KeyError yang keras, bukan
+        # diam-diam tampil sebagai low.
+        bg, fg = SECURITY_COLORS[mode]
         self._lbl_security = QLabel(f"\U0001f512 {mode.upper()}")
         self._lbl_security.setStyleSheet(
             f"background-color: {bg}; color: {fg}; padding: 4px 12px;"
@@ -457,7 +506,23 @@ class ExamViewerWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._save_answers)
-        self._answer_sheet.answer_changed.connect(lambda: self._save_timer.start())
+        # Mengetik terus-menerus tidak pernah menulis apa pun bila hanya
+        # debounce trailing-edge: flush berkala 2 detik menulis jawaban
+        # kotor walau debounce belum sempat menembak.
+        self._answers_dirty = False
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(2000)
+        self._flush_timer.timeout.connect(self._flush_answers)
+        self._flush_timer.start()
+        self._answer_sheet.answer_changed.connect(self._on_answer_changed_autosave)
+
+    def _on_answer_changed_autosave(self, *args) -> None:
+        self._answers_dirty = True
+        self._save_timer.start()
+
+    def _flush_answers(self) -> None:
+        if self._answers_dirty and not self._submitted:
+            self._save_answers()
 
     def _init_security(self) -> None:
         """Initialize security enforcer BEFORE exam starts.
@@ -580,9 +645,27 @@ class ExamViewerWindow(QMainWindow):
                 f"ganda. Satu nomor hanya bisa menyimpan satu jawaban — "
                 f"hubungi pengawas."
             )
+        broken = self._answer_sheet.broken_question_numbers()
+        if broken:
+            # Struktur soal tidak sah (bukan duplikat): tidak ada widget,
+            # tidak dihitung — siswa harus tahu itu masalah konfigurasi.
+            log.error(
+                "Soal rusak pada exam %s: %s — tidak bisa dijawab, "
+                "hubungi pengawas",
+                self._exam.id, ", ".join(broken),
+            )
+            self._exam_warnings.append(
+                f"Perhatian: soal nomor {', '.join(broken)} rusak dan "
+                f"tidak bisa dijawab — hubungi pengawas."
+            )
 
     @pyqtSlot()
     def _on_pdf_ready(self) -> None:
+        # Download yang selesai setelah keluar tidak boleh membuka/membocorkan
+        # naskah: buang dan kembali.
+        if getattr(self, "_abandoned", False):
+            self._discard_pdf()
+            return
         # Lembar jawaban dibangun lebih dulu dan selalu: ajar tidak
         # bergantung pada PDF sama sekali.
         self._build_answer_sheet()
@@ -626,11 +709,59 @@ class ExamViewerWindow(QMainWindow):
             # 3 detik berjalan di belakangnya dan jendela menutup --
             # persis jalan pemulihan yang sedang ditawarkan ke siswa.
             with self._modal_dialog_guard():
-                QMessageBox.warning(
-                    self,
+                _box = QMessageBox(
+                    QMessageBox.Warning,
                     "Gagal",
                     f"Gagal mengumpulkan jawaban:\n{message}\n\nSilakan coba lagi.",
+                    QMessageBox.Ok,
+                    self,
                 )
+                # Pesan bisa memuat HTML server/proxy: render sebagai teks
+                # polos supaya tidak diinterpretasi sebagai rich text.
+                _box.setTextFormat(Qt.PlainText)
+                _box.exec_()
+
+    def _show_congratulations(self, message: str) -> "CongratulationsWindow":
+        """Bangun + tampilkan halaman selamat (helper bersama C1).
+
+        Dipakai `_cleanup_after_submit` (submit manual) DAN
+        `_on_auto_submit_done` (submit background): satu tempat membangun
+        halaman supaya keduanya tidak meleset. Identitas diambil dari
+        pemetaan kanonik (H2), bukan lookup mentah "nama"/"nomor_ujian".
+        """
+        std = getattr(self, "_std_identity", None)
+        if not std:
+            std = map_identity_to_standard(self._identity_data)
+        congrats = CongratulationsWindow(
+            server_url=self._server_url,
+            exam_token=self._token,
+            exam_name=getattr(self._exam, "name", ""),
+            student_name=str(std.get("student_name", "")),
+            student_number=str(std.get("exam_number", "")),
+            student_class=str(std.get("student_class", "")),
+            congrats_message=message,
+            public_results=bool(getattr(self._exam, "public_results", True)),
+        )
+        congrats.setAttribute(Qt.WA_DeleteOnClose)
+        # `parent=None` dan referensinya ditahan di `self._congrats_ref`:
+        # halaman ini harus HIDUP setelah viewer ditutup, bukan ikut ter-GC
+        # bersama jendela ujian.
+        congrats.show_fullscreen()
+        self._congrats_ref = congrats
+        # C3: layar ini menampilkan token ujian — di mode static-token itu
+        # kredensial hasil seluruh kelas — sementara `deactivate()` sudah
+        # melepas WDA_MONITOR DAN keyboard hook SEBELUM halaman dibuat.
+        # Tanpa ini, PrintScreen di halaman ini menyimpan token + identitas
+        # + pesan guru ke disk tanpa diblokir, di semua level. Hanya proteksi
+        # capture yang dipasang (bukan strict penuh) supaya tombol "Selesai"
+        # tetap bisa diklik dan jendela tidak jadi always-on-top.
+        if self._security is not None:
+            try:
+                self._security.protect_window(congrats)
+            except Exception:
+                log.warning("could not protect congratulations window",
+                            exc_info=True)
+        return congrats
 
     def _cleanup_after_submit(self, message: str) -> None:
         """Clean up after successful submit."""
@@ -650,18 +781,13 @@ class ExamViewerWindow(QMainWindow):
             self._security.deactivate()
 
         self._timer_widget.stop()
+        self._stop_autosave()
         self._btn_submit.setEnabled(False)
         self._btn_submit.setText("✅ Terkumpul")
 
         # Wipe PDF temp file
         self._pdf_viewer.cleanup()
-        if self._pdf_path:
-            try:
-                if os.path.exists(self._pdf_path):
-                    os.remove(self._pdf_path)
-                    log.info("PDF temp file removed: %s", self._pdf_path)
-            except OSError:
-                pass
+        self._discard_pdf()
 
         # Halaman selamat, bukan QMessageBox.
         #
@@ -672,47 +798,20 @@ class ExamViewerWindow(QMainWindow):
         # ujian -- siswa tidak pernah melihat identitasnya maupun cara
         # membuka hasil. Sekarang: halaman selamat tampil fullscreen
         # sebagai halaman tersendiri (parity Android
-        # `CongratulationsActivity`), dan jendela ujian baru ditutup saat
-        # halamannya ditutup siswa. `SecurityEnforcer` sudah
+        # `CongratulationsActivity`). `SecurityEnforcer` sudah
         # `deactivate()` di atas, jadi clipboard TIDAK lagi disapu — itulah
         # sebabnya link hasil di layar ini dibersihkan otomatis oleh
         # halamannya sendiri.
         #
-        # `parent=None` dan referensinya ditahan di `self._congrats_ref`:
-        # halaman ini harus HIDUP setelah viewer ditutup, bukan ikut ter-GC
-        # bersama jendela ujian.
-        congrats = CongratulationsWindow(
-            server_url=self._server_url,
-            exam_token=self._token,
-            exam_name=getattr(self._exam, "name", ""),
-            student_name=str(self._identity_data.get("nama", "")),
-            student_number=str(
-                self._identity_data.get("nomor_ujian")
-                or self._identity_data.get("nomor")
-                or ""
-            ),
-            student_class=str(
-                self._identity_data.get("kelas") or self._identity_data.get("kelas_id") or ""
-            ),
-            congrats_message=message,
-        )
-        congrats.setAttribute(Qt.WA_DeleteOnClose)
-        # Tutup viewer SEKALIGUS menampilkan halaman selamat: kedua halaman
-        # ini adalah satu alur "selesai". Viewer ditutup AGAR halaman
-        # selamat bisa tampil fullscreen seutuhnya tanpa viewer menyisipkan
-        # countdown/timer di belakangnya, dan tanpa exam_viewer menerima
-        # klik yang menyebabkan siswa terjebak.
-        #
-        # `__main__` menampilkan ServerConfigDialog siswa berikutnya dari
-        # sinyal `closed` viewer (setelah halaman selamat ditutup).
-        # Urutan: viewer.close() → viewer `closed` signal → congrats belum
-        # ditutup, tapi WA_DeleteOnClose hanya menandai, bukan menghancurkan,
-        # jadi `closed` tidak memicu hancuran premature. Siswa tetap bisa
-        # memilih/menutup halaman selamat; baru saat itu viewer benar-benar
-        # hilang sepenuhnya dan alur berikutnya berjalan.
-        congrats.show_fullscreen()
-        self._congrats_ref = congrats
-        self.close()
+        # C1: viewer TIDAK `close()` di sini — `close()` menembakkan `closed`
+        # secara sinkron dan `__main__` langsung menampilkan dialog
+        # konfigurasi siswa berikutnya DI ATAS halaman yang belum selesai
+        # dibaca. Sebagai gantinya viewer hanya `hide()` (tetap direferensi
+        # `windows` + `_congrats_ref` supaya tidak ter-GC), dan menutup
+        # dirinya sendiri saat halaman ditutup siswa (`page_closed`).
+        congrats = self._show_congratulations(message)
+        congrats.page_closed.connect(self.close)
+        self.hide()
 
     # -------------------------------------------------------------------
     # WebSocket events
@@ -804,6 +903,18 @@ class ExamViewerWindow(QMainWindow):
             return
         answers = self._answer_sheet.get_answers()
         config.save_answers(self._exam.id, answers)
+        self._answers_dirty = False
+
+    def _stop_autosave(self) -> None:
+        """Hentikan debounce + flush autosave (submit/tutup)."""
+        try:
+            self._save_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._flush_timer.stop()
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------
     # Submit
@@ -951,14 +1062,26 @@ class ExamViewerWindow(QMainWindow):
             self._answer_sheet.get_answers()
             if hasattr(self, '_answer_sheet') else {}
         )
-        answers = config.resolve_submit_answers(memory, self._exam.id)
+        answers = config.resolve_submit_answers(
+            memory, self._exam.id,
+            build_student_key(self._identity_data, self._token),
+        )
         config.save_answers(self._exam.id, answers)
+        try:
+            config.save_answers_owner(
+                self._exam.id,
+                build_student_key(self._identity_data, self._token),
+                student_label(self._identity_data, self._token),
+            )
+        except Exception:
+            log.warning("save_answers_owner gagal (_auto_submit)", exc_info=True)
 
         # 2. Presence: logout segera (TTL Redis); `complete` saat submit sukses.
         self._stop_presence(completed=False)
 
         # 3. Lepas kunci & tutup window SEGERA.
         self._timer_widget.stop()
+        self._stop_autosave()
         self._btn_submit.setEnabled(False)
         self._btn_submit.setText("Mengumpulkan...")
         if hasattr(self, "_answer_sheet"):
@@ -966,14 +1089,13 @@ class ExamViewerWindow(QMainWindow):
             # lanjut tidak pernah ikut terkirim -- lebih baik terkunci jelas.
             self._answer_sheet.setEnabled(False)
         self._pdf_viewer.cleanup()
-        if self._pdf_path:
-            try:
-                if os.path.exists(self._pdf_path):
-                    os.remove(self._pdf_path)
-            except OSError:
-                pass
+        self._discard_pdf()
         if self._security:
             self._security.deactivate()
+        # C1: `closed` yang ditembak close() di bawah BUKAN akhir alur
+        # (hasil background belum tiba) — __main__ menahannya sampai
+        # `all_done`, yang ditembak `_on_auto_submit_done`.
+        self._auto_submit_pending = True
         self.close()
 
         # 4. Submit di background — thread MURNI: setelah window ditutup
@@ -1007,6 +1129,11 @@ class ExamViewerWindow(QMainWindow):
         polling /result untuk jalur 202 queued) — baru jawaban lokal di-clear.
         Gagal → jawaban tetap di disk; re-entry menawarkan "Kirim Lagi"
         (server idempoten, retry tidak menduplikasi baris).
+
+        Hasil akhir dilaporkan lewat `_sig_auto_submit_done` (sukses →
+        halaman selamat; gagal → langsung `all_done`) — KECUALI bila
+        dipanggil tanpa instance (test memanggil unbound dengan self=None),
+        di mana tidak ada sinyal yang bisa di-emit.
         """
         try:
             resp = api.submit_with_retry(
@@ -1014,10 +1141,26 @@ class ExamViewerWindow(QMainWindow):
                 answers, start_time, mac, identity,
                 token=token,
             )
-            if resp.status == "queued" and resp.job_id:
-                resp = api.poll_queued_result(
-                    base_url, exam_id, token, mac, resp.job_id, identity,
-                )
+            if resp.status == "queued":
+                if resp.job_id:
+                    resp = api.poll_queued_result(
+                        base_url, exam_id, token, mac, resp.job_id, identity,
+                    )
+                else:
+                    # M7: antre TANPA job_id = tidak ada konfirmasi yang
+                    # bisa di-poll — perlakukan sebagai GAGAL, jangan pernah
+                    # tampilkan halaman hijau atas dasar 202 mentah.
+                    log.warning(
+                        "submit queued tanpa job_id untuk exam %s — "
+                        "dianggap gagal", exam_id,
+                    )
+                    resp = SubmitResponse(
+                        success=False,
+                        status="queued",
+                        message="Server mengantre jawaban tetapi tidak "
+                        "memberikan konfirmasi (job_id kosong). Jawaban "
+                        "tetap tersimpan — coba kumpulkan lagi.",
+                    )
             if resp.success:
                 # JANGAN menghapus jawaban yang bukan milik pengiriman ini.
                 #
@@ -1049,6 +1192,7 @@ class ExamViewerWindow(QMainWindow):
                     pass
                 msg = resp.congrats_message or resp.message or "Jawaban berhasil dikumpulkan."
                 notify.send_notification("EXAMVAN — Ujian Terkumpul", msg)
+                ExamViewerWindow._emit_auto_submit_done(self, True, msg)
             else:
                 notify.send_notification(
                     "EXAMVAN — Pengumpulan Gagal",
@@ -1056,6 +1200,8 @@ class ExamViewerWindow(QMainWindow):
                     "\nBuka aplikasi dan pilih ujian ini untuk mengirim ulang.",
                     urgency="critical",
                 )
+                ExamViewerWindow._emit_auto_submit_done(
+                    self, False, resp.message or "terjadi kesalahan")
         except Exception as e:
             notify.send_notification(
                 "EXAMVAN — Pengumpulan Gagal",
@@ -1063,6 +1209,45 @@ class ExamViewerWindow(QMainWindow):
                 "\nBuka aplikasi dan pilih ujian ini untuk mengirim ulang.",
                 urgency="critical",
             )
+            ExamViewerWindow._emit_auto_submit_done(self, False, str(e))
+
+    def _emit_auto_submit_done(self, ok: bool, msg: str) -> None:
+        """Emit `_sig_auto_submit_done` bila ada instance Qt yang hidup.
+
+        SELALU dipanggil unbound (`ExamViewerWindow._emit_auto_submit_done(
+        self, ...)`), bukan `self._...`: test memanggil
+        `_background_submit_thread` unbound dengan self=None (tanpa event
+        loop/sinyal), dan `None._emit...` akan AttributeError SEBELUM
+        guard di bawah sempat jalan. Di situ tidak ada yang bisa di-emit
+        dan itu BUKAN error: jawaban/notifikasi sudah ditangani di atas.
+        """
+        try:
+            sig = getattr(self, "_sig_auto_submit_done", None)
+        except Exception:
+            return
+        if sig is None:
+            return
+        try:
+            sig.emit(ok, msg)
+        except Exception:
+            log.debug("emit auto_submit_done gagal", exc_info=True)
+
+    @pyqtSlot(bool, str)
+    def _on_auto_submit_done(self, ok: bool, msg: str) -> None:
+        """Slot GUI untuk hasil submit background (C1).
+
+        `closed` yang menembak saat window ditutup auto-submit DITAHAN
+        __main__ selama `_auto_submit_pending`; flag dilepas di sini dan
+        alur diselesaikan: sukses → halaman selamat (penutupannya
+        menembak `all_done`); gagal → `all_done` langsung (recovery
+        re-entry menawarkan "Kirim Lagi").
+        """
+        self._auto_submit_pending = False
+        if ok:
+            congrats = self._show_congratulations(msg)
+            congrats.page_closed.connect(lambda: self.all_done.emit())
+        else:
+            self.all_done.emit()
 
     def _do_submit(self) -> None:
         """Thread-safe submit gate. Only one submit runs at a time."""
@@ -1082,7 +1267,8 @@ class ExamViewerWindow(QMainWindow):
         # tidak kosong → dipakai apa adanya (siswa mungkin baru mengubah
         # jawaban setelah auto-save terakhir).
         answers = config.resolve_submit_answers(
-            self._answer_sheet.get_answers(), self._exam.id
+            self._answer_sheet.get_answers(), self._exam.id,
+            build_student_key(self._identity_data, self._token),
         )
 
         # Flush payload yang PERSIS dikirim ke disk, sebelum thread jalan.
@@ -1093,6 +1279,16 @@ class ExamViewerWindow(QMainWindow):
         # payload basi itu. Jalur auto-submit sudah melakukan flush yang
         # sama (AutoSubmitF1FlushTest).
         config.save_answers(self._exam.id, answers)
+        # Sidecar pemilik: jawaban di disk milik percobaan ini, supaya
+        # recovery re-entry tidak mengirimnya atas nama siswa lain.
+        try:
+            config.save_answers_owner(
+                self._exam.id,
+                build_student_key(self._identity_data, self._token),
+                student_label(self._identity_data, self._token),
+            )
+        except Exception:
+            log.warning("save_answers_owner gagal (_do_submit)", exc_info=True)
 
         # Kunci lembar jawaban SELAMA submit berjalan.
         #
@@ -1119,12 +1315,14 @@ class ExamViewerWindow(QMainWindow):
                 self._timer_widget.get_start_time_iso(),
                 self._device_label,
                 self._identity_data,
+                self._token,
             ),
             daemon=True,
         ).start()
 
     def _submit_thread(
-        self, base_url, exam_id, name, number, sclass, answers, start_time, mac, identity
+        self, base_url, exam_id, name, number, sclass, answers, start_time, mac, identity,
+        token,
     ) -> None:
         # SELALU emit _sig_submit_result, apa pun yang terjadi.
         #
@@ -1142,8 +1340,10 @@ class ExamViewerWindow(QMainWindow):
                 mac, identity,
                 # The server rejects a submit without X-Exam-Token outright
                 # (exams.go:1016-1023). Without this every submit failed with
-                # "Token tidak disertakan".
-                token=self._token,
+                # "Token tidak disertakan". Token diteruskan sebagai argumen
+                # thread eksplisit — membaca self._token dari worker tidak
+                # aman (window bisa di-GC setelah ditutup).
+                token=token,
                 on_retry=lambda attempt, total: self._sig_status.emit(
                     f"Submit gagal, percobaan {attempt}/{total}..."
                 ),
@@ -1156,24 +1356,40 @@ class ExamViewerWindow(QMainWindow):
             # konfirmasi durable). Jika worker gagal -> resp.success=False ->
             # _on_submit_result menampilkan error dan TIDAK menghapus jawaban
             # (re-entry memulihkan dari disk).
-            if resp.status == "queued" and resp.job_id:
-                self._sig_status.emit(
-                    "Jawaban diterima server, menunggu konfirmasi...")
-                # `congrats_message` hanya ada di respons 202 ini;
-                # `/result` tidak pernah mengirimkannya. Tanpa
-                # meneruskannya, halaman selamat menampilkan teks bawaan
-                # dan pesan guru yang sengaja ditulis guru tidak pernah
-                # sampai ke siswa.
-                queued_congrats = resp.congrats_message or ""
-                resp = api.poll_queued_result(
-                    base_url,
-                    exam_id,
-                    self._token,
-                    mac,
-                    resp.job_id,
-                    identity,
-                    initial_congrats=queued_congrats,
-                )
+            if resp.status == "queued":
+                if resp.job_id:
+                    self._sig_status.emit(
+                        "Jawaban diterima server, menunggu konfirmasi...")
+                    # `congrats_message` hanya ada di respons 202 ini;
+                    # `/result` tidak pernah mengirimkannya. Tanpa
+                    # meneruskannya, halaman selamat menampilkan teks bawaan
+                    # dan pesan guru yang sengaja ditulis guru tidak pernah
+                    # sampai ke siswa.
+                    queued_congrats = resp.congrats_message or ""
+                    resp = api.poll_queued_result(
+                        base_url,
+                        exam_id,
+                        token,
+                        mac,
+                        resp.job_id,
+                        identity,
+                        initial_congrats=queued_congrats,
+                    )
+                else:
+                    # M7: antre TANPA job_id = tidak ada konfirmasi yang
+                    # bisa di-poll — perlakukan sebagai GAGAL, jangan pernah
+                    # tampilkan halaman hijau atas dasar 202 mentah.
+                    log.warning(
+                        "submit queued tanpa job_id untuk exam %s — "
+                        "dianggap gagal", exam_id,
+                    )
+                    resp = SubmitResponse(
+                        success=False,
+                        status="queued",
+                        message="Server mengantre jawaban tetapi tidak "
+                        "memberikan konfirmasi (job_id kosong). Jawaban "
+                        "tetap tersimpan — coba kumpulkan lagi.",
+                    )
 
             # Fix #2 (parity Android): tampilkan `congrats_message` custom
             # guru saat sukses (bukan hanya resp.message bawaan server).
@@ -1225,6 +1441,10 @@ class ExamViewerWindow(QMainWindow):
         bermasalah", and a maximized exam window with a visible taskbar is not
         what any level is supposed to look like.
         """
+        # Sesudah submit viewer ditutup dan halaman selamat tampil: jangan
+        # fullscreen-kan viewer di atasnya lagi.
+        if self._submitted:
+            return
         if self._fullscreen_reasserting:
             return
         screen = self.screen() or QApplication.primaryScreen()
@@ -1235,6 +1455,13 @@ class ExamViewerWindow(QMainWindow):
         self._fullscreen_reasserting = True
         try:
             apply_fullscreen(self)
+            # M-2: `apply_fullscreen` memanggil showFullScreen() yang
+            # membuat ulang HWND, jadi afinitas display yang dipasang fase
+            # medium hilang. Tanpa pasang ulang di sini, satu perbaikan
+            # fullscreen saja sudah mematikan WDA_MONITOR sampai akhir
+            # ujian tanpa satu baris log pun.
+            if self._security is not None:
+                self._security.reassert_capture_protection()
         except Exception:
             log.warning("could not re-assert fullscreen", exc_info=True)
         finally:
@@ -1315,22 +1542,34 @@ class ExamViewerWindow(QMainWindow):
                 QMessageBox.No,
             )
         if reply == QMessageBox.Yes:
-            # Presence: siswa keluar tanpa submit — kirim logout (presence
-            # habis via TTL Redis; tidak ada submit yang menghapusnya).
-            self._stop_presence(completed=False)
-            if self._security:
-                self._security.deactivate()
-            self._pdf_viewer.cleanup()
-            self._discard_pdf()
-            self.closed.emit()
-            with self._submit_lock:
-                self._submitted = True
-            event.accept()
+            try:
+                # Presence: siswa keluar tanpa submit — kirim logout (presence
+                # habis via TTL Redis; tidak ada submit yang menghapusnya).
+                self._stop_presence(completed=False)
+                self._stop_autosave()
+                if self._security:
+                    self._security.deactivate()
+                self._pdf_viewer.cleanup()
+                self._discard_pdf()
+                self.closed.emit()
+                with self._submit_lock:
+                    self._submitted = True
+                event.accept()
+            finally:
+                # Flag WAJIB kembali False walau cabang Yes raise: latch True
+                # selamanya membuat semua closeEvent berikutnya di-ignore.
+                self._close_in_progress = False
+            return
         else:
             event.ignore()
         self._close_in_progress = False
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        # Jendela yang sudah submit tidak boleh menegakkan apa pun lagi:
+        # Escape/PrintScreen akan tetap ditelan di atas halaman selamat.
+        if self._submitted:
+            super().keyPressEvent(event)
+            return
         if self._exam.is_strict and self._security:
             # Admin exit backdoor: Ctrl+Shift+Alt+Q
             if (

@@ -18,14 +18,62 @@ untuk recovery re-entry (ServerConfigDialog "Kirim Lagi").
 
 from __future__ import annotations
 
+import atexit
+import logging
+import os
 import shutil
 import subprocess
 import sys
 from typing import Optional
 
+log = logging.getLogger(__name__)
+
 # Berapa lama PowerShell menahan balloon tip sebelum proses keluar.
 # ShowBalloonTip async — proses harus tetap hidup selama durasi itu.
 _WINDOWS_BALLOON_DURATION_MS = 8000
+
+# Berapa lama maksimal menunggu helper notifikasi sebelum menyerah.
+_NOTIFY_TIMEOUT = 10
+
+# Proses notifikasi terakhir yang masih hidup. Best-effort: notifikasi
+# baru mematikan yang lama dulu supaya balloon tip tidak bertumpuk, dan
+# `atexit` memastikan tidak ada PowerShell yatim saat app keluar.
+_last_proc: Optional[subprocess.Popen] = None
+
+
+def _kill_previous() -> None:
+    """Matikan proses notifikasi sebelumnya, best-effort (jangan melempar)."""
+    global _last_proc
+    proc = _last_proc
+    _last_proc = None
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _register_atexit_once() -> None:
+    global _atexit_registered
+    try:
+        _atexit_registered
+    except NameError:
+        _atexit_registered = False
+    if not _atexit_registered:
+        atexit.register(_kill_previous)
+        _atexit_registered = True
+
+
+_atexit_registered = False
 
 
 def send_notification(
@@ -37,12 +85,16 @@ def send_notification(
 
     Best-effort: kegagalan (helper tidak ada / gagal / policy) tidak melempar —
     jawaban tetap aman di disk untuk recovery re-entry.
+
+    Catatan: panggil dari worker thread — fungsi ini memblokir sampai
+    N detik (`_NOTIFY_TIMEOUT`) menunggu helper selesai.
     """
     try:
         if sys.platform == "win32":
             return _send_windows_notification(title, message, urgency)
         return _send_linux_notification(title, message, urgency)
     except Exception:
+        log.debug("send_notification failed", exc_info=True)
         return False
 
 
@@ -59,8 +111,54 @@ def _send_linux_notification(
         title,
         message,
     ]
-    subprocess.run(args, timeout=5, check=False)
-    return True
+    # list-args tanpa shell=True: judul/pesan tidak pernah di-interpolasi
+    # ke perintah, jadi teks guru tidak bisa menyuntik opsi/flag.
+    _register_atexit_once()
+    _kill_previous()
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        global _last_proc
+        _last_proc = proc
+        try:
+            _, stderr = proc.communicate(timeout=_NOTIFY_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            _, stderr = proc.communicate()
+            log.warning("notify-send timed out after %ss", _NOTIFY_TIMEOUT)
+            return False
+        rc = proc.returncode
+        if rc != 0:
+            log.warning(
+                "notify-send failed with rc=%s: %s",
+                rc, (stderr or b"").decode("utf-8", errors="replace")[:500],
+            )
+            return False
+        return True
+    except Exception:
+        log.debug("_send_linux_notification failed", exc_info=True)
+        return False
+
+
+# Skrip PowerShell TETAP: judul/pesan TIDAK di-interpolasi ke sini.
+# Keduanya lewat environment (EXAMVAN_NOTIFY_TITLE / EXAMVAN_NOTIFY_BODY);
+# yang dipilih di kode hanya ikon (dari urgency, bukan dari teks server).
+_WINDOWS_SCRIPT = (
+    "Add-Type -AssemblyName System.Windows.Forms;"
+    "Add-Type -AssemblyName System.Drawing;"
+    "$iconName = $env:EXAMVAN_NOTIFY_ICON;"
+    "$n = New-Object System.Windows.Forms.NotifyIcon;"
+    "$n.Icon = [System.Drawing.SystemIcons]::$iconName;"
+    "$n.BalloonTipTitle = $env:EXAMVAN_NOTIFY_TITLE;"
+    "$n.BalloonTipText = $env:EXAMVAN_NOTIFY_BODY;"
+    "$n.Visible = $true;"
+    f"$n.ShowBalloonTip({_WINDOWS_BALLOON_DURATION_MS});"
+    f"Start-Sleep -Milliseconds {_WINDOWS_BALLOON_DURATION_MS};"
+    "$n.Dispose()"
+)
 
 
 def _send_windows_notification(
@@ -72,27 +170,19 @@ def _send_windows_notification(
     tersedia di semua Windows 10/11. Icon disesuaikan urgency:
     critical → SystemIcons.Warning, selainnya → SystemIcons.Information.
 
+    Judul/pesan diteruskan via ENVIRONMENT, bukan interpolasi string:
+    teks guru (`congrats_message`) bebas isinya — kutip tunggal di-escape
+    pun tetap rapuh (backtick/`$()`/subexpression masih hidup di dalam
+    double-quote PowerShell). Lewat `$env:` tidak ada parsing sama sekali.
+
     Mengapa PowerShell, bukan modul Python: tidak ada dependency bawaan Python
     untuk toast lintas Windows tanpa package tambahan (win10toast & kawan-kawan
     butuh install). NotifyIcon balloon tip cukup: muncul dari tray, tidak
     mengganggu fokus (kiosk), dan window ujian sudah ditutup saat ini dipanggil.
+
+    Catatan: panggil dari worker thread — memblokir sampai N detik.
     """
     icon = "Warning" if urgency == "critical" else "Information"
-    # Escape single-quote untuk string literal PowerShell.
-    esc_title = title.replace("'", "''")
-    esc_message = message.replace("'", "''")
-    script = (
-        "Add-Type -AssemblyName System.Windows.Forms;"
-        "Add-Type -AssemblyName System.Drawing;"
-        f"$n = New-Object System.Windows.Forms.NotifyIcon;"
-        f"$n.Icon = [System.Drawing.SystemIcons]::{icon};"
-        f"$n.BalloonTipTitle = '{esc_title}';"
-        f"$n.BalloonTipText = '{esc_message}';"
-        "$n.Visible = $true;"
-        f"$n.ShowBalloonTip({_WINDOWS_BALLOON_DURATION_MS});"
-        f"Start-Sleep -Milliseconds {_WINDOWS_BALLOON_DURATION_MS};"
-        "$n.Dispose()"
-    )
     args = [
         "powershell",
         "-NoProfile",
@@ -100,14 +190,45 @@ def _send_windows_notification(
         "-WindowStyle",
         "Hidden",
         "-Command",
-        script,
+        _WINDOWS_SCRIPT,
     ]
-    subprocess.run(
-        args,
-        timeout=(_WINDOWS_BALLOON_DURATION_MS // 1000) + 10,
-        check=False,
-        # CREATE_NO_WINDOW — proses GUI windowed: tanpa ini jendela
-        # console PowerShell berkedip di layar saat notifikasi dikirim.
-        creationflags=0x08000000,  # CREATE_NO_WINDOW
-    )
-    return True
+    env = {
+        **os.environ,
+        "EXAMVAN_NOTIFY_TITLE": title,
+        "EXAMVAN_NOTIFY_BODY": message,
+        "EXAMVAN_NOTIFY_ICON": icon,
+    }
+    _register_atexit_once()
+    _kill_previous()
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            # CREATE_NO_WINDOW — proses GUI windowed: tanpa ini jendela
+            # console PowerShell berkedip di layar saat notifikasi dikirim.
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        global _last_proc
+        _last_proc = proc
+        try:
+            _, stderr = proc.communicate(
+                timeout=(_WINDOWS_BALLOON_DURATION_MS // 1000) + 10
+            )
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            _, stderr = proc.communicate()
+            log.warning("powershell notify timed out")
+            return False
+        rc = proc.returncode
+        if rc != 0:
+            log.warning(
+                "powershell notify failed with rc=%s: %s",
+                rc, (stderr or b"").decode("utf-8", errors="replace")[:500],
+            )
+            return False
+        return True
+    except Exception:
+        log.debug("_send_windows_notification failed", exc_info=True)
+        return False

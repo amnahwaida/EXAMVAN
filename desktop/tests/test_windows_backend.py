@@ -224,6 +224,29 @@ class BlockedKeyTestCase(unittest.TestCase):
     def test_alt_alone_blocked(self):
         self.assertTrue(self.blocked(VK_MENU, alt_flag=True))
 
+    # ---- save / print / devtools (strict) -------------------------------
+    def test_ctrl_s_and_ctrl_p_blocked(self):
+        # Ctrl+S (Save) / Ctrl+P (Print): dialog sistemnya slot keluar
+        # sekaligus cara menyimpan/mencetak soal.
+        self.assertTrue(self.blocked(VK_S, ctrl_down=True))
+        self.assertTrue(self.blocked(VK_P, ctrl_down=True))
+
+    def test_f12_dan_f_key_bare_tetap_lolos(self):
+        # Aplikasi ini native Qt, bukan tampilan browser: tidak ada
+        # DevTools di F12. F-key BARE wajib tetap sampai ke app (PDF
+        # viewer memakai F-key biasa), dan blokir F12 tidak menambah
+        #关闭窗口 tambahan -- hanya memutus jaminan lama itu.
+        for vk in (0x70, 0x75, 0x7B):  # F1, F6, F12
+            self.assertFalse(self.blocked(vk), hex(vk))
+
+    def test_ctrl_c_v_and_delete_still_pass(self):
+        # Kunci penyuntingan teks yang sah di kolom jawaban: mitigasinya
+        # penyapu clipboard 10 detik + wipe saat PrintScreen.
+        self.assertFalse(self.blocked(0x43, ctrl_down=True))  # Ctrl+C
+        self.assertFalse(self.blocked(0x56, ctrl_down=True))  # Ctrl+V
+        self.assertFalse(self.blocked(0x2E))  # Delete
+        self.assertFalse(self.blocked(0x2E, ctrl_down=True))
+
 
 class ScreenSaverStateTestCase(unittest.TestCase):
     """Issue A: the screensaver must never be left broken on the machine.

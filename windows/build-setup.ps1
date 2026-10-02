@@ -102,7 +102,15 @@ if (-not (Test-Path $buildInfo)) {
     Write-Err "installer\build_info.py tidak ditemukan."
     exit 1
 }
-$defines = (& python $buildInfo)
+# Pakai $pyExe yang sama dengan guard freshness di atas (bukan `python`
+# telanjang): kalau tidak, dua langkah memakai interpreter berbeda.
+& $pyExe -c "import sys"
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "Python tidak bisa dijalankan ($pyExe)."
+    Write-Host "  Contohnya harus: $pyExe --version"
+    exit 1
+}
+$defines = (& $pyExe $buildInfo)
 if ($LASTEXITCODE -ne 0 -or -not $defines) {
     Write-Err "build_info.py gagal menghasilkan define versi."
     exit 1
@@ -111,6 +119,9 @@ Write-Info "Define: $defines"
 
 # ---- Compile ----
 Write-Info "Compiling installer dengan Inno Setup (1-3 menit)..."
+# Hapus setup kemarin SEBELUM compile: tanpa ini, kegagalan ISCC mencetak
+# BUILD SUCCESS di atas artefak basi (cek Test-Path di bawah lolos).
+Remove-Item $SetupExe -Force -ErrorAction SilentlyContinue
 # $defines dipecah jadi argumen terpisah: ISCC menerima setiap
 # "/DNama=Nilai" sendiri, mengutip utuhnya akan jadi argumen tak dikenal.
 # (Berbeda dari baris PowerShell biasa, di sini backtick + split

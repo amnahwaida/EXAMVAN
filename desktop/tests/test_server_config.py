@@ -226,6 +226,70 @@ class RecoverySubmitTest(RecoveryGateTestCase):
         self.assertTrue(config.is_submitted(7))
 
 
+class IdentityContextPrefillTest(RecoveryGateTestCase):
+    """H8: prefill identitas terikat ke ujian + token (anti cross-prefill).
+
+    `identity_context` ditulis bersamaan dengan `identity_data`; prefill
+    hanya dipakai bila konteksnya cocok dengan ujian + token yang dibuka.
+    """
+
+    def _dlg(self, token="ABCD1234"):
+        dlg = ServerConfigDialog()
+        dlg._exam = _exam()
+        dlg.input_token.setText(token)
+        return dlg
+
+    def _run_identity(self, dlg):
+        """Jalankan _show_identity_dialog dengan IdentityDialog di-stub."""
+        with mock.patch("examvan.ui.identity_dialog.IdentityDialog") as Dlg:
+            inst = Dlg.return_value
+            inst.exec_.return_value = QDialog.Rejected
+            dlg._show_identity_dialog()
+            return Dlg
+
+    def test_matching_context_prefills(self):
+        config.set("identity_data", dict(BUDI))
+        config.set("identity_context", {"exam_id": 7, "token": "ABCD1234"})
+        Dlg = self._run_identity(self._dlg("ABCD1234"))
+        saved = Dlg.call_args.kwargs.get("saved_data")
+        self.assertEqual(saved, BUDI)
+
+    def test_token_mismatch_does_not_prefill(self):
+        config.set("identity_data", dict(BUDI))
+        config.set("identity_context", {"exam_id": 7, "token": "ABCD1234"})
+        Dlg = self._run_identity(self._dlg("WXYZ5678"))
+        saved = Dlg.call_args.kwargs.get("saved_data")
+        self.assertEqual(saved, {})
+
+    def test_exam_mismatch_does_not_prefill(self):
+        config.set("identity_data", dict(BUDI))
+        config.set("identity_context", {"exam_id": 8, "token": "ABCD1234"})
+        Dlg = self._run_identity(self._dlg("ABCD1234"))
+        saved = Dlg.call_args.kwargs.get("saved_data")
+        self.assertEqual(saved, {})
+
+    def test_missing_context_does_not_prefill(self):
+        config.set("identity_data", dict(BUDI))
+        Dlg = self._run_identity(self._dlg("ABCD1234"))
+        saved = Dlg.call_args.kwargs.get("saved_data")
+        self.assertEqual(saved, {})
+
+    def test_accepted_identity_writes_context(self):
+        dlg = self._dlg("TOKLAB01")
+        emitted = []
+        dlg.exam_selected.connect(lambda *a: emitted.append(a))
+        with mock.patch("examvan.ui.identity_dialog.IdentityDialog") as Dlg:
+            inst = Dlg.return_value
+            inst.exec_.return_value = QDialog.Accepted
+            inst.get_identity_data.return_value = dict(SITI)
+            dlg._show_identity_dialog()
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(
+            config.get("identity_context"),
+            {"exam_id": 7, "token": "TOKLAB01"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 

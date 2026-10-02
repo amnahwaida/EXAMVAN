@@ -102,5 +102,95 @@ class RenderCurrentPageErrorTest(unittest.TestCase):
         self.assertEqual(self.widget._zoom, 2.0)
 
 
+class LoadPdfFailureStateTest(unittest.TestCase):
+    """load_pdf yang gagal mereset state + mematikan navigasi."""
+
+    def setUp(self):
+        self.widget = PdfWidget()
+
+    def test_failed_load_resets_pages_and_disables_navigation(self):
+        self.widget._total_pages = 3
+        self.widget._btn_prev.setEnabled(True)
+        self.widget._btn_next.setEnabled(True)
+        with mock.patch.object(pv, "fitz") as mock_fitz:
+            mock_fitz.open.side_effect = RuntimeError("bukan PDF")
+            ok = self.widget.load_pdf("/tmp/bukan-pdf.pdf")
+        self.assertFalse(ok)
+        self.assertEqual(self.widget.total_pages, 0)
+        self.assertFalse(self.widget._btn_prev.isEnabled())
+        self.assertFalse(self.widget._btn_next.isEnabled())
+        self.assertIn("Halaman 0 / 0", self.widget._lbl_page.text())
+
+    def test_locked_pdf_is_refused_with_a_guardian_message(self):
+        doc = mock.Mock()
+        doc.needs_pass = True
+        doc.is_encrypted = True
+        with mock.patch.object(pv, "fitz") as mock_fitz:
+            mock_fitz.open.return_value = doc
+            ok = self.widget.load_pdf("/tmp/terkunci.pdf")
+        self.assertFalse(ok)
+        self.assertEqual(self.widget.total_pages, 0)
+        self.assertIn("terkunci", self.widget._page_label.text().lower())
+        doc.close.assert_called_once()
+
+    def test_huge_page_clamps_zoom_with_a_hint(self):
+        """Halaman raksasa: zoom efektif dibatasi ~12MP + ada hint."""
+        page = mock.Mock()
+        rect = mock.Mock()
+        rect.width = 10000.0
+        rect.height = 10000.0
+        page.rect = rect
+        page.get_pixmap.return_value = _FakePixmap()
+        doc = mock.Mock()
+        doc.__getitem__ = mock.Mock(return_value=page)
+        self.widget._doc = doc
+        self.widget._total_pages = 1
+        self.widget._current_page = 0
+        self.widget._zoom = 4.0
+        with mock.patch.object(pv, "fitz") as mock_fitz:
+            mock_fitz.Matrix = mock.Mock(return_value=mock.Mock())
+            self.widget._render_current_page()
+            mat_arg = mock_fitz.Matrix.call_args.args
+        # Zoom efektif < zoom yang diminta (10000*10000*16 >> 12MP).
+        self.assertLess(mat_arg[0], 4.0)
+        self.assertIn("dibatasi", self.widget._lbl_zoom.text())
+
+    def test_ctrl_wheel_on_the_viewport_zooms(self):
+        from PyQt5.QtCore import QPoint, Qt
+        from PyQt5.QtGui import QWheelEvent
+
+        self.widget._doc = _FakeDoc()
+        self.widget._total_pages = 1
+        start = self.widget._zoom
+        event = QWheelEvent(
+            QPoint(10, 10), QPoint(10, 10),
+            QPoint(0, 0), QPoint(0, 120),
+            Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False,
+        )
+        with mock.patch.object(pv, "fitz") as mock_fitz:
+            mock_fitz.Matrix = mock.Mock(return_value=mock.Mock())
+            handled = self.widget.eventFilter(
+                self.widget._scroll.viewport(), event)
+        self.assertTrue(handled)
+        self.assertGreater(self.widget._zoom, start)
+
+    def test_no_stale_io_import(self):
+        import ast
+        from pathlib import Path
+
+        src = Path(pv.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(a.asname or a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.update(a.asname or a.name for a in node.names)
+        for name in ("io",):
+            if name in imported:
+                self.assertIn(f"{name}.", src,
+                              f"import {name} tidak dipakai")
+
+
 if __name__ == "__main__":
     unittest.main()

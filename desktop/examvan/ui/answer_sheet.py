@@ -119,6 +119,12 @@ class AnswerSheetWidget(QWidget):
         self._questions: List[Dict[str, Any]] = []
         self._answer_widgets: Dict[str, Any] = {}
         self._answers: Dict[str, Any] = {}
+        # Nomor soal yang sudah disentuh siswa lewat handler jawaban —
+        # restore_answers tidak boleh menimpanya (lihat restore_answers).
+        self._touched_nums: set = set()
+        # Blok pertama yang menjawab tiap nomor duplikat (id objek per-blok)
+        # — tulisan blok lain sesudahnya dibuang (first-answered-wins).
+        self._answer_writer: Dict[str, Any] = {}
         # Nomor soal yang bentrok pada build terakhir — konfigurasi ujian
         # yang rusak; lihat build_from_questions.
         self._duplicates: List[str] = []
@@ -364,6 +370,10 @@ class AnswerSheetWidget(QWidget):
         self._duplicates = duplicates
         self._broken_numbers = broken
         self._counted_numbers = counted
+        # Widget diganti semua: token penulis blok lama tidak berlaku lagi.
+        # _touched_nums SENGAJA tidak di-reset: jawaban yang sudah diketik
+        # siswa tetap miliknya walau lembar dibangun ulang.
+        self._answer_writer = {}
         self._update_count()
         return duplicates
 
@@ -485,12 +495,20 @@ class AnswerSheetWidget(QWidget):
             if self._answers.get(num) == str(choice):
                 rb.setChecked(True)
         btn_group.buttonClicked.connect(
-            lambda btn, n=num: self._on_answer_changed(n, btn.text())
+            lambda btn, n=num, g=btn_group: self._on_answer_changed(n, btn.text(), g)
         )
         self._pending_entry = ("single", btn_group)
 
     def _build_multiple_choice(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         choices = q.get("choices", ["A", "B", "C", "D", "E"])
+        # Sama seperti single_choice (HIGH H8): choices non-list/kosong =
+        # soal rusak, bukan widget palsu. Tanpa ini string "ABC" dirender
+        # satu checkbox per karakter.
+        if not self._valid_string_list(choices):
+            raise _BrokenQuestion(
+                f"choices tidak sah ({type(choices).__name__!s})"
+            )
+        choices = [str(c) for c in choices]
         checkboxes = []
         saved = self._answers.get(num, [])
         if isinstance(saved, str):
@@ -525,13 +543,25 @@ class AnswerSheetWidget(QWidget):
             if self._answers.get(num) == val:
                 rb.setChecked(True)
         btn_group.buttonClicked.connect(
-            lambda btn, n=num: self._on_answer_changed(n, btn.text())
+            lambda btn, n=num, g=btn_group: self._on_answer_changed(n, btn.text(), g)
         )
         self._pending_entry = ("single", btn_group)
 
     def _build_matching(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         left_items = q.get("left_items", [])
         right_items = q.get("right_items", [])
+        # String telanjang dirender satu widget per karakter — tolak sebagai
+        # soal rusak (HIGH H8). Validator string-list dipakai ulang.
+        if not self._valid_string_list(left_items):
+            raise _BrokenQuestion(
+                f"left_items tidak sah ({type(left_items).__name__!s})"
+            )
+        if not self._valid_string_list(right_items):
+            raise _BrokenQuestion(
+                f"right_items tidak sah ({type(right_items).__name__!s})"
+            )
+        left_items = [str(x) for x in left_items]
+        right_items = [str(x) for x in right_items]
         saved = self._answers.get(num, {})
         if isinstance(saved, str):
             try:
@@ -579,8 +609,8 @@ class AnswerSheetWidget(QWidget):
                 idx = right_items.index(saved_val) + 1 if saved_val in right_items else 0
                 combo.setCurrentIndex(idx)
             combo.currentIndexChanged.connect(
-                lambda idx, n=num, li=left_key, ri_items=right_items: (
-                    self._on_match_changed(n, li, idx, ri_items)
+                lambda idx, n=num, li=left_key, ri_items=right_items, c=combos: (
+                    self._on_match_changed(n, li, idx, ri_items, c)
                 )
             )
             combos[left_key] = combo
@@ -594,7 +624,9 @@ class AnswerSheetWidget(QWidget):
         line.setPlaceholderText("Ketik jawaban...")
         line.setMaxLength(500)
         line.setText(str(self._answers.get(num, "")))
-        line.textChanged.connect(lambda text, n=num: self._on_answer_changed(n, text))
+        line.textChanged.connect(
+            lambda text, n=num, ln=line: self._on_answer_changed(n, text, ln)
+        )
         layout.addWidget(line)
         # lewat _pending_entry, seperti _build_single_choice / _build_multi /
         # _build_matching. Menulis langsung ke _answer_widgets membuat
@@ -603,7 +635,35 @@ class AnswerSheetWidget(QWidget):
         # peringatan palsu ke siswa dan log.error ke guru, sekali per submit.
         self._pending_entry = ("short", line)
 
-    def _on_answer_changed(self, num: str, value: Any) -> None:
+    def _first_wins_blocked(self, num: str, src: Any) -> bool:
+        """True bila tulisan ke `num` duplikat ini harus dibuang.
+
+        Dua blok bernomor sama berbagi satu kunci payload: yang menang
+        adalah blok yang menjawab PERTAMA (deterministik), bukan yang
+        terakhir menulis. Edit dalam blok yang SAMA tetap diizinkan
+        (siswa boleh mengubah pikiran); tulisan dari blok LAIN sesudah
+        jawaban pertama ada akan dibuang + log.error menyebut nomornya.
+        `src` adalah token identitas blok (objek widget per-blok).
+        """
+        if num not in self._duplicates:
+            return False
+        if self._answers.get(num) in (None, "", [], {}):
+            return False
+        prev = self._answer_writer.get(num)
+        tok = id(src) if src is not None else None
+        if prev is not None and tok is not None and prev != tok:
+            log.error(
+                "jawaban duplikat untuk soal %s diabaikan (first-answered-wins)",
+                num,
+            )
+            return True
+        return False
+
+    def _on_answer_changed(self, num: str, value: Any, src: Any = None) -> None:
+        if self._first_wins_blocked(num, src):
+            return
+        self._answer_writer[num] = id(src) if src is not None else None
+        self._touched_nums.add(num)
         self._answers[num] = value
         self._update_count()
         self.answer_changed.emit(num, value)
@@ -612,13 +672,23 @@ class AnswerSheetWidget(QWidget):
         if checkboxes is None:
             _, checkboxes = self._answer_widgets.get(num, ("multi", []))
         selected = [cb.text() for cb in checkboxes if cb.isChecked()]
+        # Daftar checkbox adalah identitas blok (satu list per blok).
+        if self._first_wins_blocked(num, checkboxes):
+            return
+        self._answer_writer[num] = id(checkboxes) if checkboxes is not None else None
+        self._touched_nums.add(num)
         self._answers[num] = selected
         self._update_count()
         self.answer_changed.emit(num, selected)
 
     def _on_match_changed(
-        self, num: str, left_key: str, combo_idx: int, right_items: list
+        self, num: str, left_key: str, combo_idx: int, right_items: list,
+        src: Any = None,
     ) -> None:
+        if self._first_wins_blocked(num, src):
+            return
+        self._answer_writer[num] = id(src) if src is not None else None
+        self._touched_nums.add(num)
         if num not in self._answers or not isinstance(self._answers[num], dict):
             self._answers[num] = {}
         if combo_idx == 0:
@@ -639,27 +709,79 @@ class AnswerSheetWidget(QWidget):
         self._lbl_count.setText(f"{answered} / {total} terjawab")
 
     def get_answers(self) -> Dict[str, Any]:
-        """Return all answers as {question_num_str: value}."""
+        """Return all answers as {question_num_str: value}.
+
+        Nilai KOSONG ("", [], {}) dibuang: jawaban yang dihapus siswa
+        terbaca sebagai belum dijawab, bukan sebagai jawaban salah yang
+        ikut terkirim. List/dict disalin dangkal supaya pemanggil tidak
+        memegang objek hidup.
+        """
         result = {}
         for num, val in self._answers.items():
+            if val is None or val == "" or val == [] or val == {}:
+                continue
             if isinstance(val, list):
-                result[num] = val
+                result[num] = list(val)
             elif isinstance(val, dict):
-                result[num] = val
+                result[num] = dict(val)
             else:
-                result[num] = str(val) if val else ""
+                result[num] = str(val)
         return result
 
     def restore_answers(self, saved: Dict[str, Any]) -> None:
-        """Restore answers from saved dict and update UI."""
-        self._answers = {}
+        """Restore answers from saved dict and update UI.
+
+        Tidak menimpa jawaban yang LEBIH BARU di memori: nomor yang sudah
+        disentuh siswa (lihat _touched_nums) dilewati untuk _answers
+        maupun widget. Merge memakai setdefault supaya jawaban yang sudah
+        ada tidak tertimpa nilai basi dari disk.
+        """
         for num, val in saved.items():
-            self._answers[str(num)] = val
+            key = str(num)
+            if key in self._touched_nums:
+                continue
+            self._answers.setdefault(key, val)
+
+        # Prune: nilai single/truefalse yang tidak ada di pilihan saat ini
+        # dibuang (jangan dikirim diam-diam); multiple hanya menyimpan
+        # pilihan yang dikenal (buang kunci bila tak tersisa); short_answer
+        # menyimpan string apa pun.
+        for slot, (wtype, widget) in self._answer_widgets.items():
+            num = slot.split("#", 1)[0]
+            if num in self._touched_nums:
+                continue
+            val = self._answers.get(num)
+            if val is None:
+                continue
+            if wtype == "single":
+                options = {btn.text() for btn in widget.buttons()}
+                if str(val) not in options:
+                    self._answers.pop(num, None)
+                    continue
+            elif wtype == "multi":
+                options = {cb.text() for cb in widget}
+                kept = [c for c in (val if isinstance(val, list) else []) if c in options]
+                if kept != (val if isinstance(val, list) else val):
+                    if kept:
+                        self._answers[num] = kept
+                    else:
+                        self._answers.pop(num, None)
+                    val = self._answers.get(num)
+                    if val is None:
+                        continue
+            elif wtype == "short":
+                if not isinstance(val, str):
+                    val = str(val)
+                    self._answers[num] = val
+            elif wtype == "matching":
+                pass  # pruning matching ditangani di bawah (per kunci kiri)
 
         # Update UI widgets. Kunci internal bisa "1#1" kalau nomor soal
         # bentrok; payloadnya tetap nomor asli.
         for slot, (wtype, widget) in self._answer_widgets.items():
             num = slot.split("#", 1)[0]
+            if num in self._touched_nums:
+                continue
             val = self._answers.get(num)
             if val is None:
                 continue

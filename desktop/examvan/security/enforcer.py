@@ -9,13 +9,15 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from ..security_levels import (
+    DEFAULT_LEVEL,
     LEVEL_LOW,
     is_effective_strict,
     normalize_level,
@@ -48,7 +50,7 @@ class SecurityEnforcer(QObject):
 
     def __init__(
         self,
-        security_level: str = "low",
+        security_level: str = DEFAULT_LEVEL,
         strict_mode: bool = False,
         window: Optional[QWidget] = None,
         kiosk_mode: bool = False,
@@ -93,6 +95,15 @@ class SecurityEnforcer(QObject):
         # (False) oleh: timeout (auto-submit) atau interaksi nyata siswa
         # (eventFilter — klik/ketik di window).
         self._strict_focus_episode = False
+        # Wall-clock awal episode focus-loss yang sedang berjalan (None bila
+        # tidak ada episode). Sabuk pengaman H3/F-1: episode yang tidak
+        # kunjung submit dipaksa auto-submit setelah 60 detik (lihat
+        # _poll_focus), apa pun yang me-re-arm countdown-nya.
+        self._focus_episode_start = None
+        # Berapa kali _on_focus_timeout menunda berturut-turut karena popup
+        # aplikasi masih terbuka. Dibatasi (cap 3): tanpa batas, popup yang
+        # tidak pernah ditutup menunda auto-submit selamanya.
+        self._focus_defer_count = 0
 
     # ------------------------------------------------------------------
     # Modal-dialog suspension
@@ -226,6 +237,13 @@ class SecurityEnforcer(QObject):
 
     def deactivate(self) -> None:
         """Deactivate all security enforcement."""
+        # Guard fokus tidak boleh tertinggal dalam keadaan tertangguh:
+        # tanpa reset ini, enforcer berikutnya (atau dialog yang dibuka
+        # setelah ujian) mewarisi penangguhan dan focus-loss tidak
+        # terdeteksi. Reset di paling atas supaya berlaku juga bila
+        # deactivate dipanggil saat tidak aktif.
+        self._focus_guard_paused = False
+        self._focus_guard_depth = 0
         if not self._active:
             return
         self._active = False
@@ -234,14 +252,80 @@ class SecurityEnforcer(QObject):
         self._clipboard_timer.stop()
         self._focus_timer.stop()
         if hasattr(self, '_poll_timer'):
-            self._poll_timer.stop()
+            try:
+                self._poll_timer.stop()
+            except Exception:
+                log.exception("poll timer stop failed")
         self.wait_for_clipboard_clear()
 
-        self._backend.release_strict_mode(self._window)
-        self._backend.release_capture_protection(self._window)
-        self._backend.release_pointer()
-        self._backend.allow_sleep()
-        self._backend.deactivate()
+        # Setiap tahap berdiri sendiri seperti activate(): satu backend yang
+        # gagal tidak boleh menggagalkan pelepasan sisanya.
+        try:
+            self._backend.release_strict_mode(self._window)
+        except Exception:
+            log.exception("release_strict_mode failed — continuing")
+        try:
+            self._backend.release_capture_protection(self._window)
+        except Exception:
+            log.exception("release_capture_protection failed — continuing")
+        try:
+            self._backend.release_pointer()
+        except Exception:
+            log.exception("release_pointer failed — continuing")
+        try:
+            self._backend.allow_sleep()
+        except Exception:
+            log.exception("allow_sleep failed — continuing")
+        try:
+            self._backend.deactivate()
+        except Exception:
+            log.exception("backend deactivate failed — continuing")
+
+        # Kiosk teardown (Linux-only): matikan unclutter yang dinyalakan
+        # setup_kiosk_environment supaya tidak menetap setelah ujian.
+        if self._kiosk and sys.platform != "win32":
+            try:
+                from .kiosk import teardown_kiosk_environment
+                teardown_kiosk_environment()
+            except Exception:
+                log.exception("kiosk teardown failed — continuing")
+
+        # Kembalikan flag window yang dipasang _activate_strict: tanpa ini
+        # halaman selamat tetap frameless + always-on-top (terjebak).
+        if self._window is not None:
+            try:
+                self._window.setWindowFlag(Qt.FramelessWindowHint, False)
+            except Exception:
+                log.exception("failed to clear FramelessWindowHint")
+            try:
+                self._window.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+            except Exception:
+                log.exception("failed to clear WindowStaysOnTopHint")
+            try:
+                self._window.show()
+            except Exception:
+                log.exception("failed to re-show window after deactivate")
+
+        # Lepas sinyal focus-guard yang dipasang _activate_medium.
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                try:
+                    app.applicationStateChanged.disconnect(self._on_app_state_changed)
+                except Exception:
+                    pass
+        except Exception:
+            log.exception("failed to disconnect applicationStateChanged")
+        try:
+            if self._window is not None:
+                try:
+                    self._window.windowHandle().activeChanged.disconnect(
+                        self._on_window_active_changed
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            log.exception("failed to disconnect activeChanged")
 
         # Lepas event filter episode focus-loss (lihat _activate_medium):
         # tanpa ini filter menempel pada window yang di-pindahkan ke
@@ -387,6 +471,53 @@ class SecurityEnforcer(QObject):
         if thread is not None and thread.is_alive():
             thread.join(timeout)
 
+    def reassert_capture_protection(self) -> None:
+        """Pasang ulang proteksi capture pada window ujian (best-effort).
+
+        showFullScreen membuat ulang HWND sehingga afinitas display yang
+        dipasang fase medium hilang, dan compositor/aplikasi lain bisa
+        menimpa hint X11 kapan pun — jadi satu kali pasang saat aktivasi
+        tidak cukup. Aman dipanggil berulang: hanya berjalan saat enforcer
+        aktif dan window ada; kegagalan backend dicatat, tidak dilempar.
+        Dipanggil dari _poll_focus (kaden yang sama dengan confine_pointer)
+        dan dari viewer saat _enforce_fullscreen.
+        """
+        if not self._active or self._window is None:
+            return
+        try:
+            self._backend.set_capture_protection(self._window)
+        except Exception:
+            log.warning("reassert capture protection gagal", exc_info=True)
+
+    def protect_window(self, window: Any) -> bool:
+        """Pasang proteksi tangkapan layar pada window LAIN (C3).
+
+        Halaman "{selamat}" deliberately menampilkan token ujian — di
+        mode static-token itu kredensial hasil SELURUH KELAS. Tapi
+        `deactivate()` sudah melepas WDA_MONITOR, keyboard hook, dan
+        konfine pointer SEBELUM halaman itu dibuat, jadi layar yang
+        satu-satunya sengaja menaruh kredensial kelas justru yang paling
+        tidak terlindungi: PrintScreen tidak lagi diblokir dan
+        SetWindowDisplayAffinity sudah dilepas.
+
+        Dipakai hanya untuk proteksi capture (bukan strict penuh):
+        halaman harus tetap punya tombol "Selesai" yang bisa diklik dan
+        tidak boleh jadi frameless/always-on-top.
+
+        `SetWindowDisplayAffinity` disimpan per-HWND, jadi tidak perlu
+        dilepas manual — nilainya ikut hilang bersama HWND ketika
+        jendela ditutup/di-destroy.
+        """
+        if window is None:
+            return False
+        try:
+            self._backend.set_capture_protection(window)
+            return True
+        except Exception:
+            log.warning("proteksi capture halaman congratulations gagal",
+                        exc_info=True)
+            return False
+
     # ------------------------------------------------------------------
     # Medium mode
     # ------------------------------------------------------------------
@@ -466,6 +597,7 @@ class SecurityEnforcer(QObject):
             from PyQt5.QtCore import QEvent
             if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress):
                 self._strict_focus_episode = False
+                self._focus_episode_start = None
         except Exception:
             pass
         return super().eventFilter(obj, event)
@@ -484,8 +616,20 @@ class SecurityEnforcer(QObject):
             # Lihat _app_popup_open().
             if self._app_popup_open():
                 return
+            if not self._strict_focus_episode:
+                # Episode BARU (H3/F-1 + L-1): tandai SEBELUM countdown
+                # berjalan. Tanpa flag ini, re-aktivasi strict tiap 500 ms
+                # (raise_+activateWindow di _poll_focus) membatalkan
+                # countdown-nya sendiri dan auto-submit tidak pernah
+                # menembak. Budget deferral hanya di-reset di sini (awal
+                # episode), bukan di tiap re-arm countdown, supaya popup
+                # abadi tidak menunda auto-submit selamanya.
+                self._strict_focus_episode = True
+                self._focus_episode_start = time.time()
+                self._focus_defer_count = 0
             log.warning("Focus lost — starting 3s auto-submit countdown")
-            self._focus_timer.start()
+            if not self._focus_timer.isActive():
+                self._focus_timer.start()
         elif state == Qt.ApplicationActive:
             if self._focus_timer.isActive():
                 if self._strict and self._strict_focus_episode:
@@ -496,6 +640,9 @@ class SecurityEnforcer(QObject):
                     return
                 log.info("Focus regained — cancelling auto-submit countdown")
                 self._focus_timer.stop()
+                # Episode selesai karena fokus benar-benar kembali.
+                self._strict_focus_episode = False
+                self._focus_episode_start = None
 
     def _on_window_active_changed(self) -> None:
         if not self._active or not self._window or self._focus_guard_paused:
@@ -507,6 +654,26 @@ class SecurityEnforcer(QObject):
 
     def _poll_focus(self) -> None:
         if not self._active or not self._window or self._focus_guard_paused:
+            return
+
+        # Sabuk pengaman H3/F-1: episode focus-loss yang tidak kunjung
+        # submit (countdown di-re-arm terus) dipaksa auto-submit setelah
+        # 60 detik, apa pun yang menahannya. Dicek sebelum popup supaya
+        # berlaku regardless.
+        if (
+            self._strict_focus_episode
+            and self._focus_episode_start is not None
+            and (time.time() - self._focus_episode_start) > 60
+        ):
+            log.warning("Focus episode exceeded 60s — forcing auto-submit")
+            self._strict_focus_episode = False
+            self._focus_episode_start = None
+            self._focus_defer_count = 0
+            try:
+                self._focus_timer.stop()
+            except Exception:
+                pass
+            self.auto_submit.emit()
             return
 
         # Popup aplikasi sendiri sedang terbuka: JANGAN raise/activate
@@ -523,6 +690,10 @@ class SecurityEnforcer(QObject):
             # ulangan ini kunci pointer lepas tanpa jejak. Lihat
             # _activate_strict untuk penjelasannya.
             self._backend.confine_pointer(self._window)
+            # Proteksi capture juga dipasang ulang dengan kaden yang sama:
+            # HWND baru (showFullScreen) atau compositor lain bisa
+            # menimpanya kapan pun.
+            self.reassert_capture_protection()
             # Audit 2 Okt 2026 (HIGH H5): di strict, guard fokus tidak
             # berfungsi sama sekali. Siklusnya: siswa keluar → poll melihat
             # window tidak aktif → countdown 3 detik mulai → tick berikutnya
@@ -539,21 +710,33 @@ class SecurityEnforcer(QObject):
             if not self._window.isActiveWindow():
                 if not self._focus_timer.isActive():
                     log.warning("Poll: window not active — starting 3s countdown")
+                    if not self._strict_focus_episode:
+                        # Episode BARU: reset budget deferral (L-1) + catat
+                        # awal untuk cap 60 detik.
+                        self._focus_defer_count = 0
+                        self._focus_episode_start = time.time()
                     self._strict_focus_episode = True
                     self._focus_timer.start()
             elif self._focus_timer.isActive() and not self._strict_focus_episode:
                 log.info("Poll: window active again — cancelling countdown")
                 self._focus_timer.stop()
+                self._focus_episode_start = None
             return
 
         if not self._window.isActiveWindow():
             if not self._focus_timer.isActive():
                 log.warning("Poll: window not active — starting 3s countdown")
+                if not self._strict_focus_episode:
+                    self._focus_defer_count = 0
+                    self._focus_episode_start = time.time()
+                self._strict_focus_episode = True
                 self._focus_timer.start()
         else:
             if self._focus_timer.isActive():
                 log.info("Poll: window active again — cancelling countdown")
                 self._focus_timer.stop()
+                self._strict_focus_episode = False
+                self._focus_episode_start = None
 
     def _on_focus_timeout(self) -> None:
         if not self._active or self._focus_guard_paused:
@@ -564,12 +747,21 @@ class SecurityEnforcer(QObject):
             # siklus; kalau fokusnya memang benar-benar lepas, popup
             # sudah tertutup sendiri saat itu dan countdown menembak
             # seperti biasa.
-            log.info("Focus timeout tertunda: popup aplikasi masih terbuka")
-            self._focus_timer.start()
-            return
+            if self._focus_defer_count >= 3:
+                # Cap tercapai: popup tidak kunjung tutup — biarkan submit
+                # jalan daripada menunda tanpa batas.
+                log.warning("Focus timeout: popup masih terbuka setelah 3 tunda — lanjut auto-submit")
+                self._focus_defer_count = 0
+            else:
+                self._focus_defer_count += 1
+                log.info("Focus timeout tertunda: popup aplikasi masih terbuka")
+                self._focus_timer.start()
+                return
+        self._focus_defer_count = 0
         log.warning("Focus lost timeout — triggering auto-submit")
         # Episode selesai — countdown sudah membuahkan keputusannya.
         self._strict_focus_episode = False
+        self._focus_episode_start = None
         self.auto_submit.emit()
 
     # ------------------------------------------------------------------
@@ -587,6 +779,12 @@ class SecurityEnforcer(QObject):
             | Qt.WindowStaysOnTopHint
         )
         self._window.showFullScreen()
+        # showFullScreen membuat ulang HWND: proteksi capture yang dipasang
+        # fase medium (di HWND lama) hilang — pasang ulang di HWND baru.
+        try:
+            self._backend.set_capture_protection(self._window)
+        except Exception:
+            log.exception("re-applying capture protection failed — continuing")
 
         # Platform-specific strict mode (keyboard hook on Windows,
         # X11 grabs + GNOME workspace lock on Linux)

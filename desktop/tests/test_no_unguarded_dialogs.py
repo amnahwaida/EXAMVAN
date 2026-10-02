@@ -253,9 +253,19 @@ class EveryModalDialogIsGuardedTestCase(unittest.TestCase):
             record()
             return QMessageBox.No
 
+        # exec_ juga dicegat: dialog kegagalan submit dibangun sebagai
+        # instance (QMessageBox(...) + setTextFormat(PlainText) + exec_)
+        # supaya pesan server tidak dirender sebagai rich text — bukan
+        # via static warning(). Tanpa ini, box ASLI terbuka di offscreen
+        # dan suite menggantung selamanya.
+        def fake_exec(*a, **k):
+            record()
+            return QMessageBox.Ok
+
         with mock.patch.object(QMessageBox, "warning", fake_box), \
              mock.patch.object(QMessageBox, "information", fake_box), \
-             mock.patch.object(QMessageBox, "question", fake_box):
+             mock.patch.object(QMessageBox, "question", fake_box), \
+             mock.patch.object(QMessageBox, "exec_", fake_exec):
             run()
         return seen
 
@@ -321,9 +331,11 @@ class EveryModalDialogIsGuardedTestCase(unittest.TestCase):
             while time.monotonic() < deadline:
                 QApplication.instance().processEvents()
                 seen.append(viewer._security._focus_timer.isActive())
-            return QMessageBox.No
+            return QMessageBox.Ok
 
-        with mock.patch.object(QMessageBox, "warning", fake_box):
+        # exec_ (bukan warning): dialog kegagalan adalah instance yang
+        # di-exec, lihat catatan di _guard_seen_during_dialog.
+        with mock.patch.object(QMessageBox, "exec_", fake_box):
             viewer._on_submit_result(False, "server unreachable")
 
         self.assertEqual(fired, [], "jendela tertutup saat dialog kegagalan terbuka")
@@ -349,7 +361,10 @@ class SubmitFailureKeepsTheRecoveryPathTestCase(unittest.TestCase):
         self.addCleanup(viewer.deleteLater)
         viewer._auto_submit = mock.Mock()
 
-        with mock.patch.object(QMessageBox, "warning"):
+        # exec_: dialog kegagalan adalah instance yang di-exec (PlainText),
+        # bukan static warning() — mock static saja menggantung di offscreen.
+        with mock.patch.object(QMessageBox, "exec_",
+                               return_value=QMessageBox.Ok):
             viewer._on_submit_result(False, "server unreachable")
 
         self.assertFalse(viewer._submitted)
@@ -367,7 +382,8 @@ class SubmitFailureKeepsTheRecoveryPathTestCase(unittest.TestCase):
         self.addCleanup(viewer.deleteLater)
         viewer._auto_submit = mock.Mock()
 
-        with mock.patch.object(QMessageBox, "warning"):
+        with mock.patch.object(QMessageBox, "exec_",
+                               return_value=QMessageBox.Ok):
             viewer._on_submit_result(False, "boom")
 
         viewer._auto_submit.assert_not_called()

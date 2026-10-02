@@ -219,46 +219,46 @@ func UploadExam() gin.HandlerFunc {
 			return
 		}
 
-	// Quota layers: the account's OWN limits (unless super admin /
-	// operator) AND the shared school pool when the instansi runs a school
-	// package. The pool is a single bucket for EVERY account in the
-	// instansi — the operator included — so the school's total
-	// exams/storage/PDF can never exceed the package (5 sub-accounts × 3
-	// exams can no longer overspend a 3-exam school package). A
-	// pool-less sub-account draws from the creator-operator family budget
-	// instead (examQuotaGate): its uploads spend the operator's quota,
-	// counted across the creator family. maxExams tracks the per-account
-	// quota for the (atomic) check+insert below; -1 means "no per-account
-	// limit" (super/operator accounts bypass their own limits, matching
-	// previous behaviour).
-	maxExams := -1
-	var poolMaxExams, poolMaxPDF, poolMaxStorage int64
-	gate := quotaGate{}
-	poolActive := false
-	if !isSuper {
-		gate = examQuotaGate(ctx, pool, userID)
-		poolMaxExams, poolMaxPDF, poolMaxStorage, poolActive =
-			gate.maxExams, gate.maxPDF, gate.maxStorage, gate.active
-		// Pool/family PDF-size limit: applies to the operator too (their uploads
-		// spend the school package).
-		if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
-			limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
-			errorResponse(c, http.StatusForbidden,
-				fmt.Sprintf("Ukuran file melebihi batas paket sekolah (%.2fMB). Silakan hubungi Super Admin.", limitMB))
-			return
-		}
-		// Pool/family storage pre-check (friendly early rejection; the atomic
-		// check inside the transaction below is the hard gate).
-		if poolActive && poolMaxStorage > 0 {
-			current, err := gate.sumStorage(ctx, pool)
-			if err == nil && current+int64(len(fileData)) > poolMaxStorage {
-				limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+		// Quota layers: the account's OWN limits (unless super admin /
+		// operator) AND the shared school pool when the instansi runs a school
+		// package. The pool is a single bucket for EVERY account in the
+		// instansi — the operator included — so the school's total
+		// exams/storage/PDF can never exceed the package (5 sub-accounts × 3
+		// exams can no longer overspend a 3-exam school package). A
+		// pool-less sub-account draws from the creator-operator family budget
+		// instead (examQuotaGate): its uploads spend the operator's quota,
+		// counted across the creator family. maxExams tracks the per-account
+		// quota for the (atomic) check+insert below; -1 means "no per-account
+		// limit" (super/operator accounts bypass their own limits, matching
+		// previous behaviour).
+		maxExams := -1
+		var poolMaxExams, poolMaxPDF, poolMaxStorage int64
+		gate := quotaGate{}
+		poolActive := false
+		if !isSuper {
+			gate = examQuotaGate(ctx, pool, userID)
+			poolMaxExams, poolMaxPDF, poolMaxStorage, poolActive =
+				gate.maxExams, gate.maxPDF, gate.maxStorage, gate.active
+			// Pool/family PDF-size limit: applies to the operator too (their uploads
+			// spend the school package).
+			if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
+				limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
 				errorResponse(c, http.StatusForbidden,
-					fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+					fmt.Sprintf("Ukuran file melebihi batas paket sekolah (%.2fMB). Silakan hubungi Super Admin.", limitMB))
 				return
 			}
+			// Pool/family storage pre-check (friendly early rejection; the atomic
+			// check inside the transaction below is the hard gate).
+			if poolActive && poolMaxStorage > 0 {
+				current, err := gate.sumStorage(ctx, pool)
+				if err == nil && current+int64(len(fileData)) > poolMaxStorage {
+					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+					return
+				}
+			}
 		}
-	}
 		// Per-account limits apply to every non-super account UNLESS the school
 		// pool is the account's quota. Operators skip their own per-account
 		// columns only when a school pool is ACTIVE (the pool is the gate then);
@@ -288,18 +288,18 @@ func UploadExam() gin.HandlerFunc {
 					errorResponse(c, http.StatusForbidden, errMsg)
 					return
 				}
-			// Check storage limit (only enforce when MaxStorageSize > 0).
-			// An operator's own uploads spend the family budget together
-			// with its sub-accounts (see familyExamBudget), so usage is
-			// counted family-wide; other accounts keep the self count.
-			if user.MaxStorageSize > 0 {
-				var currentStorageBytes int64
-				var err error
-				if isOp {
-					currentStorageBytes, err = models.SumStorageByFamily(ctx, pool, userID)
-				} else {
-					err = pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
-				}
+				// Check storage limit (only enforce when MaxStorageSize > 0).
+				// An operator's own uploads spend the family budget together
+				// with its sub-accounts (see familyExamBudget), so usage is
+				// counted family-wide; other accounts keep the self count.
+				if user.MaxStorageSize > 0 {
+					var currentStorageBytes int64
+					var err error
+					if isOp {
+						currentStorageBytes, err = models.SumStorageByFamily(ctx, pool, userID)
+					} else {
+						err = pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+					}
 					if err == nil && currentStorageBytes+int64(len(fileData)) > user.MaxStorageSize {
 						limitMB := roundTo(float64(user.MaxStorageSize)/(1024*1024), 1)
 						errorResponse(c, http.StatusForbidden,
@@ -407,55 +407,55 @@ func UploadExam() gin.HandlerFunc {
 			}
 			defer func() { _ = tx.Rollback(ctx) }()
 
-		if poolActive {
-			// Lock every account row the gate counts: the whole instansi
-			// (pool mode) or the creator family (family mode), so concurrent
-			// uploads sharing one budget serialize on the same rows (the
-			// row-lock pattern of the per-user check, widened to the budget).
-			if err := gate.lockRows(ctx, tx); err != nil {
-				log.Printf("upload lock school pool error: %v", err)
-				// The PDF is already in R2 but no DB row exists: remove the
-				// orphan object so a failed create does not leak storage.
-				cleanupR2Orphan(c, ctx, filename)
-				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
-				return
-			}
-			poolCnt, err := gate.countExams(ctx, tx)
-			if err != nil {
-				log.Printf("upload count school exams error: %v", err)
-				cleanupR2Orphan(c, ctx, filename)
-				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
-				return
-			}
-			if poolMaxExams > 0 && poolCnt >= poolMaxExams {
-				_ = tx.Rollback(ctx)
-				// Remove the just-uploaded R2 object so we do not leak an orphan.
-				cleanupR2Orphan(c, ctx, filename)
-				errorResponse(c, http.StatusForbidden,
-					fmt.Sprintf("Batas pembuatan ujian sekolah tercapai. Paket sekolah Anda adalah %d ujian.", poolMaxExams))
-				return
-			}
-			// Atomic pool storage gate (same transaction, same lock): the
-			// pre-check above is a friendly early rejection, this is the
-			// hard cap that cannot be raced past.
-			if poolMaxStorage > 0 {
-				poolUsed, err := gate.sumStorage(ctx, tx)
-				if err != nil {
-					log.Printf("upload sum school storage error: %v", err)
+			if poolActive {
+				// Lock every account row the gate counts: the whole instansi
+				// (pool mode) or the creator family (family mode), so concurrent
+				// uploads sharing one budget serialize on the same rows (the
+				// row-lock pattern of the per-user check, widened to the budget).
+				if err := gate.lockRows(ctx, tx); err != nil {
+					log.Printf("upload lock school pool error: %v", err)
+					// The PDF is already in R2 but no DB row exists: remove the
+					// orphan object so a failed create does not leak storage.
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 					return
 				}
-				if poolUsed+int64(len(fileData)) > poolMaxStorage {
-					_ = tx.Rollback(ctx)
+				poolCnt, err := gate.countExams(ctx, tx)
+				if err != nil {
+					log.Printf("upload count school exams error: %v", err)
 					cleanupR2Orphan(c, ctx, filename)
-					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
-					errorResponse(c, http.StatusForbidden,
-						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 					return
 				}
+				if poolMaxExams > 0 && poolCnt >= poolMaxExams {
+					_ = tx.Rollback(ctx)
+					// Remove the just-uploaded R2 object so we do not leak an orphan.
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas pembuatan ujian sekolah tercapai. Paket sekolah Anda adalah %d ujian.", poolMaxExams))
+					return
+				}
+				// Atomic pool storage gate (same transaction, same lock): the
+				// pre-check above is a friendly early rejection, this is the
+				// hard cap that cannot be raced past.
+				if poolMaxStorage > 0 {
+					poolUsed, err := gate.sumStorage(ctx, tx)
+					if err != nil {
+						log.Printf("upload sum school storage error: %v", err)
+						cleanupR2Orphan(c, ctx, filename)
+						errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+						return
+					}
+					if poolUsed+int64(len(fileData)) > poolMaxStorage {
+						_ = tx.Rollback(ctx)
+						cleanupR2Orphan(c, ctx, filename)
+						limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+						return
+					}
+				}
 			}
-		}
 
 			var lockedMaxExams int
 			var lockedOperatorCreated bool
@@ -469,39 +469,39 @@ func UploadExam() gin.HandlerFunc {
 				return
 			}
 
-		var cnt int64
-		if isOp {
-			// An operator's own uploads spend the same family budget its
-			// sub-accounts draw from: count family-wide (identical to the
-			// self count when the operator has no sub-accounts), and lock
-			// the family rows so concurrent sub uploads serialize here.
-			// The lock is taken inside the pool/family gate above when one
-			// is active; without any gate the family rows still need
-			// locking for the count below.
-			if !poolActive {
-				if _, err := tx.Exec(ctx,
-					`SELECT id FROM admin_users WHERE id = $1 OR created_by = $1 FOR UPDATE`, userID); err != nil {
-					log.Printf("upload lock family error: %v", err)
+			var cnt int64
+			if isOp {
+				// An operator's own uploads spend the same family budget its
+				// sub-accounts draw from: count family-wide (identical to the
+				// self count when the operator has no sub-accounts), and lock
+				// the family rows so concurrent sub uploads serialize here.
+				// The lock is taken inside the pool/family gate above when one
+				// is active; without any gate the family rows still need
+				// locking for the count below.
+				if !poolActive {
+					if _, err := tx.Exec(ctx,
+						`SELECT id FROM admin_users WHERE id = $1 OR created_by = $1 FOR UPDATE`, userID); err != nil {
+						log.Printf("upload lock family error: %v", err)
+						cleanupR2Orphan(c, ctx, filename)
+						errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+						return
+					}
+				}
+				var ferr error
+				cnt, ferr = models.CountExamsByFamily(ctx, tx, userID)
+				if ferr != nil {
+					log.Printf("upload count exams error: %v", ferr)
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 					return
 				}
-			}
-			var ferr error
-			cnt, ferr = models.CountExamsByFamily(ctx, tx, userID)
-			if ferr != nil {
-				log.Printf("upload count exams error: %v", ferr)
+			} else if err := tx.QueryRow(ctx,
+				`SELECT COUNT(*) FROM exams WHERE created_by = $1`, userID).Scan(&cnt); err != nil {
+				log.Printf("upload count exams error: %v", err)
 				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
-		} else if err := tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM exams WHERE created_by = $1`, userID).Scan(&cnt); err != nil {
-			log.Printf("upload count exams error: %v", err)
-			cleanupR2Orphan(c, ctx, filename)
-			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
-			return
-		}
 			// M7: pool-covered accounts draw their quota from the school pool,
 			// whose atomic gate already ran above — the per-account column (the
 			// forced free defaults, subAccountFreeMaxExams in users.go) must
@@ -511,8 +511,8 @@ func UploadExam() gin.HandlerFunc {
 			// OperatorCreated sub-account while the pool is active. With no
 			// pool (shared "personal" bucket, legacy school without a
 			// redemption) the per-account column keeps binding.
-		perAccountApplies := (!isOp || !poolActive) && !(lockedOperatorCreated && poolActive)
-		if perAccountApplies && lockedMaxExams > 0 && cnt >= int64(lockedMaxExams) {
+			perAccountApplies := (!isOp || !poolActive) && !(lockedOperatorCreated && poolActive)
+			if perAccountApplies && lockedMaxExams > 0 && cnt >= int64(lockedMaxExams) {
 				_ = tx.Rollback(ctx)
 				_ = tx.Rollback(ctx)
 				// Remove the just-uploaded R2 object so we do not leak an orphan.
@@ -651,63 +651,63 @@ func ToggleExam() gin.HandlerFunc {
 		if !isSuperAdmin(c) {
 			exam, err := models.GetExamByID(ctx, pool, examID)
 			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
-			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-			if err == nil {
-				gate := examQuotaGate(ctx, pool, exam.CreatedBy)
-				poolMaxConcurrent, poolActive := gate.maxConcurrent, gate.active
-				// School-pool sub-accounts: when the pool is active it is the
-				// account's ONLY concurrent quota (schoolPoolCovers), so the
-				// per-account max_concurrent_exams must not gate below it.
-				// Operators skip their own column only while the pool is
-				// ACTIVE; with no pool (personal bucket, legacy school) the
-				// operator's own column binds too.
-				perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
-				poolConcActive := poolActive && poolMaxConcurrent > 0
+				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+				if err == nil {
+					gate := examQuotaGate(ctx, pool, exam.CreatedBy)
+					poolMaxConcurrent, poolActive := gate.maxConcurrent, gate.active
+					// School-pool sub-accounts: when the pool is active it is the
+					// account's ONLY concurrent quota (schoolPoolCovers), so the
+					// per-account max_concurrent_exams must not gate below it.
+					// Operators skip their own column only while the pool is
+					// ACTIVE; with no pool (personal bucket, legacy school) the
+					// operator's own column binds too.
+					perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
+					poolConcActive := poolActive && poolMaxConcurrent > 0
 
-				if perUserLimit || poolConcActive {
-					tx, err := pool.Begin(ctx)
-					if err != nil {
-						log.Printf("toggle begin tx error: %v", err)
-						errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
-						return
-					}
-					defer func() { _ = tx.Rollback(ctx) }()
-
-					if poolConcActive {
-						// Lock every account row the gate counts: concurrent
-						// starts by ANY account sharing the budget serialize
-						// on it.
-						if err := gate.lockRows(ctx, tx); err != nil {
-							log.Printf("toggle lock school pool error: %v", err)
+					if perUserLimit || poolConcActive {
+						tx, err := pool.Begin(ctx)
+						if err != nil {
+							log.Printf("toggle begin tx error: %v", err)
 							errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
 							return
 						}
-						running, err := gate.countRunning(ctx, tx, examID)
-						if err == nil && running >= int(poolMaxConcurrent) {
-							_ = tx.Rollback(ctx)
-							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
-							return
+						defer func() { _ = tx.Rollback(ctx) }()
+
+						if poolConcActive {
+							// Lock every account row the gate counts: concurrent
+							// starts by ANY account sharing the budget serialize
+							// on it.
+							if err := gate.lockRows(ctx, tx); err != nil {
+								log.Printf("toggle lock school pool error: %v", err)
+								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+								return
+							}
+							running, err := gate.countRunning(ctx, tx, examID)
+							if err == nil && running >= int(poolMaxConcurrent) {
+								_ = tx.Rollback(ctx)
+								errorResponse(c, http.StatusForbidden,
+									fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+								return
+							}
 						}
-					}
-					if perUserLimit {
-						var locked int
-						var lockedRole string
-						if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked, &lockedRole); err != nil {
-							log.Printf("toggle lock owner error: %v", err)
-							errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
-							return
-						}
-						// An operator owner's own starts spend the family
-						// budget together with its sub-accounts.
-						var running int
-						var rerr error
-						if models.HasRole(lockedRole, models.RoleOperator) {
-							running, rerr = models.CountRunningExamsByFamily(ctx, tx, exam.CreatedBy, examID)
-						} else {
-							running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
-						}
-						if rerr == nil && running >= locked {
+						if perUserLimit {
+							var locked int
+							var lockedRole string
+							if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked, &lockedRole); err != nil {
+								log.Printf("toggle lock owner error: %v", err)
+								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+								return
+							}
+							// An operator owner's own starts spend the family
+							// budget together with its sub-accounts.
+							var running int
+							var rerr error
+							if models.HasRole(lockedRole, models.RoleOperator) {
+								running, rerr = models.CountRunningExamsByFamily(ctx, tx, exam.CreatedBy, examID)
+							} else {
+								running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
+							}
+							if rerr == nil && running >= locked {
 								_ = tx.Rollback(ctx)
 								errorResponse(c, http.StatusForbidden,
 									fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked))
@@ -945,24 +945,24 @@ func EditExam() gin.HandlerFunc {
 			// deltas are re-checked ATOMICALLY (locks + UPDATE in one
 			// transaction) after the R2 upload below — the hard gate that
 			// cannot be raced past by concurrent replacements.
-		if !isSuperAdmin(c) {
-			gate = examQuotaGate(ctx, pool, exam.CreatedBy)
-			poolMaxPDF, poolMaxStorage, poolActive = gate.maxPDF, gate.maxStorage, gate.active
-			if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
-				limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
-				errorResponse(c, http.StatusForbidden,
-					fmt.Sprintf("Ukuran file melebihi batas paket sekolah (%.2fMB). Silakan hubungi Super Admin.", limitMB))
-				return
-			}
-			if poolActive && poolMaxStorage > 0 {
-				poolUsed, err := gate.sumStorage(ctx, pool)
-				if err == nil && poolUsed-int64(exam.SizeBytes)+int64(len(fileData)) > poolMaxStorage {
-					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+			if !isSuperAdmin(c) {
+				gate = examQuotaGate(ctx, pool, exam.CreatedBy)
+				poolMaxPDF, poolMaxStorage, poolActive = gate.maxPDF, gate.maxStorage, gate.active
+				if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
+					limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
 					errorResponse(c, http.StatusForbidden,
-						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+						fmt.Sprintf("Ukuran file melebihi batas paket sekolah (%.2fMB). Silakan hubungi Super Admin.", limitMB))
 					return
 				}
-			}
+				if poolActive && poolMaxStorage > 0 {
+					poolUsed, err := gate.sumStorage(ctx, pool)
+					if err == nil && poolUsed-int64(exam.SizeBytes)+int64(len(fileData)) > poolMaxStorage {
+						limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+						return
+					}
+				}
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 				// The owner's per-account PDF/storage columns bind unless the
 				// school pool is the owner's quota (schoolPoolCovers) or the
@@ -981,20 +981,20 @@ func EditExam() gin.HandlerFunc {
 							fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB))
 						return
 					}
-				perAccountStorageApplies = owner.MaxStorageSize > 0
-				accountMaxStorage = owner.MaxStorageSize
-				if perAccountStorageApplies {
-					// An operator owner's own replacements spend the family
-					// budget together with its sub-accounts; other owners
-					// keep the self count.
-					var used int64
-					var err error
-					if owner.IsOperator() {
-						used, err = models.SumStorageByFamily(ctx, pool, exam.CreatedBy)
-					} else {
-						err = pool.QueryRow(ctx,
-							`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
-					}
+					perAccountStorageApplies = owner.MaxStorageSize > 0
+					accountMaxStorage = owner.MaxStorageSize
+					if perAccountStorageApplies {
+						// An operator owner's own replacements spend the family
+						// budget together with its sub-accounts; other owners
+						// keep the self count.
+						var used int64
+						var err error
+						if owner.IsOperator() {
+							used, err = models.SumStorageByFamily(ctx, pool, exam.CreatedBy)
+						} else {
+							err = pool.QueryRow(ctx,
+								`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
+						}
 						if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > accountMaxStorage {
 							limitMB := roundTo(float64(accountMaxStorage)/(1024*1024), 1)
 							errorResponse(c, http.StatusForbidden,
@@ -1060,17 +1060,17 @@ func EditExam() gin.HandlerFunc {
 			}
 			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
 
-		if poolActive && poolMaxStorage > 0 {
-			// Lock every account row the gate counts (same granularity as
-			// UploadExam/StartExam/BulkToggle, taken first so the ordering
-			// never deadlocks).
-			if err := gate.lockRows(ctx, tx); err != nil {
-				log.Printf("edit exam lock school pool error: %v", err)
-				cleanupR2Orphan(c, ctx, filename)
-				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
-				return
+			if poolActive && poolMaxStorage > 0 {
+				// Lock every account row the gate counts (same granularity as
+				// UploadExam/StartExam/BulkToggle, taken first so the ordering
+				// never deadlocks).
+				if err := gate.lockRows(ctx, tx); err != nil {
+					log.Printf("edit exam lock school pool error: %v", err)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+					return
+				}
 			}
-		}
 
 			// Lock the exam row and re-read its CURRENT size: with two
 			// concurrent replacements of the SAME exam, the delta must be
@@ -1084,28 +1084,28 @@ func EditExam() gin.HandlerFunc {
 				return
 			}
 
-		if perAccountStorageApplies {
-			var ownerRole string
-			if err := tx.QueryRow(ctx,
-				`SELECT max_storage_size, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&accountMaxStorage, &ownerRole); err != nil {
-				log.Printf("edit exam lock owner error: %v", err)
-				cleanupR2Orphan(c, ctx, filename)
-				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
-				return
-			}
-			if accountMaxStorage > 0 {
-				// An operator owner's own replacements spend the family
-				// budget together with its sub-accounts.
-				var used int64
-				var uerr error
-				if models.HasRole(ownerRole, models.RoleOperator) {
-					used, uerr = models.SumStorageByFamily(ctx, tx, exam.CreatedBy)
-				} else {
-					uerr = tx.QueryRow(ctx,
-						`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
+			if perAccountStorageApplies {
+				var ownerRole string
+				if err := tx.QueryRow(ctx,
+					`SELECT max_storage_size, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&accountMaxStorage, &ownerRole); err != nil {
+					log.Printf("edit exam lock owner error: %v", err)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+					return
 				}
-				if uerr == nil &&
-					used-currentSize+exam.SizeBytes > accountMaxStorage {
+				if accountMaxStorage > 0 {
+					// An operator owner's own replacements spend the family
+					// budget together with its sub-accounts.
+					var used int64
+					var uerr error
+					if models.HasRole(ownerRole, models.RoleOperator) {
+						used, uerr = models.SumStorageByFamily(ctx, tx, exam.CreatedBy)
+					} else {
+						uerr = tx.QueryRow(ctx,
+							`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
+					}
+					if uerr == nil &&
+						used-currentSize+exam.SizeBytes > accountMaxStorage {
 						_ = tx.Rollback(ctx)
 						cleanupR2Orphan(c, ctx, filename)
 						limitMB := roundTo(float64(accountMaxStorage)/(1024*1024), 1)
@@ -1116,17 +1116,17 @@ func EditExam() gin.HandlerFunc {
 				}
 			}
 
-		if poolActive && poolMaxStorage > 0 {
-			poolUsed, err := gate.sumStorage(ctx, tx)
-			if err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
-				_ = tx.Rollback(ctx)
-				cleanupR2Orphan(c, ctx, filename)
-				limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
-				errorResponse(c, http.StatusForbidden,
-					fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
-				return
+			if poolActive && poolMaxStorage > 0 {
+				poolUsed, err := gate.sumStorage(ctx, tx)
+				if err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
+					_ = tx.Rollback(ctx)
+					cleanupR2Orphan(c, ctx, filename)
+					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+					return
+				}
 			}
-		}
 
 			if err := models.UpdateExamTx(ctx, tx, examID, &exam); err != nil {
 				log.Printf("edit exam tx error: %v", err)
@@ -1547,9 +1547,19 @@ func SaveQuestions() gin.HandlerFunc {
 			questionsJSON = string(raw)
 		}
 
-		// Identity fields
+		// Identity fields: divalidasi server-side (parity dengan validasi
+		// kunci jawaban di atas — client selalu bisa di-bypass): key non-string
+		// (mis. angka) lolos marshal tapi gagal di-unmarshal path submit
+		// (error di-swallow → field tak pernah cocok → ujian tak bisa
+		// di-submit), key duplikat membingungkan required-loop, dan puluhan
+		// field membengkakkan halaman join. Tolak saat simpan dengan pesan
+		// yang menyebut nomor kolomnya.
 		identityFieldsJSON := ""
 		if body.IdentityFields != nil {
+			if msg := validateIdentityFields(body.IdentityFields); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
 			raw, _ := json.Marshal(body.IdentityFields)
 			identityFieldsJSON = string(raw)
 		}
@@ -1640,10 +1650,10 @@ func SaveQuestions() gin.HandlerFunc {
 						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
 						return
 					}
-				if !strings.EqualFold(ti, creatorInstansi) {
-					errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
-					return
-				}
+					if !strings.EqualFold(ti, creatorInstansi) {
+						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
+						return
+					}
 					if ts != models.UserStatusActive {
 						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak aktif", pid))
 						return
@@ -1688,13 +1698,28 @@ func SaveQuestions() gin.HandlerFunc {
 	}
 }
 
-// validateQuestionKeys checks every graded question carries a usable answer
-// key. Returns an empty string when all keys are present, or an error message
-// naming the first offending question (1-based) otherwise.
+// validateQuestionKeys checks every question carries a valid number, a known
+// type, and a usable answer key. Returns an empty string when everything is
+// valid, or an error message naming the first offending question (1-based)
+// otherwise.
 func validateQuestionKeys(questions []map[string]interface{}) string {
+	seenNumbers := make(map[string]int, len(questions))
 	for i, q := range questions {
 		num := i + 1
 		qtype, _ := q["type"].(string)
+		switch qtype {
+		case "single_choice", "multiple_choice", "true_false", "short_answer", "matching":
+		default:
+			return fmt.Sprintf("Soal #%d memiliki tipe soal yang tidak valid", num)
+		}
+		normNum, ok := normalizeAdminQNum(q["number"])
+		if !ok {
+			return fmt.Sprintf("Soal #%d belum memiliki nomor soal yang valid", num)
+		}
+		if prev, dup := seenNumbers[normNum]; dup {
+			return fmt.Sprintf("Soal #%d memiliki nomor soal yang sama dengan soal #%d", num, prev+1)
+		}
+		seenNumbers[normNum] = i
 		key, hasKey := q["key"]
 		if !hasKey || key == nil {
 			return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
@@ -1716,6 +1741,94 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
 			}
 		}
+	}
+	return ""
+}
+
+// normalizeAdminQNum normalizes a question number with the same rule as
+// normalizeQNum (internal/models/submission.go) — integers and
+// integer-valued floats collapse ("1", 1.0 → "1") while fractional numbers
+// keep their value (2.5 → "2.5") — and additionally reports whether the value
+// is a usable number at all. Null, missing, empty, and non-numeric values are
+// rejected (ok=false) so they can never be saved as question numbers.
+func normalizeAdminQNum(number interface{}) (string, bool) {
+	switch v := number.(type) {
+	case nil:
+		return "", false
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10), true
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	case float32:
+		f := float64(v)
+		if f == float64(int64(f)) {
+			return strconv.FormatInt(int64(f), 10), true
+		}
+		return strconv.FormatFloat(f, 'f', -1, 64), true
+	case int:
+		return strconv.Itoa(v), true
+	case int64:
+		return strconv.FormatInt(v, 10), true
+	case int32:
+		return strconv.FormatInt(int64(v), 10), true
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return "", false
+		}
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			if f == float64(int64(f)) {
+				return strconv.FormatInt(int64(f), 10), true
+			}
+			return strconv.FormatFloat(f, 'f', -1, 64), true
+		}
+		return "", false
+	case json.Number:
+		s := strings.TrimSpace(v.String())
+		if s == "" {
+			return "", false
+		}
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			if f == float64(int64(f)) {
+				return strconv.FormatInt(int64(f), 10), true
+			}
+			return strconv.FormatFloat(f, 'f', -1, 64), true
+		}
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+// validateIdentityFields checks the identity_fields payload saved with the
+// questions config. Every entry's key must be a non-empty STRING (a numeric
+// key decodes to float64 here but into a `Key string` struct field on the
+// submit path the unmarshal error is swallowed — the field then never matches
+// and the exam becomes unsubmittable), keys must be unique
+// (case-insensitive), and at most 30 fields are accepted. Returns an empty
+// string when valid, or an error message naming the first offending column
+// (1-based) otherwise — same error path as validateQuestionKeys.
+func validateIdentityFields(fields []map[string]interface{}) string {
+	if len(fields) > 30 {
+		return "Jumlah kolom identitas melebihi batas 30"
+	}
+	seen := make(map[string]int, len(fields))
+	for i, f := range fields {
+		num := i + 1
+		raw, ok := f["key"]
+		if !ok || raw == nil {
+			return fmt.Sprintf("Kolom identitas #%d belum memiliki key", num)
+		}
+		key, ok := raw.(string)
+		if !ok || strings.TrimSpace(key) == "" {
+			return fmt.Sprintf("Kolom identitas #%d memiliki key yang tidak valid — key harus berupa teks yang tidak kosong", num)
+		}
+		lower := strings.ToLower(strings.TrimSpace(key))
+		if prev, dup := seen[lower]; dup {
+			return fmt.Sprintf("Kolom identitas #%d memiliki key yang sama dengan kolom identitas #%d", num, prev+1)
+		}
+		seen[lower] = i
 	}
 	return ""
 }
@@ -2002,10 +2115,10 @@ func StartExam() gin.HandlerFunc {
 		// free slot (check-then-update race). Super admins bypass everything.
 		started := false
 		if !isSuperAdmin(c) {
-		owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-		if err == nil {
-			gate := examQuotaGate(ctx, pool, exam.CreatedBy)
-			poolMaxConcurrent, poolActive := gate.maxConcurrent, gate.active
+			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+			if err == nil {
+				gate := examQuotaGate(ctx, pool, exam.CreatedBy)
+				poolMaxConcurrent, poolActive := gate.maxConcurrent, gate.active
 				// School-pool sub-accounts: when the pool is active it is the
 				// account's ONLY concurrent quota (schoolPoolCovers), so the
 				// per-account max_concurrent_exams must not gate below it.
@@ -2024,16 +2137,16 @@ func StartExam() gin.HandlerFunc {
 					}
 					defer func() { _ = tx.Rollback(ctx) }()
 
-				if poolConcActive {
-					// Lock every account row the gate counts: concurrent
-					// starts by ANY account sharing the budget serialize on
-					// the shared budget.
-					if err := gate.lockRows(ctx, tx); err != nil {
-						log.Printf("start lock school pool error: %v", err)
-						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-						return
-					}
-					running, err := gate.countRunning(ctx, tx, examID)
+					if poolConcActive {
+						// Lock every account row the gate counts: concurrent
+						// starts by ANY account sharing the budget serialize on
+						// the shared budget.
+						if err := gate.lockRows(ctx, tx); err != nil {
+							log.Printf("start lock school pool error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+							return
+						}
+						running, err := gate.countRunning(ctx, tx, examID)
 						if err == nil && running >= int(poolMaxConcurrent) {
 							_ = tx.Rollback(ctx)
 							errorResponse(c, http.StatusForbidden,
@@ -2041,24 +2154,24 @@ func StartExam() gin.HandlerFunc {
 							return
 						}
 					}
-				if perUserLimit {
-					var locked int
-					var lockedRole string
-					if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked, &lockedRole); err != nil {
-						log.Printf("start lock owner error: %v", err)
-						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-						return
-					}
-					// An operator owner's own starts spend the family budget
-					// together with its sub-accounts.
-					var running int
-					var rerr error
-					if models.HasRole(lockedRole, models.RoleOperator) {
-						running, rerr = models.CountRunningExamsByFamily(ctx, tx, exam.CreatedBy, examID)
-					} else {
-						running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
-					}
-					if rerr == nil && running >= locked {
+					if perUserLimit {
+						var locked int
+						var lockedRole string
+						if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked, &lockedRole); err != nil {
+							log.Printf("start lock owner error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+							return
+						}
+						// An operator owner's own starts spend the family budget
+						// together with its sub-accounts.
+						var running int
+						var rerr error
+						if models.HasRole(lockedRole, models.RoleOperator) {
+							running, rerr = models.CountRunningExamsByFamily(ctx, tx, exam.CreatedBy, examID)
+						} else {
+							running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
+						}
+						if rerr == nil && running >= locked {
 							_ = tx.Rollback(ctx)
 							errorResponse(c, http.StatusForbidden,
 								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked))
@@ -2368,8 +2481,8 @@ func DelegateData() gin.HandlerFunc {
 		}
 
 		// Get assigned pengawas IDs — same anti-silent-partial rule: the
-			// picker payload drives roster replacement, so a failed load must
-			// not masquerade as an empty roster.
+		// picker payload drives roster replacement, so a failed load must
+		// not masquerade as an empty roster.
 		assignedIDs, err := models.GetPengawasIDs(ctx, pool, examID)
 		if err != nil {
 			log.Printf("load assigned pengawas ids error: %v", err)
@@ -2605,45 +2718,45 @@ func BulkToggle() gin.HandlerFunc {
 				return
 			}
 
-		// Per-owner quota: applies to every non-super caller, operators
-		// included — an owner whose school pool is ACTIVE is gated by the
-		// shared pool check below instead of its own column (the column may
-		// sit below the school MAX), so with no pool (personal bucket,
-		// legacy school) the owner's own max_concurrent_exams binds.
-		// Pool-less sub-accounts are gated by the creator-family budget
-		// instead (family check below): the per-owner column must not gate
-		// below the family budget either.
-		counts, cErr := models.RunningExamCountsAfterActivation(ctx, tx, examIDs)
-		if cErr == nil {
-			for ownerID, after := range counts {
-				gate := examQuotaGate(ctx, tx, ownerID)
-				if gate.active {
-					continue
-				}
-				var maxConc int
-				if err := tx.QueryRow(ctx,
-					`SELECT max_concurrent_exams FROM admin_users WHERE id = $1`, ownerID).Scan(&maxConc); err != nil || maxConc <= 0 {
-					continue
-				}
-				// `after > max` (not >=) matches the single-exam ToggleExam
-				// semantics: reaching the limit is allowed, only exceeding it is
-				// rejected.
-				if after > maxConc {
-					errorResponse(c, http.StatusForbidden,
-						fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", maxConc))
-					return
+			// Per-owner quota: applies to every non-super caller, operators
+			// included — an owner whose school pool is ACTIVE is gated by the
+			// shared pool check below instead of its own column (the column may
+			// sit below the school MAX), so with no pool (personal bucket,
+			// legacy school) the owner's own max_concurrent_exams binds.
+			// Pool-less sub-accounts are gated by the creator-family budget
+			// instead (family check below): the per-owner column must not gate
+			// below the family budget either.
+			counts, cErr := models.RunningExamCountsAfterActivation(ctx, tx, examIDs)
+			if cErr == nil {
+				for ownerID, after := range counts {
+					gate := examQuotaGate(ctx, tx, ownerID)
+					if gate.active {
+						continue
+					}
+					var maxConc int
+					if err := tx.QueryRow(ctx,
+						`SELECT max_concurrent_exams FROM admin_users WHERE id = $1`, ownerID).Scan(&maxConc); err != nil || maxConc <= 0 {
+						continue
+					}
+					// `after > max` (not >=) matches the single-exam ToggleExam
+					// semantics: reaching the limit is allowed, only exceeding it is
+					// rejected.
+					if after > maxConc {
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", maxConc))
+						return
+					}
 				}
 			}
-		}
 
-		// Creator-family quota: pool-less sub-accounts in this bulk set
-		// share the creator-operator budget (see familyExamBudget). Group
-		// the activating exams by family root and compare each family's
-		// running-after count against the family budget.
-		if fErr := enforceBulkFamilyConcurrent(ctx, tx, examIDs); fErr != nil {
-			errorResponse(c, http.StatusForbidden, fErr.Error())
-			return
-		}
+			// Creator-family quota: pool-less sub-accounts in this bulk set
+			// share the creator-operator budget (see familyExamBudget). Group
+			// the activating exams by family root and compare each family's
+			// running-after count against the family budget.
+			if fErr := enforceBulkFamilyConcurrent(ctx, tx, examIDs); fErr != nil {
+				errorResponse(c, http.StatusForbidden, fErr.Error())
+				return
+			}
 
 			// School pool: applies to EVERY non-super user, the operator
 			// included.

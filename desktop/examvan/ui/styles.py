@@ -9,7 +9,7 @@ from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import QApplication
 
 
-def is_system_dark() -> bool:
+def _is_system_dark_uncached() -> bool:
     """Detect if the system is using a dark theme.
 
     Platform-agnostic:
@@ -41,7 +41,7 @@ def is_system_dark() -> bool:
             return True
         if "prefer-light" in scheme:
             return False
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, subprocess.SubprocessError):
         pass
 
     # 3. GNOME gtk-theme name
@@ -57,7 +57,7 @@ def is_system_dark() -> bool:
             return True
         if any(kw in theme_name for kw in light_keywords):
             return False
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, subprocess.SubprocessError):
         pass
 
     # 4. Qt palette fallback
@@ -68,6 +68,28 @@ def is_system_dark() -> bool:
         return bg.lightness() < 128
 
     return True  # Default to dark
+
+
+# Hasil deteksi tema sistem di-cache: gsettings di-spawn sekali saja,
+# dan pemanggil (waiting_approval, identity_dialog, server_config,
+# congratulations, __main__) tidak perlu try/except sendiri — fungsi
+# publik di bawah tidak pernah melempar.
+_IS_DARK_CACHE: object = None
+
+
+def is_system_dark() -> bool:
+    """Deteksi tema gelap sistem; dihitung sekali lalu di-cache.
+
+    Tidak pernah melempar: kegagalan apa pun (registry, gsettings,
+    Qt palette) jatuh ke default gelap (True).
+    """
+    global _IS_DARK_CACHE
+    if _IS_DARK_CACHE is None:
+        try:
+            _IS_DARK_CACHE = bool(_is_system_dark_uncached())
+        except Exception:
+            _IS_DARK_CACHE = True
+    return bool(_IS_DARK_CACHE)
 
 
 def _is_windows_dark() -> bool:
@@ -232,7 +254,11 @@ QPushButton:pressed {
 
 QPushButton:disabled {
     background-color: #45475a;
-    color: #6c7086;
+    color: #a6adc8;
+}
+
+QPushButton:focus {
+    border: 2px solid #89b4fa;
 }
 
 /* === Check/Radio === */
@@ -382,16 +408,9 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0;
 }
 
-/* === Login/Identity Card === */
-QWidget#loginCard, QWidget#identityCard {
-    background-color: #ffffff;
-    border: 1px solid #ccd0da;
-    border-radius: 12px;
-}
-
 /* === Splitter === */
 QSplitter::handle {
-    background-color: #ccd0da;
+    background-color: #585b70;
 }
 
 QSplitter::handle:horizontal {
@@ -405,11 +424,18 @@ QSplitter::handle:vertical {
 /* === MessageBox / Dialog === */
 QMessageBox {
     background-color: #1e1e2e;
+    color: #cdd6f4;
 }
 
 QMessageBox QLabel {
     color: #cdd6f4;
     background-color: transparent;
+}
+
+QMessageBox QTextEdit {
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
 }
 
 QMessageBox QPushButton {
@@ -590,6 +616,10 @@ QPushButton:disabled {
     color: #8c8fa1;
 }
 
+QPushButton:focus {
+    border: 2px solid #1e66f5;
+}
+
 /* === Check/Radio === */
 QCheckBox {
     color: #4c4f69;
@@ -748,11 +778,18 @@ QSplitter::handle:vertical {
 /* === MessageBox / Dialog === */
 QMessageBox {
     background-color: #eff1f5;
+    color: #4c4f69;
 }
 
 QMessageBox QLabel {
     color: #4c4f69;
     background-color: transparent;
+}
+
+QMessageBox QTextEdit {
+    background-color: #ffffff;
+    color: #4c4f69;
+    border: 1px solid #ccd0da;
 }
 
 QMessageBox QPushButton {

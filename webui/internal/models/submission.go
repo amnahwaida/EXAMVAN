@@ -494,7 +494,7 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 	if err == nil {
 		// Update existing row
 		created, err = scanSubmission(tx.QueryRow(ctx, `UPDATE submissions
-		SET answers_json = $1, score = $2, start_time = COALESCE(start_time, $3), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+		SET answers_json = $1, score = $2, start_time = COALESCE(NULLIF($3, ''), start_time), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
 		WHERE id = $8
 		RETURNING `+defaultSubmissionColumns,
 			s.AnswersJSON, s.Score, s.StartTime, s.StudentName, s.ExamNumber, s.StudentClass, s.IdentityData,

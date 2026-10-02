@@ -64,7 +64,8 @@ Write-Info "Menginstall dependencies (PyQt5 + PyMuPDF)..."
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Gagal install dependencies."
     Write-Host "Coba manual:"
-    Write-Host "  $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt")"
+    $reqFile = Join-Path $ProjectRoot 'desktop\requirements.txt'
+    Write-Host "  $VenvPython -m pip install -r `"$reqFile`""
     pause
     exit 1
 }
@@ -96,11 +97,16 @@ $runBat = Join-Path $ScriptDir "run.bat"
 # powershell — klik ikon desktop tidak boleh bergantung pada PowerShell,
 # yang bisa gagal karena policy, PowerShell 7, atau env korporat korup.
 # Backslash tidak perlu di-escape: cmd memperlakukannya literal di dalam kutip.
-@"
+# Ditulis UTF-8 TANPA BOM via .NET: Out-File -Encoding ASCII mengubah
+# karakter non-ASCII di path (mis. nama user) menjadi `?` sehingga launcher
+# memanggil path yang salah. PS 5.1 tidak punya `utf8NoBOM`, jadi pakai
+# UTF8Encoding($false) eksplisit.
+$content = @"
 @echo off
 call "$runBat"
 pause
-"@ | Out-File -FilePath $launcherPath -Encoding ASCII
+"@
+[System.IO.File]::WriteAllText($launcherPath, $content, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Ok "Launcher dibuat: $launcherPath"
 

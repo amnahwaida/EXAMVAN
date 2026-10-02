@@ -98,7 +98,14 @@ class ZombieHookThreadTestCase(unittest.TestCase):
 
         def fake_thread_factory(target=None, daemon=None):
             t = mock.Mock()
-            t.is_alive.return_value = True
+            # Konsisten dengan join di bawah: thread "mati" setelah
+            # di-join (seperti pump asli yang keluar setelah WM_QUIT).
+            # `return_value=True` permanen di sini kontradiktif — join
+            # menghentikan pump tapi is_alive tetap True — dan membuat
+            # _cleanup_failed_hook_start menempuh jalur "thread bandel,
+            # pertahankan referensi untuk retry" yang bukan skenario test
+            # ini (kegagalan install + thread yang mati normal).
+            t.is_alive.side_effect = lambda: not pump.stopped
             t.join.side_effect = lambda timeout=None: setattr(
                 pump, "stopped", True
             )

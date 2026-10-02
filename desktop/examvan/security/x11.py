@@ -270,12 +270,20 @@ def grab_keyboard(widget) -> bool:
             GrabModeAsync,
             CurrentTime,
         )
-        _xlib.XFlush(display)
         success = result == 0  # GrabSuccess = 0
         if success:
             log.info("Keyboard grabbed on window %d", wid)
         else:
             log.warning("Keyboard grab failed on window %d (status=%d)", wid, result)
+        # Flush SETELAH return value dihitung: XFlush yang gagal (X server
+        # mati di tengah grab) tidak boleh menelan status grab — flush
+        # best-effort, hasilnya dilaporkan apa adanya.
+        try:
+            _xlib.XFlush.restype = None
+            _xlib.XFlush.argtypes = [ctypes.c_void_p]
+            _xlib.XFlush(display)
+        except Exception:
+            log.warning("XFlush setelah grab gagal", exc_info=True)
         return success
     except Exception as e:
         log.warning("Failed to grab keyboard: %s", e)
@@ -288,8 +296,15 @@ def ungrab_keyboard() -> None:
     if not display or not _xlib:
         return
     try:
+        _xlib.XUngrabKeyboard.restype = None
+        _xlib.XUngrabKeyboard.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         _xlib.XUngrabKeyboard(display, CurrentTime)
-        _xlib.XFlush(display)
+        try:
+            _xlib.XFlush.restype = None
+            _xlib.XFlush.argtypes = [ctypes.c_void_p]
+            _xlib.XFlush(display)
+        except Exception:
+            log.warning("XFlush setelah ungrab gagal", exc_info=True)
         log.info("Keyboard ungrabbed")
     except Exception as e:
         log.warning("Failed to ungrab keyboard: %s", e)
@@ -353,8 +368,15 @@ def ungrab_pointer() -> None:
     if not display or not _xlib:
         return
     try:
+        _xlib.XUngrabPointer.restype = None
+        _xlib.XUngrabPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         _xlib.XUngrabPointer(display, CurrentTime)
-        _xlib.XFlush(display)
+        try:
+            _xlib.XFlush.restype = None
+            _xlib.XFlush.argtypes = [ctypes.c_void_p]
+            _xlib.XFlush(display)
+        except Exception:
+            log.warning("XFlush setelah ungrab gagal", exc_info=True)
         log.info("Pointer ungrabbed")
     except Exception as e:
         log.warning("Failed to ungrab pointer: %s", e)

@@ -194,13 +194,28 @@ class CancelApprovalClearsIdentityTestCase(_ConfigSandbox):
             "blok pembatalan tidak ditemukan -- struktur __main__.py berubah",
         )
         body = cancel_block[1].split("viewer = ExamViewerWindow", 1)[0]
+        # Jalur pembatalan boleh tidak memuat panggilan langsung lagi:
+        # ia boleh lewat helper `_back_to_config` yang dipakai SEMUA
+        # early-return. Yang tetap diuji adalahhal yang sama: helper itu
+        # benar-benar membersihkan, dan jalur pembatalan memakainya.
+        helper = src.split("def _back_to_config", 1)
+        self.assertEqual(
+            len(helper), 2,
+            "helper _back_to_config tidak ada di __main__.py",
+        )
+        helper_body = helper[1].split("\n    def ", 1)[0]
         self.assertIn(
             "config.clear_identity()",
+            helper_body,
+            "_back_to_config tidak membersihkan identity_data, jadi siswa "
+            "berikutnya mendapat form terisi nama orang lain dan bisa "
+            "menekan Enter untuk menjawab atas namanya.",
+        )
+        self.assertIn(
+            "_back_to_config(",
             body,
-            "path pembatalan di layar persetujuan TIDAK membersihkan "
-            "identity_data, jadi siswa berikutnya mendapat form yang sudah "
-            "terisi nama orang lain dan bisa menekan Enter untuk menjawab "
-            "atas namanya.",
+            "path pembatalan di layar persetujuan TIDAK melewati "
+            "pembersihan identitas",
         )
 
     def test_clear_identity_actually_empties_the_store(self):

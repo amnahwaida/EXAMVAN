@@ -94,6 +94,23 @@ class AutoSubmitTestCase(unittest.TestCase):
         self._dir_patch.stop()
         config._cache = None
         shutil.rmtree(self._tmp, ignore_errors=True)
+        # C1 drain: thread background mengirim `_sig_auto_submit_done`
+        # (queued) yang baru tiba SETELAH wait selesai — tanpa pump,
+        # halaman selamatnya pop-up di test BERIKUTNYA. Pump lalu
+        # sembunyikan + jadwalkan hapus semua top-level yang tersisa.
+        #
+        # SENGAJA `hide()` + `deleteLater()`, BUKAN `close()`: close() pada
+        # viewer yang belum submit menjalankan closeEvent → dialog
+        # konfirmasi low-mode yang menunggu klik yang tidak pernah datang
+        # (gantung selamanya di offscreen).
+        APP.processEvents()
+        for w in QApplication.topLevelWidgets():
+            try:
+                w.hide()
+                w.deleteLater()
+            except Exception:
+                pass
+        APP.processEvents()
 
     def _make_window(self, exam_id=7, answers=None):
         exam = Exam(
@@ -111,6 +128,22 @@ class AutoSubmitTestCase(unittest.TestCase):
         if answers:
             win._answer_sheet.restore_answers(answers)
         return win
+
+    def _pump_until(self, predicate, timeout: float = 5.0) -> bool:
+        """Poll predicate sambil memompa event loop (sinyal queued).
+
+        `_sig_auto_submit_done` dikirim dari worker thread → slot GUI
+        (halaman selamat / all_done) baru jalan kalau event loop dipompa;
+        `_wait_until` biasa tidak memompa sehingga halaman tidak pernah
+        tampil selama wait.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            APP.processEvents()
+            if predicate():
+                return True
+            time.sleep(0.02)
+        return False
 
     def _wait_notify(self, fragment: str, timeout: float = 5.0) -> bool:
         """Wait until a notification whose MESSAGE contains `fragment` was sent.
@@ -422,7 +455,10 @@ class ManualSubmitSheetLockTest(AutoSubmitTestCase):
             win._do_submit()
         self.assertFalse(win._answer_sheet.isEnabled())
 
-        with mock.patch.object(exam_viewer.QMessageBox, "warning"):
+        # exec_: dialog kegagalan adalah instance yang di-exec (PlainText),
+        # bukan static warning() — mock static saja menggantung di offscreen.
+        with mock.patch.object(exam_viewer.QMessageBox, "exec_",
+                               return_value=exam_viewer.QMessageBox.Ok):
             win._on_submit_result(False, "jaringan mati")
 
         self.assertTrue(
@@ -443,6 +479,115 @@ class ManualSubmitSheetLockTest(AutoSubmitTestCase):
             self.assertFalse(win._answer_sheet.isEnabled())
             self.assertTrue(self._wait_notify("ok"))
         finally:
+            sub_patch.stop()
+
+
+class AutoSubmitDoneFlowTest(AutoSubmitTestCase):
+    """Alur selesai C1: hidden-bukan-destroyed + wiring all_done.
+
+    - submit manual sukses → viewer hide (closed BELUM menembak), halaman
+      tampil; halaman ditutup → viewer close → closed;
+    - auto-submit sukses → halaman tampil; halaman ditutup → all_done;
+    - auto-submit gagal → all_done langsung TANPA halaman (recovery
+      re-entry menawarkan "Kirim Lagi");
+    - antre TANPA job_id → gagal (M7), halaman hijau tidak pernah tampil.
+    """
+
+    def test_manual_submit_hides_viewer_until_page_closed(self):
+        win = self._make_window(answers={"1": "A"})
+        closed = []
+        win.closed.connect(lambda: closed.append(True))
+        win._on_submit_result(True, "Hebat!")
+        APP.processEvents()
+        page = win._congrats_ref
+        self.assertTrue(page.isVisible(), "halaman selamat tidak tampil")
+        self.assertFalse(win.isVisible(), "viewer harus hide, bukan close")
+        self.assertEqual(
+            closed, [],
+            "closed menembak padahal halaman belum ditutup — dialog "
+            "konfigurasi akan menimpanya (bug C1)",
+        )
+        self.assertEqual(page.congrats_text(), "Hebat!")
+        page.close()
+        self.assertEqual(
+            closed, [True],
+            "menutup halaman harus menutup viewer (page_closed)",
+        )
+
+    def test_auto_success_shows_page_then_all_done_on_page_close(self):
+        resp = SubmitResponse(
+            success=True, message="ok", status="done",
+            congrats_message="Halo!",
+        )
+        sub_patch = mock.patch.object(api, "submit_with_retry", return_value=resp)
+        sub_patch.start()
+        try:
+            win = self._make_window(answers={"1": "A"})
+            fired = []
+            win.all_done.connect(lambda: fired.append(True))
+            win._auto_submit_and_exit()
+            self.assertTrue(self._wait_notify("Halo!"))
+            self.assertTrue(
+                self._pump_until(lambda: hasattr(win, "_congrats_ref")),
+                "halaman selamat tidak tampil setelah sukses background",
+            )
+            page = win._congrats_ref
+            self.assertTrue(page.isVisible())
+            self.assertEqual(fired, [])
+            page.close()
+            self.assertEqual(
+                fired, [True],
+                "menutup halaman sukses-background harus menembak all_done",
+            )
+            self.assertIsNone(config.load_answers(7))
+        finally:
+            sub_patch.stop()
+
+    def test_auto_failure_emits_all_done_without_page(self):
+        resp = SubmitResponse(success=False, message="jaringan mati")
+        sub_patch = mock.patch.object(api, "submit_with_retry", return_value=resp)
+        sub_patch.start()
+        try:
+            win = self._make_window(answers={"1": "A"})
+            fired = []
+            win.all_done.connect(lambda: fired.append(True))
+            win._auto_submit_and_exit()
+            self.assertTrue(self._wait_notify("jaringan mati"))
+            self.assertTrue(
+                self._pump_until(lambda: fired),
+                "all_done tidak menembak setelah gagal background",
+            )
+            self.assertFalse(hasattr(win, "_congrats_ref"))
+            # Jawaban tetap di disk untuk "Kirim Lagi".
+            self.assertEqual(config.load_answers(7), {"1": "A"})
+        finally:
+            sub_patch.stop()
+
+    def test_queued_without_job_id_is_failure_never_green(self):
+        resp = SubmitResponse(
+            success=True, status="queued", job_id="", message="queued",
+        )
+        sub_patch = mock.patch.object(api, "submit_with_retry", return_value=resp)
+        poll_patch = mock.patch.object(api, "poll_queued_result")
+        sub_patch.start()
+        poll_patch.start()
+        try:
+            win = self._make_window(answers={"1": "A"})
+            fired = []
+            win.all_done.connect(lambda: fired.append(True))
+            win._auto_submit_and_exit()
+            self.assertTrue(
+                self._pump_until(lambda: fired),
+                "all_done tidak menembak untuk antre tanpa job_id",
+            )
+            api.poll_queued_result.assert_not_called()
+            self.assertFalse(
+                hasattr(win, "_congrats_ref"),
+                "halaman hijau tampil tanpa konfirmasi durable (M7)",
+            )
+            self.assertEqual(config.load_answers(7), {"1": "A"})
+        finally:
+            poll_patch.stop()
             sub_patch.stop()
 
 

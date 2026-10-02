@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import contextlib
-import io
 import logging
 import os
 import sys
 from typing import Optional
+
+# Bujet render ~12 megapiksel: halaman besar pada zoom tinggi bisa menjadi
+# ratusan MB sebagai QImage dan OOM di PC lab — zoom efektif dikecilkan
+# agar hasil render tidak melewati batas ini.
+_MAX_RENDER_PIXELS = 12_000_000
 
 # Suppress MuPDF warnings before importing fitz
 os.environ["MUPDF_LOG_LEVEL"] = "E"
@@ -30,15 +34,20 @@ def _suppress_mupdf_warnings():
     `fitz.TOOLS.mupdf_display_errors` is the supported switch and only
     affects MuPDF's own output.
     """
+    # `previous` diinisialisasi DULUAN dan blok except TIDAK menyentuhnya:
+    # kalau `mupdf_display_errors(False)` sendiri melempar SETELAH previous
+    # terbaca, menimpanya dengan None akan membuat finally me-restore
+    # "tidak tahu" dan peringatan MuPDF mati selamanya untuk proses ini.
+    previous = None
     try:
         import fitz as _fitz
 
         tools = getattr(_fitz, "TOOLS", None)
-        previous = getattr(tools, "mupdf_display_errors", None) if tools else None
         if tools is not None:
+            previous = getattr(tools, "mupdf_display_errors", None)
             tools.mupdf_display_errors(False)
     except Exception:
-        previous = None
+        pass
     try:
         yield
     finally:
@@ -52,7 +61,7 @@ def _suppress_mupdf_warnings():
             pass
 
 
-from PyQt5.QtCore import Qt, QSize, QPoint
+from PyQt5.QtCore import Qt, QSize, QPoint, QEvent
 from PyQt5.QtGui import QImage, QPixmap, QMouseEvent
 from PyQt5.QtWidgets import (
     QLabel,
@@ -198,21 +207,75 @@ class PdfWidget(QWidget):
         self._page_label = _DragScrollLabel()
         self._page_label.setAlignment(Qt.AlignCenter)
         self._scroll.setWidget(self._page_label)
+        # Viewport QScrollArea memakan wheel event sebelum sampai ke
+        # `wheelEvent` widget — tanpa ini Ctrl+scroll zoom mati total.
+        self._scroll.viewport().installEventFilter(self)
 
         layout.addWidget(self._scroll, 1)
+
+    def eventFilter(self, obj, event) -> bool:
+        # Intersepsi wheel di viewport: Ctrl+scroll = zoom, selainnya
+        # teruskan ke scroll normal.
+        if obj is self._scroll.viewport() and event.type() == QEvent.Wheel:
+            if event.modifiers() & Qt.ControlModifier:
+                delta = event.angleDelta().y()
+                if delta > 0:
+                    self.zoom_in()
+                elif delta < 0:
+                    self.zoom_out()
+                return True
+        return super().eventFilter(obj, event)
 
     def load_pdf(self, path: str) -> bool:
         """Load a PDF file. Returns True on success."""
         try:
             with _suppress_mupdf_warnings():
-                self._doc = fitz.open(path)
+                doc = fitz.open(path)
+            # PDF terkunci (password): objek terbuka tapi halaman tidak
+            # bisa di-render — gagalkan di awal dengan pesan yang bisa
+            # ditindaklanjuti, bukan placeholder "gagal merender" per
+            # halaman. `needs_pass` = password diminta; `is_encrypted`
+            # cadangan untuk varian API lama.
+            if getattr(doc, "needs_pass", False) or getattr(doc, "is_encrypted", False):
+                try:
+                    doc.close()
+                except Exception:
+                    pass
+                self._fail_load("PDF terkunci — hubungi pengawas")
+                return False
+            if self._doc is not None:
+                try:
+                    self._doc.close()
+                except Exception:
+                    pass
+            self._doc = doc
             self._total_pages = len(self._doc)
             self._current_page = 0
             self._render_current_page()
             return True
         except Exception as e:
-            self._page_label.setText(f"Gagal memuat PDF:\n{e}")
+            self._fail_load(f"Gagal memuat PDF:\n{e}")
             return False
+
+    def _fail_load(self, message: str) -> None:
+        """Reset state ke kosong + matikan navigasi + tampilkan pesan.
+
+        Tanpa ini, PDF gagal-load meninggalkan total_pages/navigasi dari
+        dokumen SEBELUMNYA — tombol aktif tapi tidak ada yang di-render.
+        """
+        if self._doc is not None:
+            try:
+                self._doc.close()
+            except Exception:
+                pass
+        self._doc = None
+        self._total_pages = 0
+        self._current_page = 0
+        self._page_label.clear()
+        self._page_label.setText(message)
+        self._lbl_page.setText("Halaman 0 / 0")
+        self._btn_prev.setEnabled(False)
+        self._btn_next.setEnabled(False)
 
     def prev_page(self) -> None:
         if self._current_page > 0:
@@ -248,7 +311,17 @@ class PdfWidget(QWidget):
         try:
             with _suppress_mupdf_warnings():
                 page = self._doc[self._current_page]
-                mat = fitz.Matrix(self._zoom, self._zoom)
+                zoom = self._zoom
+                # Bujet piksel ~12MP: halaman besar pada zoom tinggi bisa
+                # menjadi ratusan MB sebagai QImage dan OOM di PC lab.
+                try:
+                    rect = page.rect
+                    area = rect.width * rect.height * zoom * zoom
+                    if area > _MAX_RENDER_PIXELS:
+                        zoom *= (_MAX_RENDER_PIXELS / area) ** 0.5
+                except Exception:
+                    zoom = self._zoom
+                mat = fitz.Matrix(zoom, zoom)
                 pix = page.get_pixmap(matrix=mat, alpha=False)
 
             # Convert fitz pixmap to QImage
@@ -260,7 +333,10 @@ class PdfWidget(QWidget):
             self._page_label.setMinimumSize(pixmap.size())
             self._page_label.resize(pixmap.size())
             self._lbl_page.setText(f"Halaman {self._current_page + 1} / {self._total_pages}")
-            self._lbl_zoom.setText(f"{int(self._zoom * 100)}%")
+            if zoom < self._zoom:
+                self._lbl_zoom.setText(f"{int(self._zoom * 100)}% (dibatasi)")
+            else:
+                self._lbl_zoom.setText(f"{int(self._zoom * 100)}%")
 
             # Update button states
             self._btn_prev.setEnabled(self._current_page > 0)

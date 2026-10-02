@@ -124,6 +124,19 @@ class CoversFullscreenTest(unittest.TestCase):
         screen = _FakeScreen()
         self.assertFalse(fs.covers_fullscreen(_FakeWidget((0, 0, 1024, 1080)), screen))
 
+    def test_same_size_but_shifted_window_is_not_covered(self):
+        # Ukuran saja tidak cukup: jendela 1920x1080 yang digeser 40px
+        # ke bawah membiarkan strip layar terlihat.
+        screen = _FakeScreen()
+        self.assertFalse(fs.covers_fullscreen(_FakeWidget((0, 40, 1920, 1080)), screen))
+        self.assertFalse(fs.covers_fullscreen(_FakeWidget((40, 0, 1920, 1080)), screen))
+
+    def test_a_pixel_or_two_of_tolerance_is_still_covered(self):
+        # Pembulatan DPI / bingkai multi-monitor: selisih 1-2px tetap
+        # dianggap menutupi, bukan alasan re-assert tanpa henti.
+        screen = _FakeScreen()
+        self.assertTrue(fs.covers_fullscreen(_FakeWidget((-1, -1, 1922, 1082)), screen))
+
 
 # ---------------------------------------------------------------------------
 # 3. _maximize_window memakai geometri layar penuh untuk mode fullscreen

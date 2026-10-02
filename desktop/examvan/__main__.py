@@ -12,6 +12,9 @@ from logging.handlers import RotatingFileHandler
 
 log = logging.getLogger(__name__)
 
+# Handle CreateMutexW agar tetap hidup sepanjang proses (single instance).
+_app_mutex_handle = None
+
 
 def _setup_logging() -> None:
     """Pasang file logging — satu-satunya jejak saat app error di lapangan.
@@ -94,8 +97,8 @@ def _recover_gnome_settings() -> None:
     try:
         from examvan.security.enforcer import SecurityEnforcer
         SecurityEnforcer.restore_gnome_settings()
-    except ImportError:
-        pass
+    except Exception:
+        log.warning("could not restore GNOME settings", exc_info=True)
 
 
 def _recover_windows_settings() -> None:
@@ -111,19 +114,65 @@ def _recover_windows_settings() -> None:
     try:
         from examvan.security.windows_backend import restore_windows_settings
         restore_windows_settings()
-    except ImportError:
-        pass
+    except Exception:
+        log.warning("could not restore Windows settings", exc_info=True)
 
+
+
+def _sweep_stale_exam_pdfs() -> None:
+    """Sapu PDF ujian basi di tempdir (L-3, best-effort).
+
+    Naskah ujian diunduh ke `examvan_exam_<id>.pdf` di tempdir dan normalnya
+    dihapus tiap jalur keluar viewer — tapi crash/kill proses melewatkan
+    semuanya. Mutex instansi-tunggal menjamin tidak ada proses EXAMVAN lain
+    yang sedang mengunduh saat sapu ini jalan, jadi aman menghapus yang
+    berpola milik kita. Best-effort: kegagalan tidak boleh menggagalkan
+    startup.
+
+    WAJIB modul-level, bukan di tengah badan `main()`: fungsi yang
+    didefinisikan di dalam badan fungsi lain mengakhiri badan itu, jadi
+    `main()` akan berhenti setelah blokClosures dan tidak pernah membuat
+    jendela sama sekali.
+    """
+    try:
+        import tempfile
+        from pathlib import Path
+
+        count = 0
+        for path in Path(tempfile.gettempdir()).glob("examvan_exam_*.pdf"):
+            try:
+                if path.is_file():
+                    path.unlink()
+                    count += 1
+            except OSError:
+                continue
+        log.debug("menyapu %d PDF ujian basi", count)
+    except Exception:
+        log.debug("sweep PDF ujian basi gagal", exc_info=True)
 
 
 def main() -> None:
     _setup_logging()
 
     # Register crash-recovery handlers
+    def _exit_after_recovery() -> None:
+        # Recovery best-effort: os._exit WAJIB jalan walau recovery raise.
+        try:
+            _recover_gnome_settings()
+        finally:
+            os._exit(1)
+
+    def _exit_after_recovery_win() -> None:
+        try:
+            _recover_windows_settings()
+        finally:
+            os._exit(1)
+
+
     if sys.platform != "win32":
         atexit.register(_recover_gnome_settings)
-        signal.signal(signal.SIGTERM, lambda *_: (_recover_gnome_settings(), os._exit(1)))
-        signal.signal(signal.SIGINT, lambda *_: (_recover_gnome_settings(), os._exit(1)))
+        signal.signal(signal.SIGTERM, lambda *_: _exit_after_recovery())
+        signal.signal(signal.SIGINT, lambda *_: _exit_after_recovery())
         _recover_gnome_settings()
     else:
         # Windows had `atexit.register(lambda: None)` here — a literal no-op,
@@ -134,6 +183,8 @@ def main() -> None:
         # run atexit at all.
         atexit.register(_recover_windows_settings)
         _recover_windows_settings()
+    # L-3: sapu PDF ujian basi di sebelah pemulihan crash.
+    _sweep_stale_exam_pdfs()
 
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 
@@ -146,6 +197,32 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("EXAMVAN")
+    # Instansi tunggal (Windows saja): cegah dua proses ujian berjalan
+    # bersamaan di PC yang sama. No-op di Linux.
+    if sys.platform == "win32":
+        try:
+            from ctypes import windll  # noqa: PLC0415 — hanya ada di Windows
+
+            global _app_mutex_handle
+            _kernel32 = windll.kernel32
+            _handle = _kernel32.CreateMutexW(None, False, "EXAMVAN_SingleInstance_v1")
+            # GetLastError harus dibaca SEGERA setelah CreateMutexW.
+            _err = _kernel32.GetLastError()
+            if _err == 183:  # ERROR_ALREADY_EXISTS
+                from PyQt5.QtWidgets import QMessageBox
+
+                QMessageBox.warning(
+                    None,
+                    "EXAMVAN",
+                    "EXAMVAN sudah berjalan. Tutup jendela yang ada "
+                    "sebelum membuka yang baru.",
+                )
+                sys.exit(0)
+            _app_mutex_handle = _handle
+        except SystemExit:
+            raise
+        except Exception:
+            log.warning("single-instance mutex gagal dipasang", exc_info=True)
     # Dari APP_VERSION, bukan literal: literal ketiga yang tidak terhubung
     # ke mana pun adalah alasan Properties exe dan installer pernah
     # melaporkan nomor berbeda.
@@ -168,51 +245,111 @@ def main() -> None:
         dialog.hide()
 
         from .ui.waiting_approval import WaitingApprovalDialog
-        from PyQt5.QtWidgets import QDialog
-        
-        waiting_dlg = WaitingApprovalDialog(
-            exam, server_url, identity_data,
-            token=dialog.input_token.text().strip().upper(),
-            parent=dialog,
-        )
-        _maximize_window(waiting_dlg)
-        
-        if waiting_dlg.exec_() != QDialog.Accepted:
-            # Siswa membatalkan / ditolak. Dialog konfigurasi kembali — dan
-            # tombol "Hubungkan" HARUS dihidupkan lagi.
-            #
-            # `_on_connect` men-disable tombol itu, dan jalur sukses hanya
-            # meng-emit `_sig_show_identity` — tidak pernah `_sig_enable_btn`.
-            # Jadi tanpa baris di bawah, dialog muncul kembali dengan tombol
-            # masih mati: tidak ada cancel, tidak ada reset, tidak ada jalan
-            # lain kecuali menutup aplikasi. Meminta izin lagi dari dialog
-            # persetujuan mustahil karena dialog itu sudah tertutup.
-            # Identitas WAJIB dibersihkan di sini juga.
-            #
-            # `_show_identity_dialog` baru saja menyimpannya ke config.
-            # Jalur pembatalan ini tidak pernah menyentuh
-            # `_on_viewer_closed`, jadi tanpa baris di bawah identitas
-            # siswa ini tinggal di config: siswa berikutnya membaca
-            # `config.get("identity_data")` untuk mengisi form, dan
-            # `IdentityDialog` menutup diri lewat
-            # `last_input.returnPressed -> _on_submit` -- jadi Enter saja
-            # sudah cukup menjawab atas nama orang lain. Tanpa dialog,
-            # tanpa warning, tanpa log.
-            #
-            # Token SENGAJA TIDAK dikosongkan di sini: siswa yang salah ketik
-            # atau mendapat 5xx harus bisa mencoba ulang tanpa mengetik ulang.
-            # Token bukan data pribadi -- identitas yang itu.
+        from PyQt5.QtWidgets import QDialog, QMessageBox
+
+        def _back_to_config(reason: str) -> None:
+            """Kembalikan dialog konfigurasi siap-pakai (H5).
+
+            Satu-satunya jalan kembali: identitas dibersihkan (anti
+            prefill-silangan, beserta konteksnya), tombol+input dihidupkan
+            lagi, dialog ditampilkan maximized. Dipakai SEMUA early-return
+            di bawah supaya tidak ada jalur yang lupa satu langkah.
+
+            Token SENGAJA TIDAK dikosongkan di sini: siswa yang salah ketik
+            atau mendapat 5xx harus bisa mencoba ulang tanpa mengetik
+            ulang. Token bukan data pribadi — identitas yang itu. Token baru
+            dikosongkan setelah ujian benar-benar selesai (`_after_viewer_gone`),
+            supaya siswa berikutnya tidak mewarisi kredensial kelas.
+            """
+            log.info("kembali ke konfigurasi: %s", reason)
             try:
                 config.clear_identity()
             except Exception:
                 log.warning("could not clear stored identity", exc_info=True)
+            try:
+                config.set("identity_context", {})
+            except Exception:
+                log.warning("could not clear identity context", exc_info=True)
             try:
                 dialog.enable_connect()
             except Exception:
                 log.warning("could not re-enable connect button", exc_info=True)
             dialog.show()
             _maximize_window(dialog)
+
+        waiting_dlg = WaitingApprovalDialog(
+            exam, server_url, identity_data,
+            token=dialog.input_token.text().strip().upper(),
+            parent=dialog,
+        )
+        _maximize_window(waiting_dlg)
+
+        if waiting_dlg.exec_() != QDialog.Accepted:
+            # Siswa membatalkan / ditolak. Dialog konfigurasi kembali —
+            # identitas yang baru disimpan `_show_identity_dialog` WAJIB
+            # dibersihkan (kalau tidak, siswa berikutnya mendapat form
+            # terisi dan Enter saja cukup menjawab atas nama orang lain).
+            _back_to_config("approval-cancel")
             return
+
+        viewer = None
+        if exam.is_strict:
+            # Strict + multi-monitor: tolak mulai — pengawas tidak ter-cover
+            # di layar kedua. Detector exception = FAIL-CLOSED (tolak dengan
+            # pesan yang bisa ditindak): melepas ujian strict tanpa tahu
+            # berapa layar terpasang lebih buruk daripada menolak.
+            try:
+                from .security import get_backend
+
+                _multi = bool(get_backend().has_multiple_monitors())
+                _detect_ok = True
+            except Exception:
+                log.warning("deteksi multi-monitor gagal — tolak (strict)",
+                            exc_info=True)
+                _detect_ok = False
+                _multi = False
+            if not _detect_ok:
+                QMessageBox.warning(
+                    dialog,
+                    "Tidak Dapat Memeriksa Layar",
+                    "Ujian ini berjalan dalam mode ketat dan aplikasi tidak "
+                    "dapat memastikan hanya satu layar yang terpasang.\n\n"
+                    "Pastikan hanya satu layar terhubung lalu coba lagi, "
+                    "atau hubungi pengawas.",
+                )
+                _back_to_config("strict-monitor-detect-error")
+                return
+            if _multi:
+                QMessageBox.warning(
+                    dialog,
+                    "Monitor Ganda Terdeteksi",
+                    "Ujian ini berjalan dalam mode ketat dan hanya boleh "
+                    "menggunakan satu layar.\n\nLepaskan monitor kedua "
+                    "lalu coba lagi.",
+                )
+                _back_to_config("strict-multi-monitor")
+                return
+        elif exam.level == "medium":
+            # M-5: medium + multi-monitor → peringatkan lalu LANJUTKAN
+            # (bukan menolak seperti strict). Non-blocking: info, bukan
+            # question; alur jalan terus setelah siswa menutupnya.
+            try:
+                from .security import get_backend as _get_backend
+
+                _medium_multi = bool(
+                    _get_backend().has_multiple_monitors())
+            except Exception:
+                log.warning("deteksi multi-monitor gagal (medium) — lanjut",
+                            exc_info=True)
+                _medium_multi = False
+            if _medium_multi:
+                QMessageBox.information(
+                    dialog,
+                    "Monitor Ganda Terdeteksi",
+                    "Terdeteksi lebih dari satu layar. Ujian tetap bisa "
+                    "dimulai, tetapi pastikan hanya mengerjakan di layar "
+                    "utama — aktivitas di layar lain dapat tercatat.",
+                )
 
         viewer = ExamViewerWindow(
             exam=exam,
@@ -222,7 +359,14 @@ def main() -> None:
             kiosk_mode=kiosk,
         )
 
-        def _on_viewer_closed():
+        _gone_state = {"done": False}
+
+        def _after_viewer_gone():
+            # Idempoten: bisa dicapai via `closed` maupun `all_done`
+            # (tergantung jalur submit) — langkah kembali hanya sekali.
+            if _gone_state["done"]:
+                return
+            _gone_state["done"] = True
             viewer.close()
             windows.clear()
             # Token DAN identitas harus dibersihkan.
@@ -239,9 +383,28 @@ def main() -> None:
                 config.clear_identity()
             except Exception:
                 log.warning("could not clear stored identity", exc_info=True)
+            try:
+                config.set("identity_context", {})
+            except Exception:
+                log.warning("could not clear identity context", exc_info=True)
+            try:
+                dialog.enable_connect()
+            except Exception:
+                log.warning("could not re-enable connect button", exc_info=True)
             _maximize_window(dialog)
 
+        def _on_viewer_closed():
+            # C1: `closed` yang menembak saat auto-submit menutup window
+            # BUKAN akhir alur (hasil background belum tiba; halaman selamat
+            # belum tampil) — tahan sampai `all_done`. `is True` eksplisit
+            # (bukan truthiness): Mock viewer di test tidak punya flag ini
+            # sebagai bool sungguhan.
+            if getattr(viewer, "_auto_submit_pending", False) is True:
+                return
+            _after_viewer_gone()
+
         viewer.closed.connect(_on_viewer_closed)
+        viewer.all_done.connect(_after_viewer_gone)
         windows.append(viewer)
         # The exam window owns the WHOLE screen, in every security level.
         # Previously this was `fullscreen=viewer.is_strict`, so a medium or

@@ -153,14 +153,21 @@ class RefreshDeadlineTest(unittest.TestCase):
 
 
 class StartTimeTest(unittest.TestCase):
-    """`get_start_time_iso` diturunkan dari monotonic, bukan jam perangkat."""
+    """`get_start_time_iso` diabadikan SEKALI saat __init__ (anti-drift).
 
-    def test_start_time_tracks_the_monotonic_elapsed_time(self):
-        w = ElapsedTimerWidget.__new__(ElapsedTimerWidget)
-        w._start_mono = 0.0
-        w._end_time = END_TIME
-        w._end_mono = None
-        w._fired_time_up = False
+    Kontrak lama (diturunkan dari monotonic tiap dipanggil) diganti:
+    nilai start di-freeze dari jam dinding saat widget dibangun supaya
+    tidak drift. Test ini mengunci kontrak baru: dibangun lewat __init__
+    (bukan __new__ — atribut _start_iso hanya ada setelah __init__),
+    lalu jam dinding digeser dan nilainya harus tetap.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt5.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_start_time_is_frozen_at_construction(self):
         wall = datetime(2026, 9, 30, 10, 0, 0, tzinfo=timezone.utc)
 
         class _Clock(datetime):
@@ -168,11 +175,20 @@ class StartTimeTest(unittest.TestCase):
             def now(cls, tz=None):
                 return wall
 
-        with mock.patch("examvan.ui.timer._time.monotonic", return_value=1800.0), \
-             mock.patch("examvan.ui.timer.datetime", _Clock):
-            iso = w.get_start_time_iso()
-        # 30 menit sebelum 10:00 = 09:30
-        self.assertEqual(iso, "2026-09-30T09:30:00Z")
+        with mock.patch("examvan.ui.timer.datetime", _Clock):
+            w = ElapsedTimerWidget(end_time=END_TIME)
+        self.addCleanup(w.deleteLater)
+        self.assertEqual(w.get_start_time_iso(), "2026-09-30T10:00:00Z")
+        # Jam dinding maju 30 menit: nilai TETAP (tidak drift).
+        wall2 = datetime(2026, 9, 30, 10, 30, 0, tzinfo=timezone.utc)
+
+        class _Clock2(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return wall2
+
+        with mock.patch("examvan.ui.timer.datetime", _Clock2):
+            self.assertEqual(w.get_start_time_iso(), "2026-09-30T10:00:00Z")
 
 
 if __name__ == "__main__":

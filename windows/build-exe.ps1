@@ -78,6 +78,10 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Hapus exe kemarin SEBELUM build: tanpa ini, kegagalan PyInstaller
+# mencetak BUILD SUCCESS di atas artefak basi (Test-Path di bawah lolos).
+Remove-Item (Join-Path $OutputDir "EXAMVAN.exe") -Force -ErrorAction SilentlyContinue
+
 & $VenvPython -m PyInstaller `
     --onefile `
     --windowed `
@@ -105,6 +109,10 @@ if ($LASTEXITCODE -ne 0) {
     --exclude-module examvan.security.linux_backend `
     --exclude-module examvan.security.kiosk `
     (Join-Path $SourceDir "main.py")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERR] PyInstaller gagal (exit $LASTEXITCODE). Lihat pesan di atas." -ForegroundColor Red
+    exit 1
+}
 
 # ---- Done ----
 $ExePath = Join-Path $OutputDir "EXAMVAN.exe"
@@ -115,5 +123,15 @@ if (Test-Path $ExePath) {
     Write-Host "Size: $((Get-Item $ExePath).Length / 1MB) MB" -ForegroundColor Cyan
 } else {
     Write-Error "Build failed — EXAMVAN.exe not found in $OutputDir"
+    exit 1
+}
+
+# ---- Post-build gate: modul wajib harus benar-benar ikut terpaket ----
+# Modul yang tidak ikut terpaket baru ketahuan saat dipanggil di PC siswa.
+& $VenvPython (Join-Path $PSScriptRoot "installer\list_exe_modules.py") `
+    --require examvan.api,examvan.ui.pdf_viewer,examvan.security.enforcer,examvan.security_levels `
+    $ExePath
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERR] Modul wajib hilang dari EXAMVAN.exe. Lihat daftar di atas." -ForegroundColor Red
     exit 1
 }

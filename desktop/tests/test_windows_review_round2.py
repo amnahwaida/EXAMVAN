@@ -148,49 +148,73 @@ class MachineFingerprintStabilityTestCase(unittest.TestCase):
 
 
 class WindowsNotificationSmokeTestCase(unittest.TestCase):
-    """Balloon tip membawa teks dari server — kontrak & escaping dijaga."""
+    """Balloon tip membawa teks dari server — kontrak & env dijaga.
 
-    def _capture_run(self):
+    Judul/pesan TIDAK di-interpolasi ke skrip PowerShell (lewat
+    environment), jadi tidak ada escaping yang bisa salah — teks guru
+    bebas isinya. Ikon dipilih dari urgency, returncode diperiksa.
+    """
+
+    def _capture_popen(self, rc=0):
         calls = []
 
-        def fake_run(args, **kwargs):
+        def fake_popen(args, **kwargs):
             calls.append((args, kwargs))
+            proc = mock.Mock()
+            proc.communicate.return_value = (b"", b"")
+            proc.returncode = rc
+            proc.poll.return_value = rc
+            return proc
 
-        return calls, fake_run
+        return calls, fake_popen
 
-    def _send(self, title, message, urgency="normal"):
-        calls, fake_run = self._capture_run()
+    def _send(self, title, message, urgency="normal", rc=0):
+        calls, fake_popen = self._capture_popen(rc)
         with mock.patch.object(notify.sys, "platform", "win32"), \
-             mock.patch.object(notify.subprocess, "run", fake_run):
+             mock.patch.object(notify.subprocess, "Popen", fake_popen):
             ok = notify.send_notification(title, message, urgency)
+        return ok, calls
+
+    def test_server_text_travels_via_environment_not_the_script(self):
+        # congrats_message guru bebas isinya — tidak ada lagi string yang
+        # perlu di-escape karena tidak masuk ke skrip sama sekali.
+        ok, calls = self._send("Judul 'aneh'", "Pesan $(x) `y`")
         self.assertTrue(ok)
         self.assertEqual(len(calls), 1)
         args, kwargs = calls[0]
         script = args[-1]
-        return script, kwargs
-
-    def test_quotes_in_server_text_cannot_break_the_script(self):
-        # congrats_message guru bebas isinya — kutip tunggal harus
-        # di-escape, bukan menyuntikkan statement PowerShell baru.
-        script, _ = self._send("Judul 'aneh'", "Pesan 'aneh'")
-        self.assertIn("'Judul ''aneh'''", script)
-        self.assertIn("'Pesan ''aneh'''", script)
+        self.assertNotIn("Judul", script)
+        self.assertNotIn("Pesan", script)
+        env = kwargs.get("env", {})
+        self.assertEqual(env.get("EXAMVAN_NOTIFY_TITLE"), "Judul 'aneh'")
+        self.assertEqual(env.get("EXAMVAN_NOTIFY_BODY"), "Pesan $(x) `y`")
 
     def test_critical_uses_the_warning_icon(self):
-        script, _ = self._send("Gagal", "Jawaban tetap di disk", "critical")
-        self.assertIn("SystemIcons]::Warning", script)
+        ok, calls = self._send("Gagal", "Jawaban tetap di disk", "critical")
+        self.assertTrue(ok)
+        env = calls[0][1].get("env", {})
+        self.assertEqual(env.get("EXAMVAN_NOTIFY_ICON"), "Warning")
 
     def test_normal_uses_the_information_icon(self):
-        script, _ = self._send("Terkumpul", "Sukses")
-        self.assertIn("SystemIcons]::Information", script)
-        self.assertNotIn("Warning", script)
+        ok, calls = self._send("Terkumpul", "Sukses")
+        self.assertTrue(ok)
+        args, kwargs = calls[0]
+        script = args[-1]
+        self.assertIn("NotifyIcon", script)
+        env = kwargs.get("env", {})
+        self.assertEqual(env.get("EXAMVAN_NOTIFY_ICON"), "Information")
+        self.assertNotEqual(env.get("EXAMVAN_NOTIFY_ICON"), "Warning")
+
+    def test_nonzero_returncode_returns_false(self):
+        ok, _ = self._send("Terkumpul", "Sukses", rc=1)
+        self.assertFalse(ok)
 
     def test_spawn_failure_returns_false_not_raises(self):
         # Kontrak best-effort: PowerShell diblokir policy → False,
         # jawaban tetap aman di disk untuk recovery re-entry.
         with mock.patch.object(notify.sys, "platform", "win32"), \
              mock.patch.object(
-                 notify.subprocess, "run",
+                 notify.subprocess, "Popen",
                  side_effect=OSError("powershell blocked")):
             self.assertFalse(
                 notify.send_notification("Terkumpul", "Sukses")

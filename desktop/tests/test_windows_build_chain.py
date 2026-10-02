@@ -24,7 +24,7 @@ R7  build-setup mengemas exe basi. Hanya menguji `-exist`.          build-setup.
     dan mengemas kode 3 hari lalu.
 R8  Rantai Windows mengabaikan desktop/requirements.txt.            semua skrip
     Menambah dependency ke sana tidak berefek pada artefak Windows mana pun.
-R9  AppMutex tidak pernah bisa menyala — tidak ada CreateMutex di app.
+R9  AppMutex dan CreateMutex harus berpasangan dengan nama yang sama.
 R10 VCRedistPresent tidak mengecek vcruntime140_1.dll.
 R11 run.bat / run.ps1 jalan meski pip install gagal.
 R12 build-exe.ps1 tidak cek exit code pip; pesan errornya salah ketik.
@@ -248,7 +248,7 @@ class RequirementsAreUsedTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# R9 — AppMutex tidak pernah bisa menyala
+# R9 — AppMutex dan CreateMutex berpasangan
 # ---------------------------------------------------------------------------
 
 
@@ -284,26 +284,46 @@ def _code_only(src: str) -> str:
 
 
 class AppMutexTest(unittest.TestCase):
-    """AppMutex tidak pernah bisa menyala; SetupMutex yang benar.
+    """Single-instance: installer dan aplikasi MEMEGANG mutex yang sama.
 
-    Yang diuji adalah DIRECTIVE-nya, bukan kata "AppMutex" di mana pun —
-    komentar yang menjelaskan kenapa directive itu salah tetap berguna dan
-    harus boleh ada.
+    `SetupMutex` mencegah dua INSTALLER jalan bersamaan. `AppMutex` yang
+    mencegah installer jalan BERSAMAAN DENGAN APLIKASI — dan ia hanya
+    menyala kalau aplikasi memegang mutex bernama sama lewat CreateMutex.
+    Keduanya dipasang berpasangan dengan nama yang identik; kalau namanya
+    meleset satu karakter, installer tidak pernah menolak dan proteksinya
+    mati diam-diam.
     """
 
-    def test_iss_does_not_use_the_app_mutex_directive(self):
-        # AppMutex membuat installer MENOLAK jalan selama aplikasi memegang
-        # mutex itu, dan mewajibkan aplikasi memanggil CreateMutex dengan
-        # nama yang cocok. Tidak ada CreateMutex di desktop/ — saya sudah
-        # grep seluruh repo — jadi pemeriksaan itu tidak pernah bisa menyala.
-        # Dan AppMutex BUKAN mekanisme mencegah dua installer berjalan
-        # bersamaan; itu SetupMutex.
+    def test_iss_declares_the_app_mutex(self):
         src = _read("windows/installer/examvan.iss")
         directives = [
             line for line in src.splitlines()
             if re.match(r"^\s*AppMutex\s*=", line)
         ]
-        self.assertEqual(directives, [], f"AppMutex masih dipakai: {directives}")
+        self.assertEqual(
+            len(directives), 1,
+            f"AppMutex harus dideklarasikan tepat sekali: {directives}",
+        )
+
+    def test_app_mutex_name_matches_the_create_mutex_call(self):
+        # Nama di .iss HARUS sama persis dengan nama di CreateMutexW di
+        # __main__.py — kalau tidak, pemeriksaan installer tidak pernah
+        # bisa menyala (temuan R9 yang asli).
+        src = _read("windows/installer/examvan.iss")
+        m = re.search(r"^\s*AppMutex\s*=\s*(\S+)", src, re.MULTILINE)
+        self.assertIsNotNone(m, "AppMutex tidak ada di examvan.iss")
+        name = m.group(1).strip()
+        main = _read("desktop/examvan/__main__.py")
+        self.assertIn(
+            "CreateMutexW", main,
+            "tidak ada CreateMutexW di __main__.py — AppMutex tidak "
+            "pernah bisa menyala",
+        )
+        self.assertIn(
+            name, main,
+            f"nama AppMutex {name!r} tidak dipakai di CreateMutexW — "
+            "pasangan single-instance putus",
+        )
 
     def test_single_instance_protection_uses_setup_mutex(self):
         src = _read("windows/installer/examvan.iss")

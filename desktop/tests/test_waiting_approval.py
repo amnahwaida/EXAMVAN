@@ -288,3 +288,127 @@ class NonJsonStatusTest(unittest.TestCase):
         ))
         message = next(m for k, _, m in seen if k == "error")
         self.assertIn("JSON", message)
+
+
+class PermanentVerdictStopsPollingTest(unittest.TestCase):
+    """401/403/404 adalah verdict permanen, bukan "tunggu lagi".
+
+    `api.request_approval` membawa `http_status` naik (audit HIGH H2).
+    Tanpa pemeriksaan itu, 401/403/404 dengan body non-JSON jatuh ke status
+    "pending"/"error" dan dialog polling tiap 5 detik SELAMANYA dengan
+    pesan "Koneksi Terganggu" untuk penolakan yang tidak akan pernah
+    berubah.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _drive(self, resp):
+        from examvan.models import RequestApprovalResponse
+
+        dlg = WaitingApprovalDialog(
+            Exam(id=1, name="Ujian", status="active"),
+            "https://x", {"nama": "Andi"}, token="ABCD1234",
+        )
+        seen = []
+        dlg._sig_status.connect(lambda k, t, m: seen.append((k, t, m)))
+        dlg._stop_polling()
+        dlg._poll_stop.clear()
+        calls = []
+
+        def _fake_request(*args, **kwargs):
+            calls.append(1)
+            if len(calls) > 1:
+                raise AssertionError("polling tidak berhenti setelah verdict permanen")
+            return resp
+
+        dlg._poll_stop.wait = lambda _t=0.0: dlg._poll_stop.set()
+        with mock.patch(
+            "examvan.ui.waiting_approval.api.request_approval",
+            side_effect=_fake_request,
+        ):
+            dlg._poll_thread()
+        return dlg, seen
+
+    def test_401_becomes_rejected_with_the_server_message(self):
+        from examvan.models import RequestApprovalResponse
+
+        _, seen = self._drive(RequestApprovalResponse(
+            success=False, status="error",
+            message="Token tidak valid", http_status=401,
+        ))
+        kinds = [k for k, _, _ in seen]
+        self.assertIn("rejected", kinds)
+        self.assertNotIn("pending", kinds)
+        msg = next(m for k, _, m in seen if k == "rejected")
+        self.assertIn("Token tidak valid", msg)
+
+    def test_403_and_404_are_terminal_too(self):
+        from examvan.models import RequestApprovalResponse
+
+        for code in (403, 404):
+            with self.subTest(code=code):
+                _, seen = self._drive(RequestApprovalResponse(
+                    success=False, status="error",
+                    message=f"HTTP {code}", http_status=code,
+                ))
+                kinds = [k for k, _, _ in seen]
+                self.assertIn("rejected", kinds)
+
+    def test_transient_errors_still_poll(self):
+        # Tanpa http_status (jaringan mati) atau 5xx: BUKAN verdict —
+        # polling jalan terus seperti sebelumnya.
+        from examvan.models import RequestApprovalResponse
+
+        _, seen = self._drive(RequestApprovalResponse(
+            success=False, status="error",
+            message="Connection refused", http_status=None,
+        ))
+        kinds = [k for k, _, _ in seen]
+        self.assertIn("error", kinds)
+        self.assertNotIn("rejected", kinds)
+
+    def test_unexpected_exception_emits_error_once_and_stops(self):
+        dlg = WaitingApprovalDialog(
+            Exam(id=1, name="Ujian", status="active"),
+            "https://x", {"nama": "Andi"}, token="ABCD1234",
+        )
+        seen = []
+        dlg._sig_status.connect(lambda k, t, m: seen.append((k, t, m)))
+        dlg._stop_polling()
+        dlg._poll_stop.clear()
+        dlg._poll_stop.wait = lambda _t=0.0: dlg._poll_stop.set()
+        with mock.patch(
+            "examvan.ui.waiting_approval.api.request_approval",
+            side_effect=RuntimeError("ledakan tak terduga"),
+        ):
+            dlg._poll_thread()  # tidak boleh melempar
+        kinds = [k for k, _, _ in seen]
+        self.assertEqual(kinds.count("error"), 1)
+
+    def test_approved_delay_ignores_a_stale_generation(self):
+        dlg = WaitingApprovalDialog(
+            Exam(id=1, name="Ujian", status="active"),
+            "https://x", {"nama": "Andi"}, token="ABCD1234",
+        )
+        try:
+            stale = dlg._poll_generation
+            dlg._start_polling()  # generasi baru (simulasi retry)
+            with mock.patch.object(dlg, "accept") as accept:
+                dlg._on_approved_delay(stale)
+            accept.assert_not_called()
+        finally:
+            dlg.reject()
+
+    def test_approved_delay_accepts_the_current_generation(self):
+        dlg = WaitingApprovalDialog(
+            Exam(id=1, name="Ujian", status="active"),
+            "https://x", {"nama": "Andi"}, token="ABCD1234",
+        )
+        try:
+            with mock.patch.object(dlg, "accept") as accept:
+                dlg._on_approved_delay(dlg._poll_generation)
+            accept.assert_called_once()
+        finally:
+            dlg.reject()

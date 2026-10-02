@@ -87,7 +87,7 @@ def _load_gnome_backup_file() -> dict:
     if not _GNOME_BACKUP_FILE.exists():
         return {}
     try:
-        with open(_GNOME_BACKUP_FILE) as f:
+        with open(_GNOME_BACKUP_FILE, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
@@ -106,7 +106,12 @@ class LinuxBackend(SecurityBackend):
 
     def __init__(self) -> None:
         self._inhibit_pid: Optional[int] = None
+        self._inhibit_proc = None
         self._grab_held = False
+        # Hasil grab pointer dicatat TERPISAH dari grab keyboard: gabungan
+        # keduanya dalam satu flag membuat release melewatkan ungrab pointer
+        # setiap kali grab keyboard gagal (lihat release_strict_mode).
+        self._pointer_grabbed = False
         # GNOME settings backups stored as {schema_key: value}
         self._gnome_backups: dict = {}
 
@@ -143,9 +148,12 @@ class LinuxBackend(SecurityBackend):
         _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         pid_path = _GNOME_BACKUP_DIR / "inhibit.pid"
         try:
-            pid_path.write_text(str(self._inhibit_pid))
+            # 0600 sejak create: PID file ada di config dir bersama kredensial.
+            fd = os.open(str(pid_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(str(self._inhibit_pid))
         except OSError:
-            pass
+            log.warning("could not persist inhibit pid", exc_info=True)
 
     def _clear_inhibit_pid_file(self) -> None:
         pid_path = _GNOME_BACKUP_DIR / "inhibit.pid"
@@ -168,6 +176,7 @@ class LinuxBackend(SecurityBackend):
         # setelan desktop sama sekali — lihat _desktop_lockdown_allowed().
         if not _desktop_lockdown_allowed():
             self._grab_held = False
+            self._pointer_grabbed = False
             return
 
         # Fullscreen frameless via Qt — applied by enforcer itself
@@ -181,8 +190,10 @@ class LinuxBackend(SecurityBackend):
 
             if x11.grab_pointer(window):
                 log.info("Strict mode: pointer grabbed")
+                self._pointer_grabbed = True
             else:
                 log.warning("Strict mode: pointer grab FAILED")
+                self._pointer_grabbed = False
 
             x11.set_window_type_dock(window)
             log.info("Strict mode: window type set to DOCK")
@@ -199,10 +210,22 @@ class LinuxBackend(SecurityBackend):
     def release_strict_mode(self, window: Any) -> None:
         from . import x11
         if self._grab_held:
-            x11.ungrab_keyboard()
-            x11.ungrab_pointer()
+            try:
+                x11.ungrab_keyboard()
+            except Exception:
+                log.warning("ungrab keyboard gagal", exc_info=True)
             self._grab_held = False
-            log.info("X11 grabs released")
+            log.info("X11 keyboard grab released")
+        # Pointer dilepas INDEPENDEN dari _grab_held: grab keyboard bisa
+        # gagal sementara grab pointer berhasil, dan menggabungkannya
+        # membuat pointer terkunci sampai proses mati.
+        if self._pointer_grabbed:
+            try:
+                x11.ungrab_pointer()
+            except Exception:
+                log.warning("ungrab pointer gagal", exc_info=True)
+            self._pointer_grabbed = False
+            log.info("X11 pointer grab released")
         self._gnome_ws_restore()
 
     # ------------------------------------------------------------------
@@ -243,6 +266,39 @@ class LinuxBackend(SecurityBackend):
                 )
         except ImportError:
             pass
+
+    # ------------------------------------------------------------------
+    # Pointer confinement (strict) — override no-op bawaan base
+    # ------------------------------------------------------------------
+
+    def confine_pointer(self, window: Any) -> None:
+        """Kunci (ulang) pointer ke window ujian via XGrabPointer.
+
+        Titik re-assert untuk enforcer (dipanggil tiap 500 ms dari
+        _poll_focus seperti ClipCursor di Windows): grab X11 bisa hilang
+        kapan pun (window lain, compositor), jadi satu kali grab saat
+        aktivasi tidak cukup. Tanpa override ini, panggilan enforcer
+        adalah no-op di Linux.
+        """
+        if window is None:
+            return
+        try:
+            from . import x11
+            if x11.grab_pointer(window):
+                self._pointer_grabbed = True
+            else:
+                log.warning("Linux confine_pointer: pointer grab NOT held")
+        except Exception:
+            log.warning("Linux confine_pointer gagal", exc_info=True)
+
+    def release_pointer(self) -> None:
+        """Lepas kunci pointer — XUngrabPointer."""
+        try:
+            from . import x11
+            x11.ungrab_pointer()
+        except Exception:
+            log.warning("Linux release_pointer gagal", exc_info=True)
+        self._pointer_grabbed = False
 
     # ------------------------------------------------------------------
     # Clipboard
@@ -304,6 +360,7 @@ class LinuxBackend(SecurityBackend):
                 stderr=subprocess.DEVNULL,
             )
             self._inhibit_pid = proc.pid
+            self._inhibit_proc = proc
             log.info("Screen inhibit started (PID %d)", proc.pid)
             self._persist_inhibit_pid()
             return
@@ -323,13 +380,26 @@ class LinuxBackend(SecurityBackend):
                 log.warning("Cannot disable screen saver")
 
     def allow_sleep(self) -> None:
-        if self._inhibit_pid:
+        # Matikan via handle proses dulu (SIGTERM anak langsung), fallback
+        # ke kill-by-pid bila handle sudah hilang (crash recovery).
+        proc, self._inhibit_proc = self._inhibit_proc, None
+        if proc is not None:
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                log.info("Screen inhibit stopped (PID %d)", self._inhibit_pid)
+            except OSError:
+                log.warning("inhibit terminate gagal", exc_info=True)
+        elif self._inhibit_pid:
             try:
                 os.kill(self._inhibit_pid, 15)
                 log.info("Screen inhibit stopped (PID %d)", self._inhibit_pid)
             except OSError:
-                pass
-            self._inhibit_pid = None
+                log.warning("inhibit kill-by-pid gagal", exc_info=True)
+        self._inhibit_pid = None
         self._clear_inhibit_pid_file()
 
         # Restore xset settings (screen saver, DPMS)
@@ -491,23 +561,23 @@ class LinuxBackend(SecurityBackend):
             try:
                 r = subprocess.run(
                     ["gsettings", "get", schema, key],
-                    capture_output=True, text=True, timeout=3,
+                    capture_output=True, text=True, timeout=1,
                 )
                 if r.returncode == 0:
                     fresh[f"{schema}:{key}"] = r.stdout.strip()
             except Exception:
-                pass
+                log.warning("gsettings get %s %s gagal", schema, key, exc_info=True)
 
         # Backup num-workspaces separately (different schema)
         try:
             r = subprocess.run(
                 ["gsettings", "get", "org.gnome.desktop.wm.preferences", "num-workspaces"],
-                capture_output=True, text=True, timeout=3,
+                capture_output=True, text=True, timeout=1,
             )
             if r.returncode == 0:
                 fresh["org.gnome.desktop.wm.preferences:num-workspaces"] = r.stdout.strip()
         except Exception:
-            pass
+            log.warning("gsettings get num-workspaces gagal", exc_info=True)
 
         # CRITICAL: merge dengan crash-backup yang belum pernah dipulihkan.
         # Kalau sesi sebelumnya mati tanpa deactivate (kill -9, power loss),
@@ -540,9 +610,9 @@ class LinuxBackend(SecurityBackend):
         ]
         for c in cmds:
             try:
-                subprocess.run(c, capture_output=True, text=True, timeout=3)
+                subprocess.run(c, capture_output=True, text=True, timeout=1)
             except Exception:
-                pass
+                log.warning("gsettings set %s gagal", c[2:], exc_info=True)
         log.info("GNOME workspace + overview gestures disabled")
 
     def _gnome_ws_restore(self) -> None:
@@ -620,7 +690,7 @@ class LinuxBackend(SecurityBackend):
                 capture_output=True, text=True, timeout=2,
             )
         except Exception:
-            pass
+            log.warning("gnome overview block gagal", exc_info=True)
 
     # ------------------------------------------------------------------
     # Persistent GNOME backup — survives crash
@@ -636,11 +706,11 @@ class LinuxBackend(SecurityBackend):
         _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         try:
             tmp = _GNOME_BACKUP_FILE.with_suffix(".tmp")
-            with open(tmp, "w") as f:
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             tmp.replace(_GNOME_BACKUP_FILE)
         except OSError:
-            pass
+            log.warning("could not persist gnome backup", exc_info=True)
 
     @staticmethod
     def _clear_gnome_backup() -> None:
@@ -702,7 +772,7 @@ class LinuxBackend(SecurityBackend):
                 }
                 _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
                 tmp = _GNOME_BACKUP_FILE.with_suffix(".tmp")
-                with open(tmp, "w") as f:
+                with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(data, f)
                 tmp.replace(_GNOME_BACKUP_FILE)
             except OSError:

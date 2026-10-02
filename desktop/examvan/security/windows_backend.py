@@ -35,6 +35,7 @@ from ctypes.wintypes import (
     DWORD,
     HANDLE,
     HHOOK,
+    HMODULE,
     HWND,
     LPARAM,
     LPVOID,
@@ -229,6 +230,10 @@ _hook_proc_wrapper: Any = None  # Extra guard against GC
 # Guard: hook installed flag (thread-safe via hook message queue)
 _hook_ready = threading.Event()
 
+# Style asli per-HWND yang diubah set_strict_mode, supaya
+# release_strict_mode mengembalikan NILAI ASLINYA (bukan tebakan).
+_saved_ex_styles: dict = {}
+
 
 def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
     """Set every Win32 prototype we use and return them keyed by global name.
@@ -253,7 +258,10 @@ def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
     _SetWindowsHookExW.argtypes = [c_int, c_void_p, c_void_p, DWORD]
 
     _CallNextHookEx = _user32.CallNextHookEx
-    _CallNextHookEx.restype = c_void_p
+    # HOOKPROC mengembalikan LRESULT (64-bit di x64): c_void_p membuat
+    # callback yang me-return None menghasilkan LRESULT nonzero sampah =
+    # semua key yang diizinkan ikut tertelan.
+    _CallNextHookEx.restype = c_longlong
     _CallNextHookEx.argtypes = [HHOOK, c_int, WPARAM, LPARAM]
 
     _UnhookWindowsHookEx = _user32.UnhookWindowsHookEx
@@ -309,11 +317,11 @@ def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
     # mengasumsikan c_int (32-bit). Pada Windows 64-bit, HMODULE adalah
     # pointer 64-bit — nilai yang tidak kebetulan muat di 32 bit akan
     # terpotong, dan SetWindowsHookExW lalu gagal (atau lebih buruk:
-    # berhasil dengan handle yang salah). Restype c_void_p menjaga nilai
-    # 64-bit utuh.
+    # berhasil dengan handle yang salah). Restype HMODULE (= pointer,
+    # 64-bit utuh) menjaga nilainya.
     _GetModuleHandleW = _kernel32.GetModuleHandleW
-    _GetModuleHandleW.restype = c_void_p
-    _GetModuleHandleW.argtypes = [c_void_p]  # NULL = modul pemanggil
+    _GetModuleHandleW.restype = HMODULE
+    _GetModuleHandleW.argtypes = [LPWSTR]  # NULL = modul pemanggil
 
     # ClipCursor (audit 2 Okt 2026, HIGH H6): kunci pointer ke dalam window
     # ujian saat strict. Tanpa ini, keyboard hook saja masih menyisakan
@@ -510,6 +518,18 @@ def should_block_key(
     # Alone Escape (block in strict mode)
     if vk == VK_ESCAPE and not alt_pressed and not ctrl_down and not shift_down and not win_down:
         return True
+    # Ctrl+S (Save) / Ctrl+P (Print): dialog sistemnya adalah slot keluar
+    # sekaligus cara mencetak/menyimpan soal. Ctrl+C / Ctrl+V / Delete
+    # SENGAJA tidak diblokir: itu kunci penyuntingan teks yang sah di
+    # dalam kolom jawaban — mitigasinya penyapu clipboard 10 detik +
+    # wipe clipboard saat PrintScreen, bukan mematahkan mengetik.
+    #
+    # F-key BARE (F1, F5, F12, ...) SENGAJA tidak diblokir: aplikasi ini
+    # native Qt, bukan tampilan browser — tidak ada DevTools di F12, jadi
+    # memblokirnya menambah satu kunci mati tanpa关闭窗口 tambahan
+    # sekaligus memutus jaminan lama bahwa F-key biasa tetap sampai ke app.
+    if ctrl_down and vk in (0x53, 0x50):  # S, P
+        return True
     # Left/Right Alt alone
     if vk == VK_MENU and alt_flag:
         return True
@@ -564,6 +584,11 @@ def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
 def _hook_thread_func() -> None:
     """Message-pump thread for the keyboard hook."""
     global _hook_id, _hook_callback, _hook_proc_wrapper, _hook_ready
+    # Handle MILIK thread ini: unhook di finally memakai lokal ini, bukan
+    # global — global bisa sudah menunjuk hook BARU dari sesi berikutnya
+    # (backend shared per proses), dan melepas hook orang lain mematikan
+    # proteksi sesi baru tanpa jejak.
+    mine = None
     try:
         # Set the hook — store global ref to prevent GC
         # CFUNCTYPE return c_longlong (64-bit) for LRESULT on x64 Windows.
@@ -572,13 +597,14 @@ def _hook_thread_func() -> None:
         _hook_proc_wrapper = HOOKPROC(_keyboard_hook_proc)
         _hook_callback = _hook_proc_wrapper  # Extra guard
 
-        _hook_id = _SetWindowsHookExW(
+        mine = _SetWindowsHookExW(
             WH_KEYBOARD_LL,
             cast(_hook_proc_wrapper, c_void_p),
             _GetModuleHandleW(None),
             0,  # 0 = global hook (no DLL needed for WH_KEYBOARD_LL)
         )
-        if not _hook_id:
+        _hook_id = mine
+        if not mine:
             log.warning("Keyboard hook installation failed (error %d)", _kernel32.GetLastError())
             _hook_ready.set()  # Signal failure so caller doesn't hang
             return
@@ -611,9 +637,15 @@ def _hook_thread_func() -> None:
         log.warning("Keyboard hook thread error: %s", e)
         _hook_ready.set()
     finally:
-        if _hook_id:
-            _UnhookWindowsHookEx(_hook_id)
-            _hook_id = None
+        # Lepas hook MILIK thread ini; global hanya dibersihkan bila masih
+        # menunjuk hook yang sama (sesi baru mungkin sudah memasang lain).
+        if mine:
+            try:
+                _UnhookWindowsHookEx(mine)
+            except Exception:
+                log.warning("UnhookWindowsHookEx gagal", exc_info=True)
+            if _hook_id == mine:
+                _hook_id = None
             log.info("Keyboard hook removed")
 
 
@@ -719,10 +751,16 @@ def restore_windows_settings() -> None:
     previous: Optional[bool] = None
     try:
         data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-        value = data.get("screen_saver_active")
-        if isinstance(value, bool):
-            previous = value
-    except (OSError, ValueError, json.JSONDecodeError) as e:
+        # JSON valid tapi bukan object (array/string/angka dari file yang
+        # diedit manual): data.get melempar AttributeError — best-effort
+        # recovery tidak boleh SIGABRT sesudah jawaban sampai server.
+        if isinstance(data, dict):
+            value = data.get("screen_saver_active")
+            if isinstance(value, bool):
+                previous = value
+        else:
+            log.warning("screen-saver backup bukan object, diabaikan")
+    except Exception as e:
         log.warning("could not read screen-saver backup: %s", e)
 
     if previous is not None:
@@ -752,6 +790,13 @@ class WindowsBackend(SecurityBackend):
         self._hook_started = False
         self._hook_installed = False
         self._exec_state_handle: Optional[int] = None
+        if sys.platform == "win32":
+            # Binding deterministik saat backend dibuat — bukan kebetulan
+            # import (fallback __getattr__ tetap ada untuk pemanggil awal).
+            try:
+                _bind()
+            except Exception:
+                log.warning("Win32 bind gagal saat init", exc_info=True)
 
     # ------------------------------------------------------------------
     # Strict mode
@@ -772,12 +817,14 @@ class WindowsBackend(SecurityBackend):
             # (dipanggil dari _activate_strict) dan dikembalikan bersama
             # style lain saat enforcer melepas mode ini.
             try:
+                if hwnd not in _saved_ex_styles:
+                    _saved_ex_styles[hwnd] = _GetWindowLongW(HWND(hwnd), GWL_EXSTYLE)
                 ex_style = _GetWindowLongW(HWND(hwnd), GWL_EXSTYLE)
                 ex_style &= ~WS_EX_LAYERED
                 ex_style |= WS_EX_TOOLWINDOW
                 _SetWindowLongW(HWND(hwnd), GWL_EXSTYLE, ex_style)
             except Exception:
-                pass
+                log.warning("gagal mengubah style window %s", hwnd, exc_info=True)
 
         # Install keyboard hook
         if not self._hook_installed:
@@ -787,13 +834,27 @@ class WindowsBackend(SecurityBackend):
                 log.warning("Keyboard hook failed — running without low-level key blocking")
 
     def release_strict_mode(self, window: Any) -> None:
+        # Kembalikan style asli yang disimpan set_strict_mode — HWND bisa
+        # dibuat ulang (showFullScreen), jadi baca simpanan, bukan tebakan.
+        hwnd = _get_hwnd(window) if window is not None else None
+        if hwnd and hwnd in _saved_ex_styles:
+            try:
+                _SetWindowLongW(HWND(hwnd), GWL_EXSTYLE, _saved_ex_styles.pop(hwnd))
+            except Exception:
+                log.warning("gagal mengembalikan style window %s", hwnd, exc_info=True)
         # Syaratnya bukan hanya _hook_installed: start yang GAGAL bisa
         # meninggalkan thread pump + _hook_thread_id global (lihat
         # _cleanup_failed_hook_start). Melewati pemberhentian ketika flag
         # False berarti state kotor itu menggantung sampai proses mati.
         if self._hook_installed or _hook_thread_id is not None or _hook_thread is not None:
-            self._stop_keyboard_hook()
-        self._hook_installed = False
+            if self._stop_keyboard_hook():
+                self._hook_installed = False
+            else:
+                # Pump masih hidup: klaim "sudah dilepas" akan membuat
+                # sesi berikutnya memasang hook kedua sementara hook lama
+                # tetap memblokir. Flag dipertahankan supaya release
+                # berikutnya retry.
+                log.error("keyboard hook gagal dihentikan — _hook_installed dipertahankan untuk retry")
 
     # ------------------------------------------------------------------
     # Screen-capture prevention
@@ -839,7 +900,7 @@ class WindowsBackend(SecurityBackend):
         try:
             _SetWindowDisplayAffinity(HWND(hwnd), WDA_NONE)
         except Exception:
-            pass
+            log.debug("release capture protection gagal pada %s", hwnd, exc_info=True)
 
     # ------------------------------------------------------------------
     # Pointer confinement (strict)
@@ -905,24 +966,37 @@ class WindowsBackend(SecurityBackend):
         seluruh sesi: tidak satu pun aplikasi (termasuk EXAMVAN sendiri)
         bisa membukanya lagi. Kegagalan juga naik dari log.debug ke
         log.warning — debug tidak pernah tampil di app.log produksi.
+
+        OpenClipboard dicoba ulang terbatas (3x, ~50ms): penolakan sesaat
+        karena aplikasi lain sedang memegang clipboard tidak langsung
+        menyerah.
         """
         opened = False
+        for _attempt in range(3):
+            try:
+                opened = bool(_OpenClipboard(HWND(0)))
+            except Exception:
+                opened = False
+                log.warning("OpenClipboard raised", exc_info=True)
+                break
+            if opened:
+                break
+            time.sleep(0.05)
+        if not opened:
+            # Pemegang clipboard lain menolak buka — jangan crash;
+            # coba lagi di tick berikutnya.
+            log.warning("OpenClipboard failed — clipboard may be busy")
+            return
         try:
-            opened = bool(_OpenClipboard(HWND(0)))
-            if not opened:
-                # Pemegang clipboard lain menolak buka — jangan crash;
-                # coba lagi di tick berikutnya.
-                log.warning("OpenClipboard failed — clipboard may be busy")
-                return
             _EmptyClipboard()
         except Exception:
             log.warning("EmptyClipboard failed", exc_info=True)
         finally:
-            if opened:
-                try:
-                    _CloseClipboard()
-                except Exception:
-                    log.warning("CloseClipboard failed", exc_info=True)
+            # Close WAJIB walau Empty gagal — lihat catatan di atas.
+            try:
+                _CloseClipboard()
+            except Exception:
+                log.warning("CloseClipboard failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Sleep inhibition
@@ -1110,12 +1184,27 @@ class WindowsBackend(SecurityBackend):
                 thread.join(timeout=1.0)
             except Exception:
                 pass
+            if thread.is_alive():
+                # Thread masih hidup: JANGAN nolkan referensi — release
+                # berikutnya harus bisa mencoba lagi. Menolkan di sini
+                # membuat hook zombie tidak terjangkau selamanya.
+                log.error("thread hook gagal berhenti — referensi dipertahankan untuk retry")
+                return
         _hook_thread_id = None
         _hook_thread = None
 
     def _start_keyboard_hook(self) -> bool:
         """Start keyboard hook thread. Returns True if installed successfully."""
         global _hook_thread, _hook_thread_id, _hook_ready
+        # Jangan pernah menjalankan dua thread pump: thread lama yang masih
+        # hidup dicoba dihentikan dulu; bila tetap hidup, menyerah.
+        old = _hook_thread
+        if old is not None and old.is_alive():
+            log.warning("thread hook lama masih hidup — mencoba menghentikan dulu")
+            self._stop_keyboard_hook()
+            if _hook_thread is not None and _hook_thread.is_alive():
+                log.error("thread hook lama tidak bisa dihentikan — hook baru tidak dipasang")
+                return False
         _hook_ready.clear()
         try:
             hook_thread = threading.Thread(target=_hook_thread_func, daemon=True)
@@ -1140,13 +1229,17 @@ class WindowsBackend(SecurityBackend):
             self._cleanup_failed_hook_start()
             return False
 
-    def _stop_keyboard_hook(self) -> None:
+    def _stop_keyboard_hook(self) -> bool:
         """Stop keyboard hook thread.
 
         Posts WM_QUIT to the hook thread and waits briefly for it to
         exit. The hook thread's finally handles UnhookWindowsHookEx
         so we DON'T set _hook_id = None here (race: we'd null it before
         the thread reads it, leaking the hook).
+
+        Returns True when the pump has stopped (or was never running);
+        False when the thread is still alive — references are kept so a
+        later release can retry.
         """
         global _hook_id, _hook_thread, _hook_thread_id
         if _hook_thread_id is not None:
@@ -1156,7 +1249,13 @@ class WindowsBackend(SecurityBackend):
                 pass
             if _hook_thread is not None:
                 _hook_thread.join(timeout=1.0)
+                if _hook_thread.is_alive():
+                    # Masih hidup: pertahankan referensi agar release
+                    # berikutnya bisa retry; jangan klaim sudah berhenti.
+                    log.error("thread hook gagal berhenti — referensi dipertahankan untuk retry")
+                    return False
             _hook_thread_id = None
             _hook_thread = None
         # Do NOT set _hook_id = None here — hook thread's finally does it
         log.info("Keyboard hook stop requested")
+        return True

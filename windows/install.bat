@@ -106,6 +106,11 @@ if not defined USER_DESKTOP set "USER_DESKTOP=%USERPROFILE%\Desktop"
     @echo call "%~dp0run.bat"
     @echo pause
 )
+if not exist "%USER_DESKTOP%\EXAMVAN.bat" (
+    echo [ERR]  Gagal menulis shortcut ke %USER_DESKTOP%\EXAMVAN.bat
+    pause
+    exit /b 1
+)
 echo [OK]   Shortcut dibuat: %USER_DESKTOP%\EXAMVAN.bat
 echo.
 

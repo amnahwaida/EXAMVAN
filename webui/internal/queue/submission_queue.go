@@ -629,7 +629,7 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 	var submissionID int
 	err := q.QueryRow(ctx, `
 		UPDATE submissions
-		SET answers_json = $1, score = $2, start_time = COALESCE(start_time, NULLIF($3, '')), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+		SET answers_json = $1, score = $2, start_time = COALESCE(NULLIF($3, ''), start_time), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
 		WHERE id = (
 			SELECT id FROM submissions
 			WHERE exam_id = $8 AND mac_address = $9

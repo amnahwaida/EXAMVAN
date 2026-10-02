@@ -335,6 +335,25 @@ def _sanitize(config_data: Dict[str, Any]) -> Dict[str, Any]:
     # ("x".get) atau form terisi data palsu. Salah bentuk = kosongkan.
     if not isinstance(config_data.get("identity_data"), dict):
         config_data["identity_data"] = {}
+    # Kunci yang dipahami app dicoerce ke bentuknya: null/angka dari file
+    # yang diedit manual tidak boleh mengalir sebagai None ke pemanggil
+    # (mis. None.rstrip di WS connect, atau "None" literal sebagai token).
+    config_data["server_url"] = str(config_data.get("server_url") or "")
+    config_data["exam_token"] = str(config_data.get("exam_token") or "")
+    _remember = config_data.get("remember_url", True)
+    if _remember is True:
+        config_data["remember_url"] = True
+    elif isinstance(_remember, str):
+        config_data["remember_url"] = _remember.strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+    else:
+        config_data["remember_url"] = False
+    _hist = config_data.get("exam_token_history")
+    if isinstance(_hist, list):
+        config_data["exam_token_history"] = [str(h) for h in _hist]
+    else:
+        config_data["exam_token_history"] = []
     return config_data
 
 
@@ -373,8 +392,20 @@ def _save() -> None:
         # dan replace gagal. Dalam satu proses, lock di atas cukup.
         tmp = _CONFIG_FILE.with_suffix(f".tmp.{os.getpid()}")
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(_cache, f, indent=2, ensure_ascii=False)
+            # Mode 0600 sejak create: isi (token + identitas) tidak pernah
+            # world-readable walau sesaat.
+            _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                with os.fdopen(_fd, "w", encoding="utf-8") as f:
+                    json.dump(_cache, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception:
+                try:
+                    os.close(_fd)
+                except OSError:
+                    pass
+                raise
             # 0600 SEBELUM replace: file sementara harus ketat selama ia ada,
             # dan `replace` mempertahankan mode dari file sumber, jadi chmod
             # sesudahnya akan terlambat -- file kredensial sudah terbuka di
@@ -459,8 +490,9 @@ def set(key: str, value: Any) -> None:
             history = store.get("exam_token_history") or []
             if not isinstance(history, list):
                 history = []
-            # Bukan arsip: hanya kandidat yang masih mungkin dipakai.
-            history = [h for h in history if isinstance(h, str) and h][-7:]
+            # Bukan arsip: hanya kandidat yang masih mungkin dipakai
+            # (maksimal 3).
+            history = [h for h in history if isinstance(h, str) and h]
             # Bandingkan dalam bentuk tersimpan (ter-obfuscated) supaya
             # rotasi bolak-balik token yang sama tidak menduplikasi entri.
             encoded_previous = _encode_secret(previous)
@@ -471,7 +503,7 @@ def set(key: str, value: Any) -> None:
                 # (lihat _encode_secret); pembacaannya lewat
                 # _legacy_token_candidates yang menerima kedua bentuk.
                 history.append(encoded_previous)
-            store["exam_token_history"] = history
+            store["exam_token_history"] = history[-3:]
     _load()[key] = value
     _save()
 
@@ -484,18 +516,34 @@ def save_answers(exam_id: int, answers: Dict[str, Any]) -> None:
     """Save answers to disk for crash recovery (obfuscated)."""
     path = _CONFIG_DIR / f"answers_{exam_id}.dat"
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    # Nama temp BERBEDA dari save_answers_owner: with_suffix(".tmp") membuat
+    # keduanya "answers_<id>.tmp" dan saling menimpa (jawaban hilang atau
+    # sidecar korup). Suffix ditempel di belakang nama penuh.
+    tmp = path.with_name(path.name + ".tmp")
     try:
         encoded = _encode_answers(answers)
-        with open(tmp, "w", encoding="ascii") as f:
-            f.write(encoded)
+        _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(_fd, "w", encoding="ascii") as f:
+                f.write(encoded)
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception:
+            try:
+                os.close(_fd)
+            except OSError:
+                pass
+            raise
         _restrict_to_owner(tmp)
         with _answers_lock:
             tmp.replace(path)
     except Exception:
         # If obfuscation fails, don't write anything readable
-        if tmp.exists():
-            tmp.unlink()
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError as exc:
+            _log.warning("could not remove temp answers file %s: %s", tmp, exc)
 
 
 def save_answers_owner(
@@ -519,7 +567,9 @@ def save_answers_owner(
     """
     path = _CONFIG_DIR / f"answers_{exam_id}.owner"
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    # Lihat save_answers: suffix ditempel di belakang nama penuh supaya
+    # tidak tabrakan dengan temp jawaban.
+    tmp = path.with_name(path.name + ".tmp")
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(
@@ -581,7 +631,13 @@ def load_answers(exam_id: int) -> Optional[Dict[str, Any]]:
                 return None
             # Migrate to new format
             save_answers(exam_id, data)
-            legacy.unlink()
+            try:
+                legacy.unlink()
+            except OSError as exc:
+                # Migrasi sudah selesai (.dat tertulis); file legacy yatim
+                # bukan alasan menggagalkan recovery.
+                _log.warning("could not remove legacy answers file %s: %s",
+                             legacy, exc)
             return data
         return None
     try:
@@ -624,7 +680,26 @@ def clear_answers(exam_id: int) -> None:
                          exc_info=True)
 
 
-def resolve_submit_answers(memory_answers: Dict[str, Any], exam_id: int) -> Dict[str, Any]:
+def _submitted_raw(exam_id: int) -> dict:
+    """Dict marker tersimpan apa adanya (nilai masih ter-encode).
+
+    Dipakai mark_submitted untuk merge: membaca lewat _submitted_map
+    (yang men-DECODE label) lalu menulis kembali hanya entri baru akan
+    menyimpan label lama sebagai PLAINTEXT. Lihat mark_submitted.
+    """
+    value = get(f"submitted_{exam_id}", {}) or {}
+    if isinstance(value, bool):
+        return {} if not value else {_submitted_key(""): _encode_secret("identitas tidak diketahui")}
+    if not isinstance(value, dict):
+        return {}
+    return dict(value)
+
+
+def resolve_submit_answers(
+    memory_answers: Dict[str, Any],
+    exam_id: int,
+    attempt_key: Optional[str] = None,
+) -> Dict[str, Any]:
     """Jawaban efektif untuk submit: utamakan memori, fallback ke disk.
 
     Mirror fix Android F1: deadline bisa menembak SEBELUM jawaban dipulihkan
@@ -636,6 +711,18 @@ def resolve_submit_answers(memory_answers: Dict[str, Any], exam_id: int) -> Dict
     """
     if memory_answers:
         return memory_answers
+    # attempt_key menjaga milik: bila sidecar owner ada dan milik orang
+    # lain, jawaban disk BUKAN milik percobaan ini — jangan kirim atas
+    # nama pengetik sekarang. Kembalikan memori (kosong) apa adanya.
+    if attempt_key:
+        try:
+            owner = load_answers_owner(exam_id)
+        except Exception:
+            owner = None
+        if owner is not None:
+            owner_key = str(owner.get("student_key", "") or "")
+            if owner_key and owner_key != str(attempt_key or ""):
+                return memory_answers if memory_answers else {}
     saved = load_answers(exam_id)
     return saved if saved else {}
 
@@ -711,7 +798,10 @@ def mark_submitted(
     label ini. Disimpan ter-obfuscated (_encode_secret), dibaca dengan
     fallback (lihat _submitted_map).
     """
-    store = dict(_submitted_map(exam_id))
+    # Merge ke RAW (masih ter-encode): membaca via _submitted_map yang
+    # men-decode lalu menulis kembali akan menyimpan label lama sebagai
+    # plaintext. _submitted_map tetap untuk pembaca display.
+    store = _submitted_raw(exam_id)
     store[_submitted_key(attempt_key)] = _encode_secret(
         label or "identitas tidak diketahui"
     )

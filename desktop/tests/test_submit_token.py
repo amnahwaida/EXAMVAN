@@ -328,6 +328,7 @@ class SubmitCallSiteTokenTest(unittest.TestCase):
             ExamViewerWindow._submit_thread(
                 stub, "https://exam.example", 7, "Budi", "N01", "9A",
                 {"1": "A"}, "2026-08-16T07:00:00Z", "DESKTOP:m", {"nama": "Budi"},
+                self.TOKEN,
             )
         self.assertEqual(sub.call_count, 1)
         self.assertEqual(sub.call_args.kwargs.get("token"), self.TOKEN)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import http.client
-import io
 import json
 import logging
 import os
@@ -109,7 +108,39 @@ def _make_request(
     # pun yang dijawab server (origin storage, halaman login proxy, dsb.),
     # dan tercatat di access log sana. Satu opener, semua jalur.
     with _pdf_opener().open(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8", errors="replace").strip()
+        # Batas 32MB untuk body non-PDF: proxy rusak / file raksasa tidak
+        # boleh memenuhi RAM lab. Jalur PDF chunked (download_pdf) TIDAK
+        # tersentuh batas ini.
+        try:
+            _resp_headers = getattr(resp, "headers", None) or {}
+            declared = int(_resp_headers.get("Content-Length", -1))
+        except (TypeError, ValueError):
+            declared = -1
+        if declared > 32 * 1024 * 1024:
+            raw = ""
+            return {
+                "success": False,
+                "error_code": "non_json_response",
+                "status": "error",
+                "message": (
+                    "Respons server terlalu besar (>32MB) dan bukan PDF. "
+                    "Kemungkinan proxy sekolah menjawab file yang salah."
+                ),
+                "raw": "",
+            }
+        blob = resp.read(32 * 1024 * 1024 + 1)
+        if len(blob) > 32 * 1024 * 1024:
+            return {
+                "success": False,
+                "error_code": "non_json_response",
+                "status": "error",
+                "message": (
+                    "Respons server terlalu besar (>32MB) dan bukan PDF. "
+                    "Kemungkinan proxy sekolah menjawab file yang salah."
+                ),
+                "raw": "",
+            }
+        raw = blob.decode("utf-8", errors="replace").strip()
         # Try JSON first.
         try:
             return json.loads(raw)
@@ -194,8 +225,7 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
     """GET /api/exams/token/{token} → TokenExamResponse."""
     try:
         data = _make_request(
-            _url_join(base_url, f"/api/exams/token/{token}"),
-            headers={"X-App-Version": APP_VERSION},
+            _url_join(base_url, f"/api/exams/token/{urllib.parse.quote(token or '', safe='')}"),
             timeout=15,
         )
         return TokenExamResponse.from_json(data)
@@ -209,7 +239,12 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
         try:
             body = json.loads(e.read().decode("utf-8"))
             return TokenExamResponse.from_json(body)
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+            return TokenExamResponse(
+                success=False, error=str(e), message=f"HTTP {e.code}"
+            )
         except Exception:
+            log.exception("get_exam_by_token: respons error tak terduga")
             return TokenExamResponse(
                 success=False, error=str(e), message=f"HTTP {e.code}"
             )
@@ -305,6 +340,17 @@ def download_pdf(
 
     tmp_path = dest_path + ".tmp"
     try:
+        # 0600 sejak create: PDF berisi naskah ujian, tidak boleh
+        # world-readable walau sesaat di PC lab.
+        try:
+            _fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.close(_fd)
+        except OSError:
+            pass
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            pass
         with _pdf_opener().open(req, timeout=120) as resp:
             # Content-Length dari proxy rusak ("11 MB!") dulu melempar
             # ValueError di tengah try: download sah ikut gagal. Nilai
@@ -342,6 +388,10 @@ def download_pdf(
 
         # Atomic rename on success
         os.replace(tmp_path, dest_path)
+        try:
+            os.chmod(dest_path, 0o600)
+        except OSError:
+            pass
         return dest_path
 
     except Exception:
@@ -422,7 +472,7 @@ def submit_exam(
         data = _make_request(
             _url_join(base_url, f"/api/exams/{exam_id}/submit"),
             method="POST",
-            headers={"X-Exam-Token": token, "X-App-Version": APP_VERSION},
+            headers={"X-Exam-Token": token},
             body=body,
             timeout=30,
         )
@@ -437,7 +487,10 @@ def submit_exam(
         try:
             body_data = json.loads(e.read().decode("utf-8"))
             resp = SubmitResponse.from_json(body_data)
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+            resp = SubmitResponse(success=False, message=f"HTTP {e.code}: {e.reason}")
         except Exception:
+            log.exception("submit_exam: respons error tak terduga")
             resp = SubmitResponse(success=False, message=f"HTTP {e.code}: {e.reason}")
         # Keep the code so submit_with_retry can tell a permanent rejection
         # (401/403/404) from a transient one (408/429/5xx, network).
@@ -535,7 +588,7 @@ def send_access_log(
         data = _make_request(
             _url_join(base_url, f"/api/exams/{exam_id}/access-log"),
             method="POST",
-            headers={"X-Exam-Token": token, "X-App-Version": APP_VERSION},
+            headers={"X-Exam-Token": token},
             body=body,
             timeout=10,
         )
@@ -567,7 +620,7 @@ def complete_exam(
         data = _make_request(
             _url_join(base_url, f"/api/exams/{exam_id}/complete"),
             method="POST",
-            headers={"X-Exam-Token": token, "X-App-Version": APP_VERSION},
+            headers={"X-Exam-Token": token},
             body=body,
             timeout=10,
         )
@@ -652,7 +705,13 @@ def exam_result(
             if resp.http_status is None:
                 resp.http_status = code
             return resp
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+            return SubmitResponse(
+                success=False, message=f"HTTP {code}: {e.reason}",
+                http_status=code,
+            )
         except Exception:
+            log.exception("exam_result: respons error tak terduga")
             return SubmitResponse(
                 success=False, message=f"HTTP {code}: {e.reason}",
                 http_status=code,
@@ -855,7 +914,13 @@ def request_approval(
             resp = RequestApprovalResponse.from_json(body_data)
             resp.http_status = code
             return resp
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+            return RequestApprovalResponse(
+                success=False, status="error",
+                message=f"HTTP {code}: {e.reason}", http_status=code,
+            )
         except Exception:
+            log.exception("request_approval: respons error tak terduga")
             return RequestApprovalResponse(
                 success=False, status="error",
                 message=f"HTTP {code}: {e.reason}", http_status=code,

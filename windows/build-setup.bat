@@ -25,7 +25,7 @@ rem
 rem  Aman dijalankan berulang: tidak menghapus venv, tidak
 rem  uninstall apa pun.
 rem ============================================================
-setlocal EnableDelayedExpansion
+setlocal
 cd /d "%~dp0"
 set "DIST_DIR=%~dp0dist"
 set "APP_EXE=%DIST_DIR%\EXAMVAN.exe"
@@ -137,6 +137,9 @@ echo [INFO] Define: %ISCC_DEFINES%
 rem ---- 4. Compile ----
 echo.
 echo [INFO] Compiling installer dengan Inno Setup (1-3 menit)...
+rem Hapus setup kemarin SEBELUM compile: tanpa ini, kegagalan ISCC mencetak
+rem BUILD SUCCESS di atas artefak basi (cek `if exist` di bawah lolos).
+if exist "%SETUP_EXE%" del "%SETUP_EXE%"
 rem ISCC_DEFINES sengaja TIDAK dikutip: ISCC menerima setiap
 rem "/DNama=Nilai" sebagai argumen terpisah, dan mengutip utuhnya
 rem akan memperlakukannya sebagai satu argumen yang tidak dikenal.

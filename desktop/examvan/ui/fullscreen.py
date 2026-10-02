@@ -62,17 +62,22 @@ def covers_fullscreen(widget, screen) -> bool:
     HWND sits in the work area, which is the exact state this module exists to
     detect and repair.
 
-    Compared with `>=` on both axes: a window may legitimately report a frame
-    a pixel or two larger than the screen (DPI rounding, some multi-monitor
-    layouts), and that is still "covering it".
+    Ukuran SAJA tidak cukup: jendela 1920x1040 yang digeser 40px ke bawah
+    tetap "cukup besar" menurut perbandingan ukuran, tapi taskbar di atas
+    (atau strip layar di bawah) tetap terlihat. Jadi rect jendela harus
+    MEMUAT rect layar — posisi ikut diperiksa, dengan toleransi beberapa
+    piksel untuk pembulatan DPI dan bingkai multi-monitor.
     """
     if screen is None:
         return False
     target = fullscreen_geometry(screen)
     current = widget.frameGeometry()
+    tol = 2
     return (
-        current.width() >= target.width()
-        and current.height() >= target.height()
+        current.x() <= target.x() + tol
+        and current.y() <= target.y() + tol
+        and current.x() + current.width() >= target.x() + target.width() - tol
+        and current.y() + current.height() >= target.y() + target.height() - tol
     )
 
 
@@ -95,16 +100,24 @@ def apply_fullscreen(widget) -> bool:
     before 2 instead lets step 2 pull the window straight back into the work
     area.
     """
-    screen = widget.screen() or QApplication.primaryScreen()
+    # `show()` DULU: Qt mengabaikan state request pada window yang hidden,
+    # dan `widget.screen()` hanya valid setelah window tampil (sebelum itu
+    # ia menjawab screen tempat window DICIPTAKAN, bukan tempat ia akan
+    # tampil — salah layar di multi-monitor). Jadi layar target di-resolve
+    # SETELAH show, dengan fallback ke perilaku lama (primaryScreen).
+    widget.show()
+    widget.showFullScreen()
+    try:
+        screen = widget.screen()
+    except Exception:
+        screen = None
+    if screen is None:
+        screen = QApplication.primaryScreen()
     if screen is None:
         # Tanpa screen tidak ada yang bisa dipastikan, jadi jangan klaim
         # berhasil — pemanggil memakai nilai balik ini untuk logging.
-        widget.show()
-        widget.showFullScreen()
         return False
 
-    widget.show()
-    widget.showFullScreen()
     widget.setGeometry(fullscreen_geometry(screen))
     return covers_fullscreen(widget, screen)
 

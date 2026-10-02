@@ -72,6 +72,10 @@ def reset_backend_cache() -> None:
             _shared_backend.release_strict_mode(None)
         except Exception:
             pass
+        try:
+            _shared_backend.allow_sleep()
+        except Exception:
+            pass
     _shared_backend = None
 
 

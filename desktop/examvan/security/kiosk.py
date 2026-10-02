@@ -90,6 +90,7 @@ def setup_kiosk_environment() -> None:
 
     Should be called from the exam app after it launches in a kiosk session.
     """
+    global _unclutter_proc
     # Disable screen saver
     if os.environ.get("DISPLAY"):
         try:
@@ -102,22 +103,55 @@ def setup_kiosk_environment() -> None:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-    # Hide cursor (optional, via unclutter)
+    # Hide cursor (optional, via unclutter) — handle disimpan module-global
+    # supaya teardown_kiosk_environment bisa mematikannya.
     try:
-        subprocess.Popen(
+        _unclutter_proc = subprocess.Popen(
             ["unclutter", "-idle", "3", "-root"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except FileNotFoundError:
-        pass
+    except (FileNotFoundError, OSError):
+        _unclutter_proc = None
 
     log.info("Kiosk environment configured")
 
 
+# Handle proses unclutter dari setup_kiosk_environment — dimatikan oleh
+# teardown_kiosk_environment (dipanggil enforcer deactivate jalur kiosk).
+_unclutter_proc = None
+
+
+def teardown_kiosk_environment() -> None:
+    """Matikan proses kiosk (unclutter) yang dinyalakan setup.
+
+    Best-effort: tanpa ini unclutter menetap setelah ujian dan kursor
+    tetap disembunyikan di sesi desktop siswa berikutnya.
+    """
+    global _unclutter_proc
+    proc = _unclutter_proc
+    _unclutter_proc = None
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log.info("Kiosk environment torn down (unclutter stopped)")
+    except Exception:
+        log.warning("teardown kiosk gagal", exc_info=True)
+
+
 def _has_openbox() -> bool:
     """Check if Openbox window manager is installed."""
-    return subprocess.run(["which", "openbox"], capture_output=True).returncode == 0
+    try:
+        return subprocess.run(
+            ["which", "openbox"], capture_output=True, timeout=5
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def _find_free_display() -> Optional[str]:
@@ -177,60 +211,85 @@ def launch_kiosk_session(examvan_path: str) -> int:
 
     # 1. Start Xephyr
     log.info("Starting Xephyr on %s ...", display)
-    xephyr = subprocess.Popen(
-        ["Xephyr", display, "-screen", "1920x1080",
-         "-ac", "-br", "-sw-cursor", "-noreset"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-    # 2. Wait for Xephyr to be ready
-    for i in range(50):
-        time.sleep(0.2)
-        r = subprocess.run(["xdpyinfo", "-display", display],
-                           capture_output=True, timeout=2)
-        if r.returncode == 0:
-            log.info("Xephyr ready after %d attempts", i + 1)
-            break
-    else:
-        log.error("Xephyr failed to start")
-        xephyr.kill()
-        return 1
-
-    # 3. Start Openbox as window manager inside Xephyr
-    if _has_openbox():
-        ob_config = generate_openbox_kiosk_config()
-        openbox = subprocess.Popen(
-            ["openbox", "--config-file", ob_config],
-            env=display_env,
+    try:
+        xephyr = subprocess.Popen(
+            ["Xephyr", display, "-screen", "1920x1080",
+             "-ac", "-br", "-sw-cursor", "-noreset"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        log.info("Openbox started in kiosk session")
-        # Give Openbox time to initialize
-        time.sleep(0.5)
-    else:
-        log.warning("Openbox not found — kiosk session without WM")
-        openbox = None
+    except (FileNotFoundError, OSError):
+        log.error("Xephyr tidak terinstal")
+        return 1
 
-    # 4. Launch exam app inside Xephyr
-    log.info("Launching exam app inside Xephyr ...")
-    app = subprocess.Popen(
-        [venv_python, "-m", "examvan", "--kiosk-session"],
-        cwd=project_dir,
-        env=display_env,
-    )
-
-    # 5. Cleanup on app exit
-    app.wait()
-    log.info("Exam app exited (code %d)", app.returncode)
-    if openbox:
-        openbox.terminate()
-        try:
-            openbox.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            openbox.kill()
-    xephyr.terminate()
+    # 2. Wait for Xephyr to be ready
     try:
-        xephyr.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        xephyr.kill()
-    return app.returncode
+        for i in range(50):
+            time.sleep(0.2)
+            try:
+                r = subprocess.run(["xdpyinfo", "-display", display],
+                                   capture_output=True, timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if r.returncode == 0:
+                log.info("Xephyr ready after %d attempts", i + 1)
+                break
+        else:
+            log.error("Xephyr failed to start")
+            xephyr.kill()
+            return 1
+    except Exception:
+        try:
+            xephyr.kill()
+        except Exception:
+            pass
+        raise
+
+    # 3-5 dibungkus try/finally: kegagalan openbox/app tidak boleh
+    # meninggalkan Xephyr hidup (display terkunci sampai reboot).
+    openbox = None
+    app = None
+    try:
+        # 3. Start Openbox as window manager inside Xephyr
+        if _has_openbox():
+            ob_config = generate_openbox_kiosk_config()
+            openbox = subprocess.Popen(
+                ["openbox", "--config-file", ob_config],
+                env=display_env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            log.info("Openbox started in kiosk session")
+            # Give Openbox time to initialize
+            time.sleep(0.5)
+        else:
+            log.warning("Openbox not found — kiosk session without WM")
+
+        # 4. Launch exam app inside Xephyr
+        log.info("Launching exam app inside Xephyr ...")
+        app = subprocess.Popen(
+            [venv_python, "-m", "examvan", "--kiosk-session"],
+            cwd=project_dir,
+            env=display_env,
+        )
+
+        # 5. Cleanup on app exit
+        app.wait()
+        log.info("Exam app exited (code %d)", app.returncode)
+        return app.returncode
+    finally:
+        if openbox is not None:
+            try:
+                openbox.terminate()
+                try:
+                    openbox.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    openbox.kill()
+            except Exception:
+                pass
+        try:
+            xephyr.terminate()
+            try:
+                xephyr.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                xephyr.kill()
+        except Exception:
+            pass

@@ -26,9 +26,11 @@ format biner PyInstaller:
 Pemakaian:
     list_exe_modules.py windows/dist/EXAMVAN.exe         # nama modul
     list_exe_modules.py --raw windows/dist/EXAMVAN.exe   # + nama file native
+    list_exe_modules.py --require examvan.api,examvan.ui.pdf_viewer windows/dist/EXAMVAN.exe
 
 Keluar dengan kode 0 kalau ada nama modul, 1 kalau tidak ada (arsip rusak
-atau bukan exe PyInstaller), 2 kalau file tidak bisa dibaca.
+atau bukan exe PyInstaller) atau kalau ada modul --require yang hilang,
+2 kalau file tidak bisa dibaca.
 """
 
 from __future__ import annotations
@@ -84,11 +86,26 @@ def read_blob(exe: Path) -> bytes:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     raw = False
+    require: list[str] = []
     if argv and argv[0] == "--raw":
         raw = True
         argv = argv[1:]
+    if argv and argv[0] == "--require":
+        if len(argv) < 3:
+            print(
+                "pemakaian: list_exe_modules.py [--raw] "
+                "[--require mod1,mod2,...] <path-to-exe>",
+                file=sys.stderr,
+            )
+            return 2
+        require = [m.strip() for m in argv[1].split(",") if m.strip()]
+        argv = argv[2:]
     if not argv:
-        print("pemakaian: list_exe_modules.py [--raw] <path-to-exe>", file=sys.stderr)
+        print(
+            "pemakaian: list_exe_modules.py [--raw] "
+            "[--require mod1,mod2,...] <path-to-exe>",
+            file=sys.stderr,
+        )
         return 2
 
     exe = Path(argv[0])
@@ -110,6 +127,13 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if require:
+        missing = [m for m in require if m not in modules]
+        if missing:
+            for m in missing:
+                print(f"modul hilang dari exe: {m}", file=sys.stderr)
+            return 1
 
     if raw:
         for name in modules + native_names(blob):

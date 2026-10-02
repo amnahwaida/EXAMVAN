@@ -58,11 +58,22 @@ def _require(path: Path, hint: str) -> None:
 
 
 def _with_imagemagick(source: Path, target: Path) -> bool:
-    convert = shutil.which("magick") or shutil.which("convert")
-    if not convert:
-        return False
+    """Bangun .ico multi-ukuran via ImageMagick 7 (`magick`).
+
+    Hanya IM7 yang diterima: sintaks `( -clone 0 ... )` di bawah adalah
+    sintaks IM7; IM6 `convert` menafsirkan tanda kurung secara berbeda
+    sehingga hasilnya salah tanpa pesan yang jelas. Tidak ada fallback
+    diam-diam ke `convert`.
+    """
+    magick = shutil.which("magick")
+    if not magick:
+        raise SystemExit(
+            "ImageMagick 7 (`magick`) tidak ditemukan di PATH.\n"
+            "Install dari https://imagemagick.org/script/download.php\n"
+            "(IM6 `convert` SENGAJA tidak dipakai: sintaks `(...)`-nya berbeda.)"
+        )
     _require(source, "Sumber ikon Android hilang.")
-    args = [convert, str(source), "-background", "none", "-define",
+    args = [magick, str(source), "-background", "none", "-define",
             "icon:auto-extract=false"]
     for size in SIZES:
         args += ["(", "-clone", "0", "-filter", "Lanczos",
@@ -75,6 +86,11 @@ def _with_imagemagick(source: Path, target: Path) -> bool:
 
 
 def _with_pillow(source: Path, target: Path) -> bool:
+    """Bangun .ico via Pillow: master di-resize ke setiap SIZES dengan
+    LANCZOS, lalu frame TERBESAR (256) disimpan sebagai gambar utama
+    dengan `sizes=[...]` dan frame yang lebih kecil digabung lewat
+    `append_images`. Kembalikan False bila Pillow tidak terpasang.
+    """
     try:
         from PIL import Image  # noqa: PLC0415
     except ImportError:
@@ -126,11 +142,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"OK  {args.target} berisi ukuran: {verify(args.target)}")
         return 0
 
-    # Pillow dulu: hasilnya lebih deterministik antar-platform daripada
-    # ImageMagick yang bisa berbeda versi.
-    made = _with_pillow(args.source, args.target)
-    if not made:
+    # ImageMagick 7 dulu, Pillow sebagai fallback: `magick` adalah alat
+    # yang didokumentasikan untuk regimen ini, dan hasilnya sudah
+    # diverifikasi oleh verify() di bawah. Tidak pernah `convert` (IM6):
+    # sintaks `(...)`-nya berbeda dan kegagalannya tidak jelas.
+    if shutil.which("magick"):
         made = _with_imagemagick(args.source, args.target)
+    else:
+        made = _with_pillow(args.source, args.target)
     if not made:
         raise SystemExit(
             "Butuh Pillow (`pip install Pillow`) atau ImageMagick.\n"

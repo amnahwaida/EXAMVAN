@@ -21,12 +21,13 @@ import (
 // reasons — the pool is nil here — which is fine), and request N+1 MUST be
 // rejected with 429 by the middleware itself.
 //
-// This is the contract behind the "satu NAT = satu ruangan" capacity: the WS
-// budget (60/menit, koneksi gelombang pertama) is the smallest of all, so a
-// classroom behind one school NAT/WiFi is supported up to 60 devices. The
-// higher budgets (1200/menit for join/download/poll waves, 120/menit for
-// deadline bursts) exist precisely so those routes never become the
-// bottleneck. See README → "Kapasitas Satu NAT".
+// This is the contract behind the "satu NAT = satu ruangan" capacity: the
+// whole school shares one per-IP bucket behind NAT, so the budgets are sized
+// for a full 500-device room — the WS budget (600/menit, koneksi gelombang
+// pertama + headroom reconnect) is the smallest of all. The higher budgets
+// (15000/menit for join/download/poll waves — result polling alone is
+// 500×24=12000/menit at the deadline — 1500/menit for deadline bursts) exist
+// precisely so those routes never become the bottleneck. See README → "Kapasitas Satu NAT".
 //
 // The test drives the real registerRoutes — the exact function main() calls —
 // with a fresh miniredis injected into the request context (like main() does),
@@ -53,22 +54,29 @@ func TestStudentRoutesRateLimitPerIP(t *testing.T) {
 		method string
 		path   string
 		limit  int
+		// perToken rotates the token per request (see below): the /hasil
+		// routes enforce a per-TOKEN bucket (60/menit, public package) ON
+		// TOP of the per-IP middleware ceiling this test locks. A fixed
+		// token would 429 from the handler at request 61 — indistinguishable
+		// from a middleware 429 — so token-bearing hasil cases vary the
+		// token per request to isolate the middleware dimension.
+		perToken bool
 	}{
-		{"exams list", http.MethodGet, "/api/exams", rateLimitExamsPerMinute},
-		{"request-approval", http.MethodPost, "/api/exams/request-approval", rateLimitWavePerMinute},
-		{"token join", http.MethodGet, "/api/exams/token/TOK12345", rateLimitWavePerMinute},
-		{"pdf download", http.MethodGet, "/api/exams/1/pdf", rateLimitWavePerMinute},
-		{"submit", http.MethodPost, "/api/exams/1/submit", rateLimitBurstPerMinute},
-		{"result poll", http.MethodGet, "/api/exams/1/result", rateLimitWavePerMinute},
-		{"access-log", http.MethodPost, "/api/exams/1/access-log", rateLimitBurstPerMinute},
-		{"complete", http.MethodPost, "/api/exams/1/complete", rateLimitBurstPerMinute},
-		{"websocket", http.MethodGet, "/ws/1", rateLimitWSPerMinute},
-		{"hasil api", http.MethodGet, "/api/hasil/TOK12345", rateLimitHasilPerMinute},
+		{"exams list", http.MethodGet, "/api/exams", rateLimitExamsPerMinute, false},
+		{"request-approval", http.MethodPost, "/api/exams/request-approval", rateLimitWavePerMinute, false},
+		{"token join", http.MethodGet, "/api/exams/token/TOK12345", rateLimitWavePerMinute, false},
+		{"pdf download", http.MethodGet, "/api/exams/1/pdf", rateLimitWavePerMinute, false},
+		{"submit", http.MethodPost, "/api/exams/1/submit", rateLimitBurstPerMinute, false},
+		{"result poll", http.MethodGet, "/api/exams/1/result", rateLimitWavePerMinute, false},
+		{"access-log", http.MethodPost, "/api/exams/1/access-log", rateLimitBurstPerMinute, false},
+		{"complete", http.MethodPost, "/api/exams/1/complete", rateLimitBurstPerMinute, false},
+		{"websocket", http.MethodGet, "/ws/1", rateLimitWSPerMinute, false},
+		{"hasil api", http.MethodGet, "/api/hasil/TOK12345", rateLimitHasilPerMinute, true},
 		// M1: the HTML result pages share the API route's anti-brute-force
 		// budget — the comment on rateLimitHasilPerMinute always claimed it,
 		// but the middleware was only wired on /api/hasil/:token.
-		{"hasil page", http.MethodGet, "/hasil/TOK12345", rateLimitHasilPerMinute},
-		{"cek hasil page", http.MethodGet, "/hasil", rateLimitHasilPerMinute},
+		{"hasil page", http.MethodGet, "/hasil/TOK12345", rateLimitHasilPerMinute, true},
+		{"cek hasil page", http.MethodGet, "/hasil", rateLimitHasilPerMinute, false},
 	}
 
 	for i, tc := range cases {
@@ -77,7 +85,11 @@ func TestStudentRoutesRateLimitPerIP(t *testing.T) {
 			remoteAddr := fmt.Sprintf("203.0.113.%d:9999", 10+i)
 
 			for n := 0; n < tc.limit; n++ {
-				rec := doRouteRateLimitRequest(r, tc.method, tc.path, remoteAddr)
+				path := tc.path
+				if tc.perToken {
+					path = fmt.Sprintf("%s-%06d", tc.path, n)
+				}
+				rec := doRouteRateLimitRequest(r, tc.method, path, remoteAddr)
 				if rec.Code == http.StatusTooManyRequests {
 					t.Fatalf("request %d/%d unexpectedly rate-limited by middleware", n+1, tc.limit)
 				}

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import logging
 import time
+import unicodedata
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
@@ -56,6 +57,7 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStyle,
     QVBoxLayout,
     QWidget,
@@ -68,6 +70,43 @@ log = logging.getLogger(__name__)
 
 # Berapa lama link hasil boleh tinggal di clipboard setelah disalin.
 CLIPBOARD_CLEAR_SECONDS = 30
+
+# Panjang maksimal teks server yang dirender (pesan guru). Tanpa batas,
+# `congrats_message` raksasa dari server rusak/meledak membuat kartu
+# membesar tak terkendali di layar lab kecil.
+_SERVER_TEXT_LIMIT = 2000
+
+# Override/isolate dua arah (bidi): bisa membalik urutan tampil atau
+# menyembunyikan bagian label (mis. menyamarkan teks di sebelah tombol).
+_BIDI_CHARS = frozenset(
+    "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+)
+
+# Kontrol whitespace yang sah di QLabel (baris baru, tab) — dipertahankan.
+_WHITESPACE_CONTROLS = frozenset("\t\n\r")
+
+
+def _sanitize_server_text(text: object, limit: int = _SERVER_TEXT_LIMIT) -> str:
+    """Bersihkan teks dari server sebelum dirender di QLabel.
+
+    Membuang karakter kontrol tak terlihat (kategori Unicode Cc, Cf, Co,
+    Cs — kecuali whitespace sah) dan karakter bidi override/isolate, lalu
+    memotong sampai `limit`. Bersama `setTextFormat(Qt.PlainText)` di
+    label, ini memastikan teks guru tidak bisa menyuntik HTML/Qt rich-text
+    atau memanipulasi arah tampil label.
+    """
+    cleaned = []
+    for ch in str(text or ""):
+        if ch in _WHITESPACE_CONTROLS:
+            cleaned.append(ch)
+            continue
+        cat = unicodedata.category(ch)
+        if cat in ("Cc", "Cf", "Co", "Cs"):
+            continue
+        if ch in _BIDI_CHARS:
+            continue
+        cleaned.append(ch)
+    return "".join(cleaned)[:limit]
 
 _DEFAULT_CONGRATS = (
     "Jawabanmu sudah berhasil dikumpulkan. Terima kasih telah mengerjakan "
@@ -100,16 +139,23 @@ class CongratulationsWindow(QMainWindow):
         student_number: str = "",
         student_class: str = "",
         congrats_message: Optional[str] = None,
+        # H6: False bila guru mematikan publikasi nilai (exam.public_results).
+        # Default True = perilaku lama bila kunci absen di respons.
+        public_results: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._result_url = build_result_link(server_url, exam_token)
+        self._public_results = bool(public_results)
         self._copied_at: Optional[float] = None
         self._cleared = False
         self._closed = False
 
         self.setWindowTitle("EXAMVAN — Selesai")
-        self.setMinimumSize(560, 480)
+        # Minimum kecil (bukan 560x480): apply_fullscreen memaksa geometri
+        # sendiri, jadi minimum yang lebih kecil selalu aman dan tidak
+        # memotong kartu di layar lab kecil.
+        self.setMinimumSize(360, 280)
 
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -119,7 +165,8 @@ class CongratulationsWindow(QMainWindow):
 
         card = QWidget()
         card.setObjectName("congratsCard")
-        card.setFixedWidth(560)
+        card.setMaximumWidth(560)
+        card.setMinimumWidth(420)
         from .styles import is_system_dark
 
         if is_system_dark():
@@ -144,13 +191,13 @@ class CongratulationsWindow(QMainWindow):
         icon_label = QLabel()
         icon = self.style().standardIcon(QStyle.SP_DialogApplyButton)
         pm = icon.pixmap(48, 48)
+        icon_label.setAlignment(Qt.AlignCenter)
         if not pm.isNull():
             icon_label.setPixmap(pm)
-            icon_label.setAlignment(Qt.AlignCenter)
-        else:
-            icon_label.setText("\u2705")
-            icon_label.setAlignment(Qt.AlignCenter)
-            icon_label.setStyleSheet("font-size: 40px; color: #16a34a;")
+        # Tanpa pixmap sistem, label sengaja dikosongkan: fallback glyph
+        # emoji ("\u2705") menjadi kotak kosong (tofu) di mesin tanpa font
+        # emoji — momen paling penting bagi siswa tidak boleh bergantung
+        # pada keberuntungan font.
         card_layout.addWidget(icon_label)
 
         title = QLabel("Jawaban Berhasil Dikumpulkan")
@@ -158,7 +205,9 @@ class CongratulationsWindow(QMainWindow):
         title.setStyleSheet("font-size: 22px; font-weight: 700; color: #16a34a;")
         card_layout.addWidget(title)
 
-        self._exam_badge = QLabel(exam_name.strip() or "Ujian")
+        self._exam_badge = QLabel(
+            _sanitize_server_text(exam_name.strip() or "Ujian"))
+        self._exam_badge.setTextFormat(Qt.PlainText)
         self._exam_badge.setAlignment(Qt.AlignCenter)
         self._exam_badge.setWordWrap(True)
         # Warna teks badge DIWARISI dari tema (bukan abu-abu hardcode):
@@ -172,8 +221,10 @@ class CongratulationsWindow(QMainWindow):
         )
         card_layout.addWidget(self._exam_badge)
 
-        message = (congrats_message or "").strip() or _DEFAULT_CONGRATS
+        message = _sanitize_server_text(
+            (congrats_message or "").strip() or _DEFAULT_CONGRATS)
         self._congrats = QLabel(message)
+        self._congrats.setTextFormat(Qt.PlainText)
         self._congrats.setWordWrap(True)
         self._congrats.setAlignment(Qt.AlignCenter)
         self._congrats.setStyleSheet("font-size: 15px;")
@@ -201,11 +252,17 @@ class CongratulationsWindow(QMainWindow):
                 continue
             row = QHBoxLayout()
             key = QLabel(label)
+            key.setTextFormat(Qt.PlainText)
             # Kunci identitas mewarisi warna tema -- alasan sama dengan
             # badge di atas: abu-abu hardcode tidak cukup kontras di kartu
             # gelap, dan tema sudah memberi warna yang benar.
             key.setStyleSheet("font-size: 13px;")
-            val = QLabel(str(value).strip())
+            val = QLabel(_sanitize_server_text(str(value).strip()))
+            val.setTextFormat(Qt.PlainText)
+            # Nilai panjang (nama ganda, kelas gabungan) membungkus, bukan
+            # mendorong kartu melebar: word-wrap + melebar mengisi baris.
+            val.setWordWrap(True)
+            val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             val.setStyleSheet("font-size: 13px; font-weight: 600;")
             row.addWidget(key)
             row.addStretch(1)
@@ -219,19 +276,31 @@ class CongratulationsWindow(QMainWindow):
         card_layout.addSpacing(6)
 
         link_row = QHBoxLayout()
+        # Teks link gabungan tetap disanitasi (bukan URL-nya yang diubah:
+        # _sanitize hanya membuang kontrol tak terlihat, dan link hasil
+        # selalu percent-encoded sehingga semantik URL tidak tersentuh).
         self._link_label = QLabel(
-            f"Link hasil: {self._result_url}" if self._result_url
-            else "Link hasil tidak tersedia (token ujian kosong)."
+            _sanitize_server_text(
+                f"Link hasil: {self._result_url}" if self._result_url
+                else "Link hasil tidak tersedia (token ujian kosong)."
+            )
         )
+        self._link_label.setTextFormat(Qt.PlainText)
         self._link_label.setWordWrap(True)
-        self._link_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # TANPA TextSelectableByMouse: menyeleksi link dengan mouse
+        # menyalin token ke clipboard TANPA hitung mundur pembersih —
+        # membuka lagi kebocoran yang tombol Copy (satu-satunya jalur
+        # salin) sudah tutup. Tombol Copy tetap satu-satunya jalan.
+        self._link_label.setTextInteractionFlags(Qt.NoTextInteraction)
         self._link_label.setStyleSheet("font-size: 12px;")
         link_row.addWidget(self._link_label, 1)
 
         self._copy_btn = QPushButton("Copy Link")
-        self._copy_btn.setEnabled(bool(self._result_url))
+        self._copy_btn.setEnabled(
+            bool(self._result_url) and self._public_results)
         self._copy_btn.setToolTip(
-            f"Link akan dihapus otomatis dari clipboard dalam "
+            f"Link ini menampilkan hasil seluruh kelas, dan akan dihapus "
+            f"otomatis dari clipboard dalam "
             f"{CLIPBOARD_CLEAR_SECONDS} detik supaya token ujian tidak "
             "tertinggal di komputer bersama."
         )
@@ -239,12 +308,25 @@ class CongratulationsWindow(QMainWindow):
         link_row.addWidget(self._copy_btn, 0)
         card_layout.addLayout(link_row)
 
-        note = QLabel(
-            "Buka link tersebut di browser untuk melihat hasil ujianmu."
-        )
+        if self._public_results:
+            note_text = (
+                "Buka link tersebut di browser untuk melihat hasil ujianmu. "
+                "Link ini menampilkan hasil seluruh kelas."
+            )
+        else:
+            # H6: guru mematikan publikasi nilai — tidak ada link yang bisa
+            # dibuka siswa; tombol salin disembunyikan dan catatannya jujur.
+            note_text = (
+                "Nilai tidak dipublikasikan guru — hubungi pengawas."
+            )
+            self._copy_btn.hide()
+            self._copy_btn.setEnabled(False)
+        note = QLabel(note_text)
         note.setWordWrap(True)
         note.setAlignment(Qt.AlignCenter)
-        note.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        # Warna diwarisi dari tema: abu hardcode #94a3b8 kontrasnya di
+        # bawah ambang WCAG di atas kartu gelap.
+        note.setStyleSheet("font-size: 11px;")
         card_layout.addWidget(note)
 
         card_layout.addSpacing(10)
@@ -262,7 +344,7 @@ class CongratulationsWindow(QMainWindow):
 
         version = QLabel(f"EXAMVAN {APP_VERSION}")
         version.setAlignment(Qt.AlignCenter)
-        version.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        version.setStyleSheet("font-size: 11px;")
         card_layout.addWidget(version)
 
         outer.addWidget(card, alignment=Qt.AlignHCenter)
@@ -314,17 +396,26 @@ class CongratulationsWindow(QMainWindow):
         except Exception:
             log.warning("could not write result link to clipboard", exc_info=True)
             return
-        self._copied_at = time.monotonic()
+        # Jam dinding (wall-clock), bukan monotonic: hitung mundur ini
+        # dibandingkan dengan waktu yang dilihat siswa, dan suspend yang
+        # membekukan monotonic tidak boleh memperpanjang masa tinggal
+        # token di clipboard.
+        self._copied_at = time.time()
         self._cleared = False
+        self._start_timer()
         self._tick()
 
     def _tick(self) -> None:
         """Perbarui hitung mundur; bersihkan bila sudah lewat."""
         if self._copied_at is None or self._cleared:
             return
-        remaining = CLIPBOARD_CLEAR_SECONDS - int(time.monotonic() - self._copied_at)
-        if remaining > 0:
-            self._copy_btn.setText(f"Copy Link ({remaining}s)")
+        # Perbandingan float langsung: `int()` dulu memotong 29,9 detik
+        # menjadi 29 sehingga tombol menulis "1s" padahal sisa 0,1 detik —
+        # dan sebaliknya 30,0 tepat baru bersih. Tanpa pemotongan,
+        # "habis" berarti benar-benar habis.
+        elapsed = time.time() - self._copied_at
+        if elapsed < CLIPBOARD_CLEAR_SECONDS:
+            self._copy_btn.setText(f"Copy Link ({int(CLIPBOARD_CLEAR_SECONDS - elapsed)}s)")
             return
         self._clear_clipboard_if_ours()
 
@@ -334,29 +425,46 @@ class CongratulationsWindow(QMainWindow):
         Kalau siswa menyalin sesuatu yang lain setelah menekan tombol,
         isi clipboard itu miliknya; menghapusnya adalah kehilangan data
         yang tidak disengaja.
+
+        Batas yang harus jujur (M11): `clipboard.clear()` hanya
+        mengosongkan clipboard AKTIF. Riwayat clipboard OS (mis. Win+V di
+        Windows, manajer clipboard desktop Linux) bisa tetap menyimpan
+        salinan link di luar jangkauan Qt — scrubber ini menutup pintu
+        paste biasa, bukan forensik riwayat. Token memang kredensial
+        seluruh kelas pada mode static; yang menutup lubang itu
+        sepenuhnya adalah guru menonaktifkan publikasi nilai, bukan
+        tombol ini.
         """
+        if not self._result_url:
+            return
         self._cleared = True
         self._copied_at = None
         try:
             clipboard = QApplication.clipboard()
             if clipboard.text().strip() == self._result_url:
                 clipboard.clear()
+            # Reset tombol di DALAM try: kalau clipboard gagal diakses,
+            # biarkan hitung mundur apa adanya daripada menampilkan
+            # "Copy Link" seolah link sudah bersih.
+            self._copy_btn.setText("Copy Link")
+            self._copy_btn.setEnabled(
+                bool(self._result_url) and self._public_results)
         except Exception:
             log.debug("clipboard clear failed", exc_info=True)
-        self._copy_btn.setText("Copy Link")
-        self._copy_btn.setEnabled(bool(self._result_url))
 
     # ------------------------------------------------------------------
     # Timer
     # ------------------------------------------------------------------
 
     def _start_timer(self) -> None:
-        if getattr(self, "_timer", None) is not None:
+        timer = getattr(self, "_timer", None)
+        if timer is not None and timer.isActive():
             return
-        self._timer = QTimer(self)
-        self._timer.setInterval(1000)
-        self._timer.timeout.connect(self._tick)
-        self._timer.start()
+        if timer is None:
+            timer = self._timer = QTimer(self)
+            timer.setInterval(1000)
+            timer.timeout.connect(self._tick)
+        timer.start()
 
     def _stop_timer(self) -> None:
         timer = getattr(self, "_timer", None)
@@ -364,12 +472,20 @@ class CongratulationsWindow(QMainWindow):
             timer.stop()
 
     def showEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        self._start_timer()
+        # Halaman tampil lagi setelah disalin (hide lalu show): hitung
+        # mundur harus lanjut, jadi timer di-restart bila masih ada
+        # salinan yang dijaga. Tanpa ini, menyembunyikan lalu
+        # menampilkan halaman membekukan countdown selamanya.
+        if self._copied_at is not None and not self._cleared:
+            self._start_timer()
         super().showEvent(event)
 
     def hideEvent(self, event) -> None:  # noqa: N802 (Qt API)
         # Halaman disembunyikan tanpa ditutup (mis. di-hide pemanggil):
-        # timer ikut berhenti supaya tidak membuang tick pada widget gaib.
+        # token tidak boleh tertinggal di clipboard hanya karena halaman
+        # tidak terlihat — bersihkan dulu, lalu hentikan timer supaya
+        # tidak membuang tick pada widget gaib.
+        self._clear_clipboard_if_ours()
         self._stop_timer()
         super().hideEvent(event)
 
@@ -415,11 +531,6 @@ class CongratulationsWindow(QMainWindow):
         except Exception:
             log.warning("could not show congratulations fullscreen", exc_info=True)
             self.showMaximized()
-
-    def reject(self) -> None:
-        """Parity nama dengan QDialog lama: tutup dengan membersihkan clipboard."""
-        self._clear_clipboard_if_ours()
-        self.close()
 
     def is_closed(self) -> bool:
         return self._closed

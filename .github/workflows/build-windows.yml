@@ -372,18 +372,23 @@ jobs:
           # diuji smoke test, dan punya binding ctypes.
           $required = @(
             "examvan",
+            "examvan.__main__",
             "examvan.api",
             "examvan.config",
             "examvan.models",
             "examvan.notify",
+            "examvan.security",
+            "examvan.security_levels",
             "examvan.utils",
             "examvan.ws",
             "examvan.ui.answer_sheet",
+            "examvan.ui.congratulations",
             "examvan.ui.exam_viewer",
             "examvan.ui.fullscreen",
             "examvan.ui.identity_dialog",
             "examvan.ui.pdf_viewer",
             "examvan.ui.server_config",
+            "examvan.ui.styles",
             "examvan.ui.timer",
             "examvan.ui.waiting_approval",
             "examvan.security.base",
@@ -400,6 +405,42 @@ jobs:
           }
           Write-Host "OK: semua $($required.Count) modul wajib ada di dalam exe"
 
+          # Daftar tangan di atas tidak boleh basi: turunkan himpunan yang
+          # Diharapkan dari source tree (minus --exclude-module di langkah
+          # PyInstaller) lalu diff dua arah. Modul baru yang lupa
+          # ditambahkan ke $required, atau entri $required yang sudah tidak
+          # ada di source (typo/rename), sama-sama menggagalkan build.
+          # Satu baris python: petakan desktop/examvan/**/*.py -> nama modul
+          # (__init__.py = nama paket), kurangi exclude set.
+          $derived = python -c 'from pathlib import Path; excl = {"examvan.security.x11", "examvan.security.linux_backend", "examvan.security.kiosk"}; ps = [p for p in Path("desktop/examvan").rglob("*.py") if "__pycache__" not in p.parts]; mods = set([".".join(p.with_suffix("").parts[1:-1]) if p.stem == "__init__" else ".".join(p.with_suffix("").parts[1:]) for p in ps]); print("\n".join(sorted(m for m in mods if m not in excl)))'
+          if (-not $derived) { throw "gagal menurunkan daftar modul dari source tree" }
+          $stale = @()
+          foreach ($m in $required) {
+            if ($derived -notcontains $m) { $stale += $m }
+          }
+          if ($stale.Count -gt 0) {
+            foreach ($m in $stale) { Write-Host "::error::$m di required tapi tidak ada di source (typo/rename?)" }
+            throw "daftar required basi: $($stale -join ', ')"
+          }
+          $unlisted = @()
+          foreach ($m in $derived) {
+            if ($required -notcontains $m) { $unlisted += $m }
+          }
+          if ($unlisted.Count -gt 0) {
+            foreach ($m in $unlisted) { Write-Host "::error::$m ada di source tapi tidak di required — tambahkan ke daftar" }
+            throw "daftar required kurang: $($unlisted -join ', ')"
+          }
+          Write-Host "OK: daftar required cocok dengan source tree ($($derived.Count) modul)"
+          $missing = @()
+          foreach ($m in $derived) {
+            if ($names -notcontains $m) { $missing += $m }
+          }
+          if ($missing.Count -gt 0) {
+            foreach ($m in $missing) { Write-Host "::error::modul hilang dari exe: $m" }
+            throw "exe tidak lengkap (derivasi source): $($missing -join ', ')"
+          }
+          Write-Host "OK: semua modul derivasi source ada di dalam exe"
+
           # Dependency native Qt yang dipakai runtime. Tanpa Qt5WebSockets.dll
           # ws.py gagal saat dipakai — dan tidak ada yang menyentuh ws.py
           # selama smoke test.
@@ -411,6 +452,21 @@ jobs:
             }
           }
           Write-Host "OK: DLL Qt ter-bundle"
+
+          # Stack PDF: examvan.ui.pdf_viewer memanggil fitz (PyMuPDF).
+          # Nama bundle yang benar dipastikan dari
+          # windows/installer/list_exe_modules.py: _NATIVE_RE menangkap
+          # entri native `*.pyd` (komentar di sana menyebut `_mupdf.pyd`
+          # eksplisit), dan modul sumber `examvan.ui.pdf_viewer` sudah ada
+          # di $required di atas. Tanpa _mupdf, pdf_viewer gagal saat
+          # dipakai — dan tidak ada yang menyentuhnya selama smoke test.
+          foreach ($needle in @("fitz", "_mupdf")) {
+            if ($toc -notmatch [regex]::Escape($needle)) {
+              Write-Host "::error::stack PDF tidak ter-bundle: $needle"
+              throw "stack PDF hilang: $needle"
+            }
+          }
+          Write-Host "OK: stack PDF ter-bundle"
 
           #_bytecode mesin build tidak boleh bocor ke exe.
           if ($names | Where-Object { $_ -match "__pycache__|\.pyc$" }) {

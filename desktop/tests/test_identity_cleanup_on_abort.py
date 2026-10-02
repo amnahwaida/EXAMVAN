@@ -91,6 +91,8 @@ class DecliningRecoveryClearsIdentityTestCase(_ConfigSandbox):
         dlg._server_url = "https://exam.example"
         dlg.btn_connect = mock.Mock()
         dlg.lbl_status = mock.Mock()
+        dlg.input_url = mock.Mock()
+        dlg.input_token = mock.Mock()
         dlg._sig_recovery_available = _RealSignal()
         dlg.exam_selected = mock.Mock()
         dlg.accept = mock.Mock()
@@ -183,6 +185,8 @@ class IdentitySurvivesOnlyWhileAnExamIsRunningTestCase(_ConfigSandbox):
         dlg._server_url = "https://exam.example"
         dlg.btn_connect = mock.Mock()
         dlg.lbl_status = mock.Mock()
+        dlg.input_url = mock.Mock()
+        dlg.input_token = mock.Mock()
         dlg._sig_recovery_available = _RealSignal()
         dlg.exam_selected = mock.Mock()
         dlg.accept = mock.Mock()

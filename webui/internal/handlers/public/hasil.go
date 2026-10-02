@@ -3,6 +3,7 @@
 package public
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/middleware"
@@ -47,6 +49,54 @@ func getPool(c *gin.Context) *pgxpool.Pool {
 		return nil
 	}
 	return pool
+}
+
+// getRedis extracts the optional Redis client from the gin context.
+// Returns nil when Redis is not configured (limiter fail-open, seperti
+// pola checkRateLimit di internal/handlers/api).
+func getRedis(c *gin.Context) *redis.Client {
+	if r, exists := c.Get("redis"); exists {
+		if rc, ok := r.(*redis.Client); ok {
+			return rc
+		}
+	}
+	return nil
+}
+
+const (
+	// hasilTokenRateLimitMax adalah throttle anti-brute-force per-TOKEN untuk
+	// halaman/API hasil (60/menit per token). Middleware per-IP di rute ini
+	// sengaja longgar (300/menit — satu NAT sekolah = satu ruangan berbagi
+	// satu bucket IP) sehingga throttle yang sebenarnya harus keyed per token
+	// di sini, mengikuti pola checkRateLimit per-token/per-exam di
+	// internal/handlers/api (INCR + EXPIRE, fail-open tanpa Redis).
+	hasilTokenRateLimitMax    = 60
+	hasilTokenRateLimitWindow = 60 * time.Second
+	hasilTokenRateKeyPrefix   = "ratelimit:hasil-token:"
+)
+
+// checkHasilTokenRateLimit enforces the per-token bucket for /hasil routes.
+// Returns false when the token exhausted its budget (caller must 429).
+func checkHasilTokenRateLimit(c *gin.Context, token string) bool {
+	rdb := getRedis(c)
+	if rdb == nil {
+		return true
+	}
+	token = strings.ToUpper(strings.TrimSpace(token))
+	if token == "" {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 500*time.Millisecond)
+	defer cancel()
+	key := hasilTokenRateKeyPrefix + token
+	count, err := rdb.Incr(ctx, key).Result()
+	if err != nil {
+		return true
+	}
+	if count == 1 {
+		rdb.Expire(ctx, key, hasilTokenRateLimitWindow)
+	}
+	return count <= hasilTokenRateLimitMax
 }
 
 // ---------------------------------------------------------------------------
@@ -104,8 +154,6 @@ func formatISOUTCString(s string) interface{} {
 	return s + "Z"
 }
 
-
-
 // ---------------------------------------------------------------------------
 // 1. GET /hasil/:token — Public exam results page (HTML)
 // ---------------------------------------------------------------------------
@@ -114,6 +162,23 @@ func formatISOUTCString(s string) interface{} {
 func HasilPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
+
+		// Throttle per-token (anti-brute-force): middleware per-IP di rute
+		// ini hanya ceiling longgar untuk satu NAT sekolah — tanpa bucket
+		// per-token, satu penyerang bisa menebak token tanpa batas selama di
+		// bawah ceiling IP.
+		if !checkHasilTokenRateLimit(c, token) {
+			c.Header("X-Robots-Tag", "noindex, nofollow")
+			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+			c.HTML(http.StatusTooManyRequests, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
+				"error_state":    true,
+				"exam_name":      "",
+				"token":          token,
+				"total_students": 0,
+				"error":          true,
+			}))
+			return
+		}
 
 		// Results change as students submit and contain student names + scores:
 		// never cache the page and block search-engine indexing (X-Robots-Tag is
@@ -210,6 +275,15 @@ func HasilPage() gin.HandlerFunc {
 func HasilAPI() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
+
+		// Throttle per-token, sama seperti HasilPage di atas.
+		if !checkHasilTokenRateLimit(c, token) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"success": false,
+				"message": "Terlalu banyak permintaan. Silakan coba lagi nanti.",
+			})
+			return
+		}
 
 		// Results change as students submit: never let proxies/browsers cache.
 		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -348,15 +422,15 @@ func HasilAPI() gin.HandlerFunc {
 
 		// ---- Build submission list ----
 		type submissionItem struct {
-			ID               int                             `json:"id"`
-			StudentName      string                          `json:"student_name"`
-			ExamNumber       string                          `json:"exam_number"`
-			StudentClass     string                          `json:"student_class"`
-			IdentityData     map[string]interface{}          `json:"identity_data"`
-			Score            *float64                        `json:"score"`
-			MaxScore         *float64                        `json:"max_score"`
-			StartTime        interface{}                     `json:"start_time"`
-			CreatedAt        string                          `json:"created_at"`
+			ID           int                    `json:"id"`
+			StudentName  string                 `json:"student_name"`
+			ExamNumber   string                 `json:"exam_number"`
+			StudentClass string                 `json:"student_class"`
+			IdentityData map[string]interface{} `json:"identity_data"`
+			Score        *float64               `json:"score"`
+			MaxScore     *float64               `json:"max_score"`
+			StartTime    interface{}            `json:"start_time"`
+			CreatedAt    string                 `json:"created_at"`
 			// R66: waktu tampilan terformat WIB dari server — penonton tidak
 			// lagi melihat jam menurut zona perangkatnya (selaras kartu guru).
 			StartTimeDisplay string                             `json:"start_time_display,omitempty"`
@@ -415,27 +489,27 @@ func HasilAPI() gin.HandlerFunc {
 				evaluated = map[string]models.EvaluationDetail{}
 			}
 
-		// R66: waktu tampilan WIB dihitung server-side; field ISO mentah tetap
-		// dikirim untuk perhitungan durasi sisi klien (getDurationString).
-		startTimeDisplay := ""
-		if st, ok := parseLegacyUTCTime(ptrString(startTime)); ok {
-			startTimeDisplay = formatWIBDisplay(st)
-		}
+			// R66: waktu tampilan WIB dihitung server-side; field ISO mentah tetap
+			// dikirim untuk perhitungan durasi sisi klien (getDurationString).
+			startTimeDisplay := ""
+			if st, ok := parseLegacyUTCTime(ptrString(startTime)); ok {
+				startTimeDisplay = formatWIBDisplay(st)
+			}
 
-		item := submissionItem{
-			ID:               id,
-			StudentName:      studentName,
-			ExamNumber:       examNumber,
-			StudentClass:     studentClass,
-			IdentityData:     idData,
-			Score:            score,
-			MaxScore:         maxScorePtr,
-			StartTime:        formatISOUTCString(ptrString(startTime)),
-			CreatedAt:        formatISOUTC(createdAt),
-			StartTimeDisplay: startTimeDisplay,
-			CreatedAtDisplay: formatWIBDisplay(createdAt),
-			EvaluatedAnswers: evaluated,
-		}
+			item := submissionItem{
+				ID:               id,
+				StudentName:      studentName,
+				ExamNumber:       examNumber,
+				StudentClass:     studentClass,
+				IdentityData:     idData,
+				Score:            score,
+				MaxScore:         maxScorePtr,
+				StartTime:        formatISOUTCString(ptrString(startTime)),
+				CreatedAt:        formatISOUTC(createdAt),
+				StartTimeDisplay: startTimeDisplay,
+				CreatedAtDisplay: formatWIBDisplay(createdAt),
+				EvaluatedAnswers: evaluated,
+			}
 			// Raw student answers are sent only when the visitor is entitled
 			// (logged in or the teacher enabled show_answers); otherwise the
 			// frontend masks them while still showing per-question status.

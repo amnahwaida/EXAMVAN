@@ -164,8 +164,13 @@ func successData(c *gin.Context, data gin.H) {
 
 func sanitize(v string) string {
 	v = strings.TrimSpace(v)
+	// Potong per RUNE (bukan per byte): potongan 200 byte bisa membelah rune
+	// UTF-8 multi-byte di tengah → sekuens byte invalid → Postgres menolak
+	// INSERT dengan "invalid byte sequence" (500 permanen saat submit).
 	if len(v) > 200 {
-		v = v[:200]
+		if r := []rune(v); len(r) > 200 {
+			v = string(r[:200])
+		}
 	}
 	return v // html/template auto-escapes on render; storing escaped causes double-escape
 }
@@ -786,12 +791,15 @@ func ExamByToken() gin.HandlerFunc {
 		}
 
 		examResp := gin.H{
-			"id":              exam.ID,
-			"name":            exam.Name,
-			"status":          exam.Status,
-			"security_level":  exam.SecurityLevel,
-			"strict_mode":     exam.IsStrict(),
-			"public_results":  exam.PublicResults,
+			"id":             exam.ID,
+			"name":           exam.Name,
+			"status":         exam.Status,
+			"security_level": exam.SecurityLevel,
+			"strict_mode":    exam.IsStrict(),
+			// Boolean agar client (desktop congratulations page) tahu apakah
+			// tautan hasil boleh ditampilkan: server default public (ujian baru
+			// dibuat dengan PublicResults=1), false hanya bila guru menonaktifkan.
+			"public_results":  exam.AreResultsPublic(),
 			"show_answers":    exam.ShowAnswers,
 			"identity_fields": identityFields,
 			"panel_color":     panelColor,
@@ -1132,6 +1140,9 @@ func SubmitExam() gin.HandlerFunc {
 		}
 
 		for _, field := range expectedFields {
+			if !field.Required {
+				continue
+			}
 			var val string
 			if body.IdentityData != nil {
 				if v, ok := body.IdentityData[field.Key].(string); ok {
@@ -1291,11 +1302,22 @@ func sanitizeMAC(raw string) string {
 	return s
 }
 
-// sanitizeStartTime normalises a start-time string by replacing 'T' with a
-// space and stripping trailing 'Z', matching the Python behaviour.
+// sanitizeStartTime validates a client-supplied start-time string and
+// normalises it to the space-separated form stored in submissions.
+// Only RFC3339 timestamps ("2006-01-02T15:04:05Z07:00", the format the
+// desktop/Android clients send) and the legacy space-separated form
+// ("2006-01-02 15:04:05", matching the old Python behaviour) are accepted;
+// anything else passes through as "" so a garbage value can never break the
+// submit or poison duration calculations downstream.
 func sanitizeStartTime(raw string) string {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
+	}
+	if _, err := time.Parse(time.RFC3339Nano, raw); err != nil {
+		if _, err := time.Parse("2006-01-02 15:04:05", raw); err != nil {
+			return ""
+		}
 	}
 	raw = strings.ReplaceAll(raw, "T", " ")
 	raw = strings.TrimSuffix(raw, "Z")

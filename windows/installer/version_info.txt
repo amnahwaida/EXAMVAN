@@ -21,8 +21,8 @@
 
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 5, 0, 0),
-    prodvers=(2, 5, 0, 0),
+    filevers=(2, 5, 1, 0),
+    prodvers=(2, 5, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -42,7 +42,7 @@ VSVersionInfo(
             StringStruct('InternalName', 'EXAMVAN'),
             StringStruct('OriginalFilename', 'EXAMVAN.exe'),
             StringStruct('ProductName', 'EXAMVAN'),
-            StringStruct('ProductVersion', '2.5.0')
+            StringStruct('ProductVersion', '2.5.1')
           ]
         )
       ]

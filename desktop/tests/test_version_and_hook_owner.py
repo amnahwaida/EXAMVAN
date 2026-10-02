@@ -133,15 +133,54 @@ class VersionIdentityTest(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), APP_VERSION)
 
-    def test_version_resource_agrees_with_app_version(self):
-        # Template boleh bawa 1.0.0 — tugasnya cuma BUKAN bilangan yang
-        # salah. Yang diuji di test_build_info.py: setelah di-stamp, kedua
-        # field FixedFileInfo sama dengan FileVersion.
-        src = VERSION_INFO.read_text(encoding="utf-8")
+    def test_all_four_version_resource_fields_match_app_version(self):
+        # version_info.txt punya EMPAT literal versi: filevers/prodvers
+        # (FixedFileInfo, tuple) dan FileVersion/ProductVersion
+        # (StringStruct). Semuanya harus sama dengan nilai turunan
+        # APP_VERSION — dulu FixedFileInfo tidak pernah di-stamp sehingga
+        # exe berlabel 1.0.0.0 sementara ProductVersion 2.5.x.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("build_info", BUILD_INFO)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        display = mod.numeric_version(APP_VERSION, parts=3)
+        four = [int(x) for x in mod.numeric_version(APP_VERSION, parts=4).split(".")]
+        info = VERSION_INFO.read_text(encoding="utf-8")
+        for key in ("FileVersion", "ProductVersion"):
+            with self.subTest(field=key):
+                m = re.search(rf"StringStruct\('{key}',\s*'([^']*)'\)", info)
+                self.assertIsNotNone(m, f"{key} tidak ada di version_info.txt")
+                self.assertEqual(
+                    m.group(1), display,
+                    f"{key}={m.group(1)!r} != APP_VERSION {display!r}",
+                )
         for key in ("filevers", "prodvers"):
-            m = re.search(rf"{key}\s*=\s*\(([^)]*)\)", src)
-            self.assertIsNotNone(m, f"{key} tidak ada di version_info.txt")
-            self.assertEqual(len(m.group(1).split(",")), 4)
+            with self.subTest(field=key):
+                m = re.search(rf"{key}\s*=\s*\(([^)]*)\)", info)
+                self.assertIsNotNone(m, f"{key} tidak ada di version_info.txt")
+                nums = [int(x.strip()) for x in m.group(1).split(",")]
+                self.assertEqual(
+                    nums, four,
+                    f"{key}={nums} != AppVersionInfo {four}",
+                )
+
+    def test_iss_app_version_info_default_matches_app_version(self):
+        # Default AppVersionInfo untuk iscc tanpa define harus numerik
+        # X.X.X.X turunan APP_VERSION — kalau meleset, build lokal tanpa
+        # build_info.py mengemas versi yang salah diam-diam.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("build_info", BUILD_INFO)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        iss = (REPO / "windows/installer/examvan.iss").read_text(encoding="utf-8")
+        m = re.search(r'#define\s+AppVersionInfo\s+"([^"]+)"', iss)
+        self.assertIsNotNone(m, "#define AppVersionInfo tidak ada di examvan.iss")
+        self.assertEqual(
+            m.group(1), mod.numeric_version(APP_VERSION, parts=4),
+            f"AppVersionInfo default {m.group(1)!r} != turunan APP_VERSION",
+        )
 
     def test_version_source_is_read_from_app_version(self):
         import importlib.util
