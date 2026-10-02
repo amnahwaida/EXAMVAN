@@ -439,28 +439,66 @@ func main() {
 
 // Batas rate-limit per-IP untuk rute siswa — single source of truth yang
 // dipakai registerRoutes dan dikunci oleh TestStudentRoutesRateLimitPerIP
-// (routes_nat_ratelimit_test.go).
+// (routes_nat_ratelimit_test.go), TestRateLimitBudgetsCoverOneNATRoom
+// (ratelimit_nat_capacity_test.go) dan TestPresenceBucketIsSeparateFromSubmit
+// (ratelimit_presence_bucket_test.go).
 //
+// SATU NAT = SATU BUCKET, jadi budget dihitung untuk satu RUANGAN
+// -------------------------------------------------------------
 // SELURUH perangkat di belakang SATU NAT/WiFi sekolah berbagi SATU bucket
 // per-IP middleware (SetTrustedProxies mencakup rentang privat, jadi
-// c.ClientIP() sama untuk satu lab), sehingga budget per-IP HARUS menampung
-// satu ruangan penuh (500 perangkat), bukan satu perangkat:
-//   - 15000/menit (≈250 req/dtk): join token, unduhan PDF, request-approval,
-//     result polling — polling hasil saja sudah 500×24=12000/menit saat
-//     seluruh ruangan mem-poll bersamaan di deadline;
-//   - 1500/menit: submit, access-log, complete — burst submit 500 perangkat
-//     di deadline ditambah heartbeat berkala;
-//   - 600/menit: GET /ws/:room_id — 500 koneksi awal gelombang pertama plus
-//     headroom reconnect.
+// c.ClientIP() sama untuk satu lab). Budget per-IP karena itu HARUS
+// menampung satu ruangan penuh (`natRoomSize` = 500 perangkat), bukan satu
+// perangkat: angka 60/menit untuk GET /api/exams membuat ±440 dari 500 siswa
+// langsung menerima 429 pada menit pertama ujian.
+//
+// Catatan implementasi yang menentukan semua angka di bawah: middleware
+// Redis memakai key `ratelimit:<rute>|<ip>:<window_ms>` — dimensi RUTE
+// ditambahkan lewat middleware.RateLimitIPPerRoute, jadi setiap baris tabel
+// ini diukur pada counter-nya sendiri dan tidak menguras baris lain. SEBELUM
+// dimensi rute ada, semua rute di bawah menghitung pada satu counter yang sama
+// sehingga budget terkecil di tabel ini praktis menjadi plafon setiap rute
+// siswa; itulah akar laporan "GET /api/exams 429s 440 siswa".
+// Isolasi antar rute dikunci TestStudentRoutesAreRateLimitedIndependently
+// (ratelimit_route_isolation_test.go). Karena itu tidak ada angka di tabel ini
+// yang boleh dikecilkan tanpa menghitung ruangannya dulu.
+//
+// Rute yang memakai limiter BERDIMENSI RUTE: semua rute siswa di bawah plus
+// /hasil, /api/hasil/:token, /download* dan /ws/:room_id. Rute auth
+// (/login, /register*, /forgot-password, /reset-password) dan limiter tingkat
+// grup di admin sengaja memakai middleware.RateLimit/RateLimitIP (TANPA scope
+// rute): satu bucket bersama antar rute sekeluarga itu disengaja, supaya
+// 10/menit di /login dan /admin/login tetap 10/menit TOTAL untuk anti
+// brute-force, bukan 20/menit.
+//
+// Aritmetika per rute (satu ruangan = 500 perangkat):
+//   - /api/exams: satu list per perangkat → 500×1 = 500, diberi 4× (2000)
+//     untuk refresh manual saat launch + kelonggaran;
+//   - join token / PDF / request-approval / result polling: polling hasil
+//     tiap ~2,5 dtk di semua perangkat = 500×24 = 12000, diberi 15000;
+//   - submit: `submit_with_retry` mencoba 4 kali (percobaan + backoff
+//     1s/2s/4s) dan seluruh ruangan bisa gagal bareng saat Wi-Fi putus →
+//     500×4 = 2000, diberi 5× (2500) untuk percobaan kelima;
+//   - presence (access-log + complete): bucket KHAS, di atas 500×2: di t=0
+//     semua perangkat login + heartbeat pertama datang lockstep (1000), lalu
+//     500 `complete` lockstep di deadline — memakai plafon submit dulu
+//     membuat heartbeat dan submit saling memakan kuota yang sama;
+//   - /ws/:room_id: 500 koneksi gelombang pertama + badai reconnect ruang
+//     (500) = 1000, diberi 3× (1500) supaya reconnect tidak menunggu backoff;
+//   - /hasil: satu tampilan hasil = 2 permintaan (halaman HTML + panggilan
+//     /api/hasil miliknya) → 500×2 = 1000, diberi 3× (1500).
 //
 // Throttle yang sebenarnya (per perangkat / per ujian) di-enforce di dalam
 // handler keyed exam+MAC / per-token / per-exam (internal/handlers/api).
 const (
-	rateLimitExamsPerMinute = 60    // GET /api/exams — list (one-shot + pull-refresh)
-	rateLimitWavePerMinute  = 15000 // join token, unduhan PDF, request-approval, result
-	rateLimitBurstPerMinute = 1500  // submit, access-log, complete (deadline burst)
-	rateLimitWSPerMinute    = 600   // GET /ws/:room_id — koneksi long-lived
-	rateLimitHasilPerMinute = 300   // GET /hasil[/:token] + /api/hasil/:token — IP ceiling (satu NAT sekolah = satu ruangan, 40+ siswa berbagi satu IP); anti-brute token yang sebenarnya di-enforce per-TOKEN di dalam handler (public.hasilTokenRateLimitMax, 60/menit per token)
+	natRoomSize = 500
+
+	rateLimitExamsPerMinute    = natRoomSize * 4 // GET /api/exams — list (one-shot + pull-refresh)
+	rateLimitWavePerMinute     = 15000           // join token, unduhan PDF, request-approval, result
+	rateLimitBurstPerMinute    = natRoomSize * 5 // submit saja (deadline burst + retry)
+	rateLimitPresencePerMinute = natRoomSize * 4 // access-log + complete (login + heartbeat lockstep di t=0)
+	rateLimitWSPerMinute       = natRoomSize * 3 // GET /ws/:room_id — koneksi long-lived + badai reconnect
+	rateLimitHasilPerMinute    = natRoomSize * 3 // GET /hasil[/:token] + /api/hasil/:token — IP ceiling (satu NAT sekolah = satu ruangan, 500+ siswa berbagi satu IP, satu tampilan = 2 permintaan); anti-brute token yang sebenarnya di-enforce per-TOKEN di dalam handler (public.hasilTokenRateLimitMax, 60/menit per token per rute)
 )
 
 func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
@@ -493,17 +531,18 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/reset-password", resetPasswordPageHandler(cfg))
 	r.POST("/reset-password", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), resetPasswordPostHandler(cfg))
 
-	r.GET("/download", middleware.RateLimitIP(60, time.Minute), public.DownloadPage())
-	r.GET("/download/apk", middleware.RateLimitIP(60, time.Minute), public.DownloadAPK())
-	r.GET("/download/app/:id", middleware.RateLimit(60, time.Minute), public.DownloadSystemApp())
-	// M1: the HTML result pages carry the SAME IP ceiling as the
-	// API route below (lihat rateLimitHasilPerMinute): the token-brute-force
-	// throttle lives per-token inside the public handlers, the middleware is
-	// IP-only (middleware.RateLimitIP) so its budget must hold a whole room
-	// behind one school NAT instead of throttling classmates against each
-	// other.
-	r.GET("/hasil", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.CekHasilPage())
-	r.GET("/hasil/:token", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.HasilPage())
+	r.GET("/download", middleware.RateLimitIPPerRoute(60, time.Minute), public.DownloadPage())
+	r.GET("/download/apk", middleware.RateLimitIPPerRoute(60, time.Minute), public.DownloadAPK())
+	r.GET("/download/app/:id", middleware.RateLimitPerRoute(60, time.Minute), public.DownloadSystemApp())
+	// M1: the HTML result pages carry the SAME IP ceiling as the API route
+	// below (lihat rateLimitHasilPerMinute): the token-brute-force throttle
+	// lives per-token inside the public handlers, the middleware is IP-only
+	// (middleware.RateLimitIP) so its budget must hold a whole room behind
+	// one school NAT instead of throttling classmates against each other.
+	// Satu tampilan hasil memakai DUA budget: halaman ini + panggilan
+	// /api/hasil miliknya, jadi plafonnya natRoomSize×2 (lihat konstanta).
+	r.GET("/hasil", middleware.RateLimitIPPerRoute(rateLimitHasilPerMinute, time.Minute), public.CekHasilPage())
+	r.GET("/hasil/:token", middleware.RateLimitIPPerRoute(rateLimitHasilPerMinute, time.Minute), public.HasilPage())
 
 	// ---- Short URL redirect: /<8-char-token> → /hasil/<token> ----
 	// Must be registered after all other fixed routes so it acts as a catch-all
@@ -522,38 +561,49 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		// design: a mid-exam device_id change (reinstall/clear-data) must never
 		// retarget this limiter under an in-progress exam. Per-device throttling
 		// is enforced inside SubmitExam keyed by exam+MAC.
-		apiGroup.GET("/exams", middleware.RateLimitIP(rateLimitExamsPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
+		// List ujian: satu panggilan per perangkat saat connect + refresh
+		// manual. Plafonnya ikut satu ruangan (natRoomSize×4) — angka lama
+		// 60/menit inherited dari asumsi "satu IP = satu orang" dan membuat
+		// ±440 dari 500 siswa menerima 429 pada menit pertama. Karena key
+		// Redis tidak berdimensi rute, angka ini juga menjadi lantai semua
+		// rute siswa (lihat blok konstanta).
+		apiGroup.GET("/exams", middleware.RateLimitIPPerRoute(rateLimitExamsPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
 		// Request-approval dipoll app tiap 5 dtk (≈12/menit per perangkat) dan
 		// seluruh ruangan menunggu dari satu NAT sekolah — middleware per-IP
 		// sengaja tinggi (≈20 req/dtk); throttle per perangkat (exam+MAC, 30/menit)
 		// dan aggregate per exam (12000/menit) di-enforce di dalam handler.
-		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
+		apiGroup.POST("/exams/request-approval", middleware.RateLimitIPPerRoute(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
 		// Join (token) & unduhan PDF satu kali per perangkat, tapi seluruh
 		// ruangan melakukannya bersamaan di awal ujian dari satu NAT sekolah —
 		// middleware per-IP sengaja tinggi; throttle agregat per-token
 		// (join, 600/menit) dan per exam+MAC (pdf, 10/menit) di-enforce di
 		// dalam handler.
-		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
-		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
-		// Per-IP limit stays high because an entire classroom often submits from
-		// a single NAT'd school IP near the deadline.
-		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
+		apiGroup.GET("/exams/token/:token", middleware.RateLimitIPPerRoute(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
+		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIPPerRoute(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
+		// Submit di deadline: `submit_with_retry` mencoba sampai 4 kali per
+		// perangkat (percobaan + backoff 1s/2s/4s) dan seluruh ruangan bisa
+		// gagal bareng saat Wi-Fi putus sesaat → natRoomSize×4 = 2000, diberi
+		// 5× (2500). Angka lama 1500/menit lebih kecil dari burst itu sendiri,
+		// jadi perangkat yang memakai jalur retry bisa dapat 429 tepat di
+		// detik paling kritis.
+		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIPPerRoute(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
 		// Poll the outcome of an async submission (job_id from submit, or the
 		// device identity used on submit). Middleware per-IP sengaja tinggi
 		// (≈20 req/dtk): app mem-poll tiap 2,5 dtk dan seluruh ruangan mem-poll
 		// bersamaan di deadline dari satu NAT sekolah. Throttle sebenarnya
 		// di-enforce di dalam handler: bucket per exam+MAC (60/menit per
 		// perangkat) + aggregate per exam (12000/menit).
-		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
-		// Presence (access-log & complete) memakai pola yang sama dengan submit:
-		// bucket per-IP dinaikkan agar satu ruangan di belakang NAT sekolah tidak
-		// saling memblokir (tiap perangkat login + ~1 heartbeat/menit + logout +
-		// complete, dan semua complete datang bersamaan di deadline). Throttle
-		// per perangkat di-enforce di dalam handler keyed exam+MAC.
-		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
-		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
+		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIPPerRoute(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
+		// Presence (access-log & complete) punya plafon KHAS
+		// (rateLimitPresencePerMinute), bukan ikut plafon submit: di t=0 semua
+		// 500 perangkat login + heartbeat pertama lockstep (500×2 = 1000, dan
+		// itu sudah 100% dari angka lama), lalu 500 `complete` lockstep di
+		// deadline. Throttle per perangkat tetap di-enforce di dalam handler
+		// keyed exam+MAC.
+		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIPPerRoute(rateLimitPresencePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
+		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIPPerRoute(rateLimitPresencePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
-		apiGroup.GET("/hasil/:token", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.HasilAPI())
+		apiGroup.GET("/hasil/:token", middleware.RateLimitIPPerRoute(rateLimitHasilPerMinute, time.Minute), public.HasilAPI())
 	}
 
 	// WebSocket endpoint (session-based or token-based auth required) — hub
@@ -562,10 +612,11 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	// RateLimitIP caps connections per client IP: unlike HTTP routes there is
 	// no per-request body to gate, so an unbounded route would let a token
 	// holder open an unlimited number of sockets and exhaust resources.
-	// 60/menit: satu ruangan (hingga ~60 perangkat) terhubung di gelombang
-	// pertama dari satu NAT sekolah tanpa harus menunggu backoff reconnect;
-	// koneksi bersifat long-lived sehingga ini bukan jalur spam berkelanjutan.
-	r.GET("/ws/:room_id", middleware.RateLimitIP(rateLimitWSPerMinute, time.Minute), func(c *gin.Context) {
+	// natRoomSize×3 (1500/menit): 500 koneksi gelombang pertama + badai
+	// reconnect seluruh ruang (500) = 1000/menit, jadi angka lama 600/menit
+	// tidak menyisakan ruang untuk pengujian ulang; koneksi bersifat
+	// long-lived sehingga ini bukan jalur spam berkelanjutan.
+	r.GET("/ws/:room_id", middleware.RateLimitIPPerRoute(rateLimitWSPerMinute, time.Minute), func(c *gin.Context) {
 		session := sessions.Default(c)
 		roomID := c.Param("room_id")
 

@@ -145,9 +145,26 @@ class CongratulationsWindow(QMainWindow):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self._result_url = build_result_link(server_url, exam_token)
         self._public_results = bool(public_results)
+        # H6: guru mematikan publikasi nilai → TIDAK ADA link sama sekali,
+        # bukan link yang tombol salinnya disembunyikan. Menyembunyikan
+        # tombol saja tidak menutup apa pun: token tetap tercetak di
+        # label ini (dan di layar apa pun yang memfoto halaman), padahal
+        # di mode static-token itu kredensial hasil SELURUH KELAS.
+        # `_result_url` yang kosong membuat `_copy_btn` mati, label jatuh
+        # ke pesan jujur, dan tidak ada satu pun QString di halaman yang
+        # memuat token.
+        self._result_url = (
+            build_result_link(server_url, exam_token)
+            if self._public_results
+            else ""
+        )
         self._copied_at: Optional[float] = None
+        # Jangkar jam dinding saat menyalin (lihat `_tick`). Dipisah dari
+        # `_copied_at` karena yang mengukur jendela waktu harus jam yang
+        # tidak bisa dimundurkan, sedangkan jam dinding hanya dipakai
+        # untuk menangkap lompatan waktu (suspend / koreksi NTP).
+        self._copied_wall_at: Optional[float] = None
         self._cleared = False
         self._closed = False
 
@@ -396,28 +413,53 @@ class CongratulationsWindow(QMainWindow):
         except Exception:
             log.warning("could not write result link to clipboard", exc_info=True)
             return
-        # Jam dinding (wall-clock), bukan monotonic: hitung mundur ini
-        # dibandingkan dengan waktu yang dilihat siswa, dan suspend yang
-        # membekukan monotonic tidak boleh memperpanjang masa tinggal
-        # token di clipboard.
-        self._copied_at = time.time()
+        # Dua jangkar, dua jam (lihat `_tick`). `monotonic` yang mengukur
+        # jendela: tidak bisa dimundurkan administrator maupun NTP.
+        # `time()` disimpan terpisah hanya untuk menangkap lompatan waktu —
+        # mesin tidur membekukan `monotonic`, jadi tanpa jam dinding token
+        # yang disalin sebelum tidur akan menetap sampai proses selesai.
+        self._copied_at = time.monotonic()
+        self._copied_wall_at = time.time()
         self._cleared = False
         self._start_timer()
         self._tick()
 
     def _tick(self) -> None:
-        """Perbarui hitung mundur; bersihkan bila sudah lewat."""
+        """Perbarui hitung mundur; bersihkan bila sudah lewat.
+
+        Jendela dihitung dari jam yang TIDAK bisa dimundurkan
+        (`time.monotonic()`): dengan jam dinding saja, koreksi NTP atau
+        pengaturan tanggal manual satu jam ke belakang membuat `elapsed`
+        negatif, syarat "belum lewat" selalu benar, dan token kelas
+        tertinggal di clipboard PC lab sampai jam dinding menyusul — tombol
+        ikut menampilkan "Copy Link (3629s)" selama itu.
+
+        Jam dinding tetap dipakai, sebagai pemutus kedua: suspend
+        membekukan `monotonic` sementara waktu nyata tetap berjalan, jadi
+        lompatan maju pada jam dinding harus tetap mengakhiri jendela.
+        Jawabannya: jendela berakhir pada jam mana pun yang lebih dulu
+        lewat (`max`), dan sisa yang ditampilkan dijepit ke
+        [0, CLIPBOARD_CLEAR_SECONDS] supaya tidak pernah menjanjikan
+        jendela yang lebih panjang dari yang ada.
+
+        Perbandingan float langsung: `int()` dulu memotong 29,9 detik
+        menjadi 29 sehingga tombol menulis "1s" padahal sisa 0,1 detik —
+        dan sebaliknya 30,0 tepat baru bersih. Tanpa pemotongan,
+        "habis" berarti benar-benar habis.
+        """
         if self._copied_at is None or self._cleared:
             return
-        # Perbandingan float langsung: `int()` dulu memotong 29,9 detik
-        # menjadi 29 sehingga tombol menulis "1s" padahal sisa 0,1 detik —
-        # dan sebaliknya 30,0 tepat baru bersih. Tanpa pemotongan,
-        # "habis" berarti benar-benar habis.
-        elapsed = time.time() - self._copied_at
-        if elapsed < CLIPBOARD_CLEAR_SECONDS:
-            self._copy_btn.setText(f"Copy Link ({int(CLIPBOARD_CLEAR_SECONDS - elapsed)}s)")
+        elapsed = time.monotonic() - self._copied_at
+        if self._copied_wall_at is not None:
+            elapsed = max(elapsed, time.time() - self._copied_wall_at)
+        if elapsed >= CLIPBOARD_CLEAR_SECONDS:
+            self._clear_clipboard_if_ours()
             return
-        self._clear_clipboard_if_ours()
+        remaining = min(
+            float(CLIPBOARD_CLEAR_SECONDS),
+            max(0.0, CLIPBOARD_CLEAR_SECONDS - elapsed),
+        )
+        self._copy_btn.setText(f"Copy Link ({int(remaining)}s)")
 
     def _clear_clipboard_if_ours(self) -> None:
         """Kosongkan clipboard -- HANYA kalau isinya masih link kita.
@@ -439,6 +481,7 @@ class CongratulationsWindow(QMainWindow):
             return
         self._cleared = True
         self._copied_at = None
+        self._copied_wall_at = None
         try:
             clipboard = QApplication.clipboard()
             if clipboard.text().strip() == self._result_url:

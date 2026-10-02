@@ -23,11 +23,11 @@ import (
 //
 // This is the contract behind the "satu NAT = satu ruangan" capacity: the
 // whole school shares one per-IP bucket behind NAT, so the budgets are sized
-// for a full 500-device room — the WS budget (600/menit, koneksi gelombang
-// pertama + headroom reconnect) is the smallest of all. The higher budgets
-// (15000/menit for join/download/poll waves — result polling alone is
-// 500×24=12000/menit at the deadline — 1500/menit for deadline bursts) exist
-// precisely so those routes never become the bottleneck. See README → "Kapasitas Satu NAT".
+// for a full 500-device room — see the sizing arithmetic on the constants in
+// main.go and TestRateLimitBudgetsCoverOneNATRoom. Presence
+// (access-log/complete) has its own budget (2000/menit = room × 4, above the
+// room × 2 lockstep at t=0) and is checked separately, end to end, by
+// TestPresenceBucketIsSeparateFromSubmit.
 //
 // The test drives the real registerRoutes — the exact function main() calls —
 // with a fresh miniredis injected into the request context (like main() does),
@@ -68,8 +68,8 @@ func TestStudentRoutesRateLimitPerIP(t *testing.T) {
 		{"pdf download", http.MethodGet, "/api/exams/1/pdf", rateLimitWavePerMinute, false},
 		{"submit", http.MethodPost, "/api/exams/1/submit", rateLimitBurstPerMinute, false},
 		{"result poll", http.MethodGet, "/api/exams/1/result", rateLimitWavePerMinute, false},
-		{"access-log", http.MethodPost, "/api/exams/1/access-log", rateLimitBurstPerMinute, false},
-		{"complete", http.MethodPost, "/api/exams/1/complete", rateLimitBurstPerMinute, false},
+		{"access-log", http.MethodPost, "/api/exams/1/access-log", rateLimitPresencePerMinute, false},
+		{"complete", http.MethodPost, "/api/exams/1/complete", rateLimitPresencePerMinute, false},
 		{"websocket", http.MethodGet, "/ws/1", rateLimitWSPerMinute, false},
 		{"hasil api", http.MethodGet, "/api/hasil/TOK12345", rateLimitHasilPerMinute, true},
 		// M1: the HTML result pages share the API route's anti-brute-force

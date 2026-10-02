@@ -157,9 +157,50 @@ func SetExamAutoApprove(ctx context.Context, pool *pgxpool.Pool, examID int, ena
 // links built with a token superseded several rotations ago keep resolving
 // instead of 404-ing. The join/submit gate (examtoken.Matches) does NOT use
 // this — it stays strict on the active token only.
+//
+// Perbandingan TIDAK case-sensitive (UPPER() di sisi kolom), dan itu harus
+// disamakan dengan examtoken.Matches yang memakai strings.EqualFold: kalau
+// tidak, token huruf kecil yang di-uppercase client sebelum dikirim akan lolos
+// dari gate EqualFold lalu gagal resolve di sini karena SQL `=` bersifat
+// case-sensitive. Normalisasi hanya di sisi write TIDAK cukup — baris yang
+// terlanjur tersimpan huruf kecil (impor atau lewat DB langsung) akan tetap
+// rusak permanen, dan tidak ada write path lain yang bisa dijamin.
+//
+// Catatan performa: UPPER() di sisi kolom membuat unique index exams.token
+// tidak terpakai untuk predikat itu. Ini diterima karena jalur ini bukan hot
+// path (satu lookup per join / per halaman hasil) dan kuerinya sudah punya
+// `OR EXISTS` ke exam_token_history yang membuat rencana single-index mustahil
+// sejak awal.
 func GetExamByToken(ctx context.Context, pool *pgxpool.Pool, token string) (Exam, error) {
-	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.token = $1 OR e.active_token = $1 OR e.previous_active_token = $1 OR EXISTS (SELECT 1 FROM exam_token_history h WHERE h.exam_id = e.id AND h.token = $1)`
-	return scanExam(pool.QueryRow(ctx, sql, token))
+	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE UPPER(e.token) = $1 OR UPPER(e.active_token) = $1 OR UPPER(e.previous_active_token) = $1 OR EXISTS (SELECT 1 FROM exam_token_history h WHERE h.exam_id = e.id AND UPPER(h.token) = $1)`
+	return scanExam(pool.QueryRow(ctx, sql, normalizeExamToken(token)))
+}
+
+// GetExamByLiveToken retrieves an exam by a token yang masih hidup: hanya
+// kolom token / active_token / previous_active_token, TANPA
+// exam_token_history.
+//
+// Ini saudara sempit GetExamByToken untuk dipakai admin sebagai cek-tabrakan
+// token kustom. GetExamByToken sengaja melebar sampai history supaya tautan
+// hasil lama tetap hidup, dan pelebaran itu justru merusak cek-tabrakan: guru
+// yang memilih token sama dengan token RETIRED sebuah ujian dinamis akan
+// ditolak "sudah digunakan" padahal token itu tidak akan pernah bisa di-join
+// lagi. previous_active_token tetap diikutkan karena satu rotasi terakhir
+// masih dipakai device yang sedang berjalan.
+//
+// Case-insensitive, sama seperti GetExamByToken, supaya "abc12345" dan
+// "ABC12345" dianggap bertabrakan — konsisten dengan client yang meng-uppercase
+// token sebelum mengirim.
+func GetExamByLiveToken(ctx context.Context, pool *pgxpool.Pool, token string) (Exam, error) {
+	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE UPPER(e.token) = $1 OR UPPER(e.active_token) = $1 OR UPPER(e.previous_active_token) = $1`
+	return scanExam(pool.QueryRow(ctx, sql, normalizeExamToken(token)))
+}
+
+// normalizeExamToken menyamakan bentuk input di semua lookup token: dipangkas
+// dan di-uppercase di sisi Go, bukan UPPER($1) di SQL, supaya perlakuan huruf
+// besar identik untuk setiap pemanggil.
+func normalizeExamToken(token string) string {
+	return strings.ToUpper(strings.TrimSpace(token))
 }
 
 // AppendExamTokenHistory records a superseded active token for an exam and

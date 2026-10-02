@@ -24,6 +24,13 @@ _defaults: Dict[str, Any] = {
     "exam_token": "",
     "remember_url": True,
     "identity_data": {},
+    # Ronde 6 (item 3): pasangan {identity_data, context} disimpan sebagai
+    # SATU kunci supaya tidak bisa terpisah. Lihat set_identity_session.
+    "identity_session": {},
+    # Konteks (exam_id + token) yang mengikat `identity_data`; penjaga
+    # anti-prefill-silangan antar siswa (H8). Dictionari di bawah sudah
+    # deprecated — accessor menurunkannya dari `identity_session`.
+    "identity_context": {},
     # Token ujian yang pernah berlaku di mesin ini; hanya untuk membaca
     # berkas jawaban versi lama. Lihat `set()`.
     "exam_token_history": [],
@@ -335,6 +342,14 @@ def _sanitize(config_data: Dict[str, Any]) -> Dict[str, Any]:
     # ("x".get) atau form terisi data palsu. Salah bentuk = kosongkan.
     if not isinstance(config_data.get("identity_data"), dict):
         config_data["identity_data"] = {}
+    # Sama untuk `identity_context` dan `identity_session`: config.json
+    # ada di profil akun yang sama dengan akun siswa (lihat
+    # _restrict_to_owner), jadi isinya adalah input musuh. Salah bentuk di
+    # sini tidak boleh melempar dari `_load()` (dipanggil di mana-mana).
+    if not isinstance(config_data.get("identity_context"), dict):
+        config_data["identity_context"] = {}
+    if not isinstance(config_data.get("identity_session"), dict):
+        config_data["identity_session"] = {}
     # Kunci yang dipahami app dicoerce ke bentuknya: null/angka dari file
     # yang diedit manual tidak boleh mengalir sebagai None ke pemanggil
     # (mis. None.rstrip di WS connect, atau "None" literal sebagai token).
@@ -818,23 +833,161 @@ def is_submitted(exam_id: int, attempt_key: str = "") -> bool:
     return _submitted_key(attempt_key) in _submitted_map(exam_id)
 
 
+def get_identity_session() -> Dict[str, Any]:
+    """Pasangan `{identity_data, context}` yang tersimpan, atau kosong.
+
+    Ronde 6 (item 3). Kunci `identity_session` adalah bentuk kanonik;
+    bentuk lama (dua kunci terpisah di root) tetap dibaca supaya config
+    yang sudah tertulis tidak kehilangan identitas saat update — tapi hanya
+    kalau KEDUA bagiannya ada.
+
+    Melemahkan bentuk setengah secara sengaja. Identitas tanpa konteks
+    adalah kondisi yang tidak boleh terlihat oleh siapa pun: yang memakai
+    prefill-silangan H8 justru butuh konteks, dan konteks yang hilang/
+    salah akan membuat identitas siswa A mengisi form siswa B. Karena itu
+    bentuk yang tidak lengkap — yang dipisahkan oleh crash di tengah dua
+    `_save()` — dikembalikan sebagai "tidak ada" ({}).
+
+    Cocok/tidaknya konteks dengan ujian yang sedang dibuka tetap diputuskan
+    PEMAKAI (lihat `ServerConfigDialog._prefill_identity_if_same_exam`):
+    accessor ini hanya menjamin kedua bagian utuh.
+    """
+    store = _load()
+    session = store.get("identity_session")
+    if isinstance(session, dict) and session:
+        identity = session.get("identity_data")
+        context = session.get("context")
+    else:
+        # Bentuk legacy: dua kunci terpisah. config.json yang ditulis
+        # versi lama tidak punya `identity_session` sama sekali.
+        identity = store.get("identity_data")
+        context = store.get("identity_context")
+    if not isinstance(identity, dict) or not identity:
+        return {"identity_data": {}, "context": {}}
+    if not isinstance(context, dict) or not context:
+        return {"identity_data": {}, "context": {}}
+    return {"identity_data": dict(identity), "context": dict(context)}
+
+
+def get_identity_data() -> Dict[str, Any]:
+    """Identitas tersimpan, atau {} bila konteksnya tidak utuh."""
+    return get_identity_session()["identity_data"]
+
+
+def get_identity_context() -> Dict[str, Any]:
+    """Konteks (exam_id + token) dari pasangan tersimpan, atau {}."""
+    return get_identity_session()["context"]
+
+
+def set_identity_session(
+    identity: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]]
+) -> None:
+    """Simpan identitas + konteksnya dalam SATU `_save()`.
+
+    Ronde 6 (item 3). `ui/server_config.py` tadinya melakukan dua
+    `config.set()` terpisah, dan setiap `set()` menulis SELURUH cache ke
+    disk. Crash di antara keduanya menyisakan identitas siswa A dengan
+    konteks yang menunjuk ujian lain — persis kondisi yang tidak boleh terjadi,
+    karena konteks itulah penjaga anti-prefill-silangan.
+
+    Bentuk kanonik (`identity_session`) TIDAK bisa terpisah: satu kunci,
+    satu dump, satu `replace`. Dua kunci lama tetap dicerminkan di
+    penulisan yang sama supaya pembaca versi lama — termasuk
+    `__main__.py`, yang tidak boleh disentuh di ronde ini — membaca data
+    yang sama persis.
+
+    Tidak pernah melempar: pemanggilnya adalah slot Qt di tengah alur
+    join, dan config yang gagal ditulis berarti prefill dilewati (bisa
+    diamati), bukan crash.
+    """
+    try:
+        payload_identity = dict(identity or {})
+        payload_context = dict(context or {})
+        store = _load()
+        store["identity_session"] = {
+            "identity_data": payload_identity,
+            "context": payload_context,
+        }
+        # Cermin bentuk lama, satu `_save()` di bawah.
+        store["identity_data"] = payload_identity
+        store["identity_context"] = payload_context
+        _save()
+    except Exception:
+        _log.warning("could not persist identity session",
+                     exc_info=True)
+
+
 def clear_identity() -> None:
-    """Hapus identitas siswa yang tersimpan.
+    """Hapus identitas siswa yang tersimpan BESERTA konteksnya.
 
     WAJIB dipanggil saat jendela ujian ditutup, di samping
-    `ServerConfigDialog.input_token.clear()`.
+    `ServerConfigDialog.input_token.clear()`, dan saat app start.
 
     Kenapa: `identity_data` dibaca lagi di
-    `ServerConfigDialog._show_identity_dialog` (`:356`) lalu dipakai untuk
+    `ServerConfigDialog._prefill_identity_if_same_exam` lalu dipakai untuk
     MENGISI form `IdentityDialog`. Kalau tidak dihapus, siswa berikutnya
     mendapat form yang sudah terisi nama siswa sebelumnya, dan karena
     `last_input.returnPressed` terikat ke submit, dia bisa menekan Enter
     tanpa membaca apa pun — jawabannya lalu tercatat atas nama orang lain.
     Tidak ada dialog, tidak ada warning, tidak ada log.
 
-    Dulu fungsi ini tidak ada sama sekali: yang dibersihkan hanya token,
-    padahal yang paling sensitif justru identitas. Lihat
-    review_windows_2026-09-30.md Bagian 1.
+    Ronde 6 (item 3): dulu fungsi ini hanya menghapus `identity_data` dan
+    TIDAK menyentuh `identity_context`. Konteks yang tertinggal praktis
+    tidak berbahaya (prefill membutuhkannya berdua), tapi tetap data sisa
+    yang tidak perlu ada — dan membiarkan `identity_session` utuh sementara
+    `identity_data` dikosongkan justru menghasilkan state setengah jadi yang
+    tidak boleh terbaca. Ketiganya sekarang dibersihkan dalam satu
+    `_save()`.
+
+    Tidak pernah melempar: pemanggilnya slot Qt (`qFatal` → SIGABRT).
     """
-    set("identity_data", {})
+    try:
+        store = _load()
+        store["identity_data"] = {}
+        store["identity_context"] = {}
+        store["identity_session"] = {}
+        _save()
+    except Exception:
+        _log.warning("could not clear persisted identity",
+                     exc_info=True)
+
+
+def clear_stale_identity_on_startup() -> bool:
+    """Bersihkan identitas + konteks dari proses sebelumnya. True bila ada.
+
+    Ronde 6 (item 3). Prinsipnya sama dengan `_cleanup_at_exit`/jalur
+    `__main__`: identitas adalah data pribadi yang hanya boleh bertahan
+    selama ujiannya benar-benar berjalan. Proses yang DIBUNUH (listrik
+    mati, task manager kill, crash) tidak pernah menjalankan satu pun
+    jalur keluar itu, jadi identitas siswa A tertinggal di `config.json`.
+    Siswa berikutnya di PC yang sama, dengan token yang sama, mendapat form
+    yang sudah terisi — dan `last_input.returnPressed` terikat ke submit,
+    jadi SATU Enter sudah cukup untuk tercatat sebagai A. Tanpa dialog,
+    tanpa warning, tanpa log.
+
+    Karena itu pemanggil harus memanggil ini saat launch. Sengaja TIDAK
+    dipanggil sendiri dari modul ini: hanya pemanggil yang tahu bahwa
+    belum ada dialog yang perlu menampilkan identity dari config —
+    memanggilnya di `import` akan menghapus prefill yang sah untuk
+    recovery yang masih berjalan.
+
+    Idempoten dan tidak pernah melempar. `True` berarti ada identitas sisa
+    yang dibersihkan (berguna untuk logging).
+    """
+    try:
+        store = _load()
+        session = store.get("identity_session")
+        if isinstance(session, dict) and session:
+            had = bool(session.get("identity_data"))
+        else:
+            had = bool(store.get("identity_data"))
+        if not had and not store.get("identity_context"):
+            return False
+        clear_identity()
+        _log.info("identitas sisa dari proses sebelumnya dibersihkan saat start")
+        return True
+    except Exception:
+        _log.warning("could not clear stale identity on startup",
+                     exc_info=True)
+        return False
 

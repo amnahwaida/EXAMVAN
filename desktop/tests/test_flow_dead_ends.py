@@ -390,11 +390,24 @@ class DuplicateQuestionNumberTest(unittest.TestCase):
             win._on_pdf_error("x")
             APP.processEvents()
             win._on_submit = win._on_submit
-            with mock.patch.object(exam_viewer.QMessageBox, "question") as qb:
-                qb.return_value = exam_viewer.QMessageBox.No
+            # Dialog konfirmasi dibangun eksplisit + `setTextFormat` (teks
+            # server tidak boleh dirender sebagai rich text), jadi yang
+            # tercatat di sini adalah teks KONSTRUKTOR-nya, bukan argumen
+            # `QMessageBox.question()` yang tidak lagi dipanggil.
+            seen = []
+            _orig_init = exam_viewer.QMessageBox.__init__
+
+            def _spy_init(box_self, *args, **kwargs):
+                _orig_init(box_self, *args, **kwargs)
+                seen.append(box_self.text())
+
+            with mock.patch.object(exam_viewer.QMessageBox, "__init__",
+                                   _spy_init), \
+                 mock.patch.object(exam_viewer.QMessageBox, "exec_",
+                                   return_value=exam_viewer.QMessageBox.No):
                 win._on_submit()
-            text = qb.call_args.args[2]
-            self.assertIn("1", text)
+            self.assertTrue(seen, "dialog konfirmasi tidak pernah dibangun")
+            self.assertIn("1", seen[0])
         finally:
             win.close()
 

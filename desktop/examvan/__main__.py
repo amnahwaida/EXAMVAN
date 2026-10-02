@@ -86,6 +86,62 @@ def _maximize_window(widget, fullscreen: bool = False) -> None:
     QApplication.processEvents()
 
 
+def _validated_token(dialog) -> str:
+    """Token yang tervalidasi dari dialog konfigurasi, dibaca SEKALI.
+
+    Kontrak sudah ditulis di `ServerConfigDialog.validated_token`
+    (`server_config.py:66-70`): "token yang dipakai di seluruh alur PERSIS yang
+    tervalidasi". Baca ulang `input_token` melanggar kontrak itu — dan
+    `_enable_connect_ui()` sudah menjalankan SEBELUM `exam_selected.emit()`,
+    jadi pada saat widget dibaca, inputnya hidup kembali dan isinya bisa saja
+    bukan yang server akui.
+
+    Fallback ke QLineEdit hanya bila properti `validated_token` benar-benar
+    tidak ada/kosong (dialog versi lama, test double), dan fallback itu
+    SELALU dicatat: memakai nilai lain tanpa jejak di log justru menutupi
+    satu-satunya bukti token yang berbeda.
+    """
+    token = ""
+    try:
+        token = str(getattr(dialog, "validated_token", "") or "").strip().upper()
+    except Exception:
+        log.warning("tidak bisa membaca validated_token dari dialog konfigurasi",
+                    exc_info=True)
+        token = ""
+    if not token:
+        try:
+            token = dialog.input_token.text().strip().upper()
+            log.warning(
+                "validated_token kosong — memakai isi QLineEdit (%s) untuk "
+                "dialog persetujuan dan jendela ujian",
+                token or "<kosong>",
+            )
+        except Exception:
+            log.warning("tidak bisa membaca token sama sekali", exc_info=True)
+            return ""
+    return token
+
+
+def _exam_needs_monitor_notice(exam) -> bool:
+    """True untuk ujian medium — satu-satunya tier yang BERI PERINGATAN layar.
+
+    Dibaca lewat `security_levels.LEVEL_MEDIUM`, bukan literal `"medium"`:
+    `Exam.level` sudah kanonik (`normalize_level`), dan konstanta itu yang
+    membuat kata server "high" tidak pernah ikut dibandingkan sebagai
+    "medium" di tempat yang tidak melakukan normalisasi. Strict tidak ikut
+    masuk ke sini: ia punya gerbang sendiri yang menolak mulai, dan
+    pencampuran dua perilaku berbeda dalam satu cabang akan menutupi
+    bug gate strict di kemudian hari.
+    """
+    from .security_levels import LEVEL_MEDIUM, normalize_level
+
+    try:
+        return normalize_level(getattr(exam, "level", None)) == LEVEL_MEDIUM
+    except Exception:
+        log.warning("tidak bisa membaca level ujian", exc_info=True)
+        return False
+
+
 def _recover_gnome_settings() -> None:
     """Restore GNOME desktop settings after a crash (Linux only).
 
@@ -186,6 +242,26 @@ def main() -> None:
     # L-3: sapu PDF ujian basi di sebelah pemulihan crash.
     _sweep_stale_exam_pdfs()
 
+    # Identitas + konteks dari proses SEBELUMNYA ikut disapu di sini.
+    #
+    # Semua jalur keluar bersih membersihkan identitas, tapi proses yang
+    # DIBUNUH (listrik mati, task manager, crash) tidak menjalankan satu pun
+    # dari mereka — jadi identitas siswa A tetap di `config.json`. Siswa
+    # berikutnya di PC yang sama dengan token yang sama mendapat form yang
+    # sudah terisi, dan `last_input.returnPressed` terikat ke submit: SATU
+    # Enter sudah cukup untuk tercatat sebagai A.
+    #
+    # Aman di sini karena belum ada dialog yang perlu menampilkan identity
+    # dari config — dan justru itu sebabnya helper-nya TIDAK dipanggil
+    # sendiri dari modul config.
+    from . import config as _config
+
+    try:
+        if _config.clear_stale_identity_on_startup():
+            log.info("identitas sisa dari proses sebelumnya dibersihkan")
+    except Exception:
+        log.warning("sapu identitas sisa gagal", exc_info=True)
+
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 
     from PyQt5.QtCore import Qt
@@ -247,6 +323,12 @@ def main() -> None:
         from .ui.waiting_approval import WaitingApprovalDialog
         from PyQt5.QtWidgets import QDialog, QMessageBox
 
+        # SEKALI, di awal: satu-satunya sumber token untuk dialog persetujuan,
+        # jendela ujian, dan (lewat viewer) PDF/submit/presence. Dibaca ulang
+        # di dua tempat berarti keduanya bisa berbeda — widget-nya hidup lagi
+        # sejak `_enable_connect_ui()` dijalankan sebelum emit.
+        token = _validated_token(dialog)
+
         def _back_to_config(reason: str) -> None:
             """Kembalikan dialog konfigurasi siap-pakai (H5).
 
@@ -277,9 +359,42 @@ def main() -> None:
             dialog.show()
             _maximize_window(dialog)
 
+        # M-5 (dipindah ke sini): medium + multi-monitor diperingatkan
+        # SEBELUM persetujuan pengawas dikuras.
+        #
+        # Dulu blok ini berada SETELAH `waiting_dlg.exec_()`: siswa dengan
+        # dua monitor memanggil pengawas, menunggu persetujuan, baru diberi
+        # tahu PC-nya bermasalah. Strict punya gate awal
+        # (`ServerConfigDialog._strict_monitor_ok`, fail-CLOSED); medium tidak
+        # punya apa pun. Medium sengaja "warn and continue" — jadi gate
+        # di sini NON-BLOCKING (`information`, bukan `question`), dan alur
+        # tetap jalan setelah siswa menutupnya.
+        #
+        # Kegagalan detektor = FAIL-OPEN, mengikuti semantik gate strict di
+        # `server_config`: "tidak diketahui" BUKAN "lebih dari satu layar",
+        # dan menahan medium hanya karena EnumDisplayMonitors error akan
+        # mengunci semua PC yang SMBus-nya bermasalah.
+        if _exam_needs_monitor_notice(exam):
+            try:
+                from .security import get_backend
+
+                _medium_multi = bool(get_backend().has_multiple_monitors())
+            except Exception:
+                log.warning("deteksi multi-monitor gagal (medium) — lanjut",
+                            exc_info=True)
+                _medium_multi = False
+            if _medium_multi:
+                QMessageBox.information(
+                    dialog,
+                    "Monitor Ganda Terdeteksi",
+                    "Terdeteksi lebih dari satu layar. Ujian tetap bisa "
+                    "dimulai, tetapi pastikan hanya mengerjakan di layar "
+                    "utama — aktivitas di layar lain dapat tercatat.",
+                )
+
         waiting_dlg = WaitingApprovalDialog(
             exam, server_url, identity_data,
-            token=dialog.input_token.text().strip().upper(),
+            token=token,
             parent=dialog,
         )
         _maximize_window(waiting_dlg)
@@ -329,32 +444,14 @@ def main() -> None:
                 )
                 _back_to_config("strict-multi-monitor")
                 return
-        elif exam.level == "medium":
-            # M-5: medium + multi-monitor → peringatkan lalu LANJUTKAN
-            # (bukan menolak seperti strict). Non-blocking: info, bukan
-            # question; alur jalan terus setelah siswa menutupnya.
-            try:
-                from .security import get_backend as _get_backend
 
-                _medium_multi = bool(
-                    _get_backend().has_multiple_monitors())
-            except Exception:
-                log.warning("deteksi multi-monitor gagal (medium) — lanjut",
-                            exc_info=True)
-                _medium_multi = False
-            if _medium_multi:
-                QMessageBox.information(
-                    dialog,
-                    "Monitor Ganda Terdeteksi",
-                    "Terdeteksi lebih dari satu layar. Ujian tetap bisa "
-                    "dimulai, tetapi pastikan hanya mengerjakan di layar "
-                    "utama — aktivitas di layar lain dapat tercatat.",
-                )
+        # (blok medium sudah dipindah ke SEBELUM dialog persetujuan —
+        # lihat catatan M-5 di atas.)
 
         viewer = ExamViewerWindow(
             exam=exam,
             server_url=server_url,
-            token=dialog.input_token.text().strip().upper(),
+            token=token,
             identity_data=identity_data,
             kiosk_mode=kiosk,
         )

@@ -190,20 +190,35 @@ class AutoSubmitSuccessTest(AutoSubmitTestCase):
             win = self._make_window(answers={"1": "A", "2": "B"})
             win._auto_submit_and_exit()
 
-            # Window ditutup SEGERA, sebelum hasil jaringan tiba.
+            # Jendela ujian disembunyikan SEGERA, sebelum hasil jaringan tiba.
             self.assertFalse(win.isVisible())
             self.assertTrue(win._submitted)
             # Sticky marker + jawaban ter-flush ke disk (thread masih diblokir).
             self.assertTrue(config.is_submitted(7, STUDENT_KEY))
             self.assertEqual(config.load_answers(7), {"1": "A", "2": "B"})
-            # Lock task dilepas (security.deactivate dipanggil).
-            self._sec.return_value.deactivate.assert_called()
+            # M1: lockdown TIDAK dilepas selama menunggu. `deactivate()`
+            # membebaskan hook keyboard/WDA/ClipCursor untuk SELURUH budget
+            # submit (retry ~7 dtk + polling 202 ~77 dtk); sekarang ia
+            # dipanggil dari `_on_auto_submit_done`, yaitu setelah hasil tiba.
+            self._sec.return_value.deactivate.assert_not_called()
+            self.assertIsNotNone(
+                getattr(win, "_progress_ref", None),
+                "layar pengumpulan harus tetap terlihat sebagai top-level "
+                "penyangga (C1)",
+            )
 
             # Lepas thread → sukses → clear + complete presence + notif.
             release.set()
             self.assertTrue(self._wait_notify("Selamat, Budi!"))
             self.assertIsNone(config.load_answers(7))
             api.complete_exam.assert_called()
+            # Lockdown dilepas begitu hasil tiba.
+            self.assertTrue(
+                self._pump_until(
+                    lambda: self._sec.return_value.deactivate.called, 5.0
+                ),
+                "lockdown tidak pernah dilepas setelah hasil background tiba",
+            )
             # Congrats custom guru dipakai sebagai isi notifikasi sukses.
             call = next(
                 c for c in self._notify.call_args_list

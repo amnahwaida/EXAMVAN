@@ -39,7 +39,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
+from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QMessageBox
 
 from examvan.models import Exam
 
@@ -185,8 +185,23 @@ class SubmitThreadNeverStrandsTest(unittest.TestCase):
 class ConfirmDialogStopsTheCountdownTest(unittest.TestCase):
     """#2 — dialog konfirmasi tidak boleh membiarkan deadline meledak."""
 
-    def test_timer_is_stopped_while_the_dialog_is_open(self):
+    def _viewer_with_widget(self):
+        """Stub yang juga punya basis QWidget yang sudah di-init.
+
+        Dialog konfirmasi dibangun eksplisit dengan `self` sebagai parent
+        (teks server tidak boleh dirender sebagai rich text), dan PyQt5
+        menolak parent yang kelas QMainWindow-nya belum pernah di-init.
+        Stub `_viewer()` sengaja melewati QWidget sepenuhnya supaya tidak
+        membangun UI/monitoring, jadi hanya basisnya yang diinisialisasi di
+        sini — cukup untuk dialog bisa dibuat, tidak cukup untuk apa pun
+        yang lain.
+        """
         win = _viewer()
+        QMainWindow.__init__(win)
+        return win
+
+    def test_timer_is_stopped_while_the_dialog_is_open(self):
+        win = self._viewer_with_widget()
         stopped_during_dialog = {}
 
         def fake_question(*_a, **_k):
@@ -194,7 +209,9 @@ class ConfirmDialogStopsTheCountdownTest(unittest.TestCase):
             return QMessageBox.No
 
         with mock.patch(
-            "examvan.ui.exam_viewer.QMessageBox.question", side_effect=fake_question
+            # Dialog konfirmasi dibangun eksplisit + `setTextFormat`, jadi
+            # yang perlu diganti adalah `exec_()`.
+            "examvan.ui.exam_viewer.QMessageBox.exec_", side_effect=fake_question
         ):
             win._on_submit()
 
@@ -206,9 +223,9 @@ class ConfirmDialogStopsTheCountdownTest(unittest.TestCase):
         )
 
     def test_countdown_is_restarted_after_the_dialog(self):
-        win = _viewer()
+        win = self._viewer_with_widget()
         with mock.patch(
-            "examvan.ui.exam_viewer.QMessageBox.question",
+            "examvan.ui.exam_viewer.QMessageBox.exec_",
             return_value=QMessageBox.No,
         ):
             win._on_submit()
@@ -218,9 +235,9 @@ class ConfirmDialogStopsTheCountdownTest(unittest.TestCase):
         )
 
     def test_countdown_is_restarted_even_if_the_dialog_raises(self):
-        win = _viewer()
+        win = self._viewer_with_widget()
         with mock.patch(
-            "examvan.ui.exam_viewer.QMessageBox.question",
+            "examvan.ui.exam_viewer.QMessageBox.exec_",
             side_effect=RuntimeError("dialog gagal"),
         ):
             with self.assertRaises(RuntimeError):

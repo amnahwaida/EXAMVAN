@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -319,7 +320,13 @@ func UploadExam() gin.HandlerFunc {
 				return
 			}
 			// Check uniqueness with retry for race condition.
-			existing, err := models.GetExamByToken(ctx, pool, customToken)
+			// GetExamByLiveToken (bukan GetExamByToken): yang ini hanya
+			// melacak token yang masih hidup. GetExamByToken ikut cocok dengan
+			// exam_token_history supaya tautan hasil lama tidak 404, tapi untuk
+			// cek-tabrakan itu justru salah — guru yang memakai token milik
+			// ujian yang sudah dirotasi akan ditolak padahal token itu tidak
+			// akan pernah bisa di-join lagi.
+			existing, err := models.GetExamByLiveToken(ctx, pool, customToken)
 			if err == nil && existing.ID > 0 {
 				errorResponse(c, http.StatusBadRequest, "Token kustom sudah digunakan oleh ujian lain")
 				return
@@ -327,14 +334,14 @@ func UploadExam() gin.HandlerFunc {
 			token = customToken
 		} else {
 			// Retry loop for auto-generated token to handle race conditions.
-			// Token bebas dilaporkan GetExamByToken sebagai pgx.ErrNoRows
+			// Token bebas dilaporkan GetExamByLiveToken sebagai pgx.ErrNoRows
 			// (lookup tak menemukan baris) — itu kasus normal, langsung pakai.
 			// Error DB nyata atau token yang memang sudah dipakai → lanjut coba
 			// token berikutnya. Jika setelah 5 percobaan masih bentrok, INSERT
 			// kena unique violation yang dipetakan ke 400 di bawah.
 			for i := 0; i < 5; i++ {
 				token = helpers.GenerateExamToken()
-				existing, err := models.GetExamByToken(ctx, pool, token)
+				existing, err := models.GetExamByLiveToken(ctx, pool, token)
 				if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.ID == 0) {
 					break
 				}
@@ -1725,7 +1732,22 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 			return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
 		}
 		switch qtype {
-		case "single_choice", "true_false", "short_answer":
+		case "single_choice":
+			s, ok := key.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+			}
+			opts, msg := validateChoiceOptions(q)
+			if msg != "" {
+				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), msg)
+			}
+			// Kunci harus salah satu pilihan: kalau tidak, tidak ada
+			// jawaban siswa yang bisa dianggap benar dan rekap nilainya
+			// tidak berarti apa-apa.
+			if !containsFold(opts, s) {
+				return fmt.Sprintf("Soal #%d (%s) kunci jawaban '%s' tidak ada di pilihan jawaban", num, questionTypeLabel(qtype), strings.TrimSpace(s))
+			}
+		case "true_false", "short_answer":
 			s, ok := key.(string)
 			if !ok || strings.TrimSpace(s) == "" {
 				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
@@ -1735,23 +1757,125 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 			if !ok || len(arr) == 0 {
 				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
 			}
+			opts, msg := validateChoiceOptions(q)
+			if msg != "" {
+				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), msg)
+			}
+			// Elemen kunci harus teks, TANPA duplikat (duplikat membuat
+			// satu pilihan terhitung dua kali saat penilaian), dan harus
+			// ada di daftar pilihan.
+			seen := make(map[string]bool, len(arr))
+			for _, el := range arr {
+				s, ok := el.(string)
+				if !ok || strings.TrimSpace(s) == "" {
+					return fmt.Sprintf("Soal #%d (%s) kunci jawaban harus berupa teks yang tidak kosong", num, questionTypeLabel(qtype))
+				}
+				folded := strings.ToLower(strings.TrimSpace(s))
+				if seen[folded] {
+					return fmt.Sprintf("Soal #%d (%s) kunci jawaban '%s' muncul lebih dari sekali", num, questionTypeLabel(qtype), strings.TrimSpace(s))
+				}
+				seen[folded] = true
+				if !containsFold(opts, s) {
+					return fmt.Sprintf("Soal #%d (%s) kunci jawaban '%s' tidak ada di pilihan jawaban", num, questionTypeLabel(qtype), strings.TrimSpace(s))
+				}
+			}
 		case "matching":
 			m, ok := key.(map[string]interface{})
 			if !ok || len(m) == 0 {
 				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+			}
+			// Setiap pasangan harus kiri-teks -> kanan-teks: nilai
+			// non-string membuat pencocokan jawaban tidak mungkin dan
+			// dipakai ulang sebagai 0.
+			for left, v := range m {
+				s, ok := v.(string)
+				if !ok || strings.TrimSpace(s) == "" {
+					return fmt.Sprintf("Soal #%d (%s) pasangan '%v' harus bernilai teks yang tidak kosong", num, questionTypeLabel(qtype), left)
+				}
 			}
 		}
 	}
 	return ""
 }
 
+// validateChoiceOptions checks the `options` list of a choice question: it must
+// be a non-empty list of non-blank strings. Returns the normalised options and
+// an empty message when usable, or the Indonesian error fragment otherwise.
+func validateChoiceOptions(q map[string]interface{}) ([]string, string) {
+	raw, ok := q["options"]
+	if !ok || raw == nil {
+		return nil, "belum memiliki pilihan jawaban"
+	}
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil, "pilihan jawaban harus berupa daftar teks"
+	}
+	if len(arr) == 0 {
+		return nil, "belum memiliki pilihan jawaban"
+	}
+	opts := make([]string, 0, len(arr))
+	for _, el := range arr {
+		s, ok := el.(string)
+		if !ok {
+			return nil, "pilihan jawaban harus berupa teks yang tidak kosong"
+		}
+		if strings.TrimSpace(s) == "" {
+			return nil, "pilihan jawaban harus berupa teks yang tidak kosong"
+		}
+		opts = append(opts, strings.TrimSpace(s))
+	}
+	return opts, ""
+}
+
+// containsFold reports whether needle is present in opts, ignoring case and
+// surrounding whitespace — the same normalisation applied to both sides.
+func containsFold(opts []string, needle string) bool {
+	target := strings.ToLower(strings.TrimSpace(needle))
+	for _, o := range opts {
+		if strings.ToLower(o) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// maxQuestionNumber bounds a usable question number. Nomor 0, negatif, atau
+// astronomis tidak pernah terjadi di soal yang bisa dijawab — yang terjadi
+// justru konfigurasi rusak hasil tempelan/import, dan nomor seperti itu
+// membuat rekap nilai mustahil dibaca guru (nomor -1 tidak mungkin di lembar
+// jawaban, 1e15 tidak mungkin jadi nomor soal).
+const maxQuestionNumber = 10000
+
+// adminQNumInRange reports whether an already-normalised question number is
+// inside the usable range (0 < n <= maxQuestionNumber).
+func adminQNumInRange(normalized string) bool {
+	f, err := strconv.ParseFloat(normalized, 64)
+	if err != nil {
+		return false
+	}
+	if f <= 0 || f > maxQuestionNumber {
+		return false
+	}
+	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
+
 // normalizeAdminQNum normalizes a question number with the same rule as
 // normalizeQNum (internal/models/submission.go) — integers and
 // integer-valued floats collapse ("1", 1.0 → "1") while fractional numbers
 // keep their value (2.5 → "2.5") — and additionally reports whether the value
-// is a usable number at all. Null, missing, empty, and non-numeric values are
-// rejected (ok=false) so they can never be saved as question numbers.
+// is a usable number at all. Null, missing, empty, non-numeric, zero,
+// negative, and out-of-range values are rejected (ok=false) so they can never
+// be saved as question numbers.
 func normalizeAdminQNum(number interface{}) (string, bool) {
+	if normalized, ok := normalizeAdminQNumRaw(number); ok {
+		return normalized, adminQNumInRange(normalized)
+	}
+	return "", false
+}
+
+// normalizeAdminQNumRaw is normalizeAdminQNum without the range check, so the
+// range rule lives in exactly one place.
+func normalizeAdminQNumRaw(number interface{}) (string, bool) {
 	switch v := number.(type) {
 	case nil:
 		return "", false
@@ -1805,10 +1929,13 @@ func normalizeAdminQNum(number interface{}) (string, bool) {
 // questions config. Every entry's key must be a non-empty STRING (a numeric
 // key decodes to float64 here but into a `Key string` struct field on the
 // submit path the unmarshal error is swallowed — the field then never matches
-// and the exam becomes unsubmittable), keys must be unique
-// (case-insensitive), and at most 30 fields are accepted. Returns an empty
-// string when valid, or an error message naming the first offending column
-// (1-based) otherwise — same error path as validateQuestionKeys.
+// and the exam becomes unsubmittable), keys must be KANONIK (trimmed — the
+// client trims before sending, so a stored " nama " would never match
+// identity_data["nama"] on submit and the exam 400s forever), keys must be
+// unique (case-insensitive, on the same trimmed form that gets stored), and
+// at most 30 fields are accepted. Returns an empty string when valid, or an
+// error message naming the first offending column (1-based) otherwise — same
+// error path as validateQuestionKeys.
 func validateIdentityFields(fields []map[string]interface{}) string {
 	if len(fields) > 30 {
 		return "Jumlah kolom identitas melebihi batas 30"
@@ -1824,7 +1951,20 @@ func validateIdentityFields(fields []map[string]interface{}) string {
 		if !ok || strings.TrimSpace(key) == "" {
 			return fmt.Sprintf("Kolom identitas #%d memiliki key yang tidak valid — key harus berupa teks yang tidak kosong", num)
 		}
-		lower := strings.ToLower(strings.TrimSpace(key))
+		// Key KANONIK atau ditolak, bukan disimpan dalam bentuk lain.
+		// Client selalu mengirim key yang sudah di-strip
+		// (`identity_dialog.py`), sedangkan submit mencari
+		// `identity_data[field.Key]` dengan key yang tersimpan mentah:
+		// bentuk yang berbeda berarti field tidak akan pernah cocok dan
+		// setiap submit dijawab 400 "Identitas '%s' wajib diisi" — tanpa
+		// ada yang bisa memperbaiki dari sisi siswa. Menolak lebih jujur
+		// daripada menyimpan key yang tidak akan pernah dibaca client.
+		if key != strings.TrimSpace(key) {
+			return fmt.Sprintf("Kolom identitas #%d (%s) memiliki key yang tidak valid — key tidak boleh diawali atau diakhiri spasi", num, key)
+		}
+		// Bentuk yang disimpan = bentuk yang dibaca client; cek duplikat
+		// memakai normalisasi yang sama persis (lower dari trimmed).
+		lower := strings.ToLower(key)
 		if prev, dup := seen[lower]; dup {
 			return fmt.Sprintf("Kolom identitas #%d memiliki key yang sama dengan kolom identitas #%d", num, prev+1)
 		}
@@ -1930,7 +2070,7 @@ func RegenerateToken() gin.HandlerFunc {
 		var newToken string
 		for i := 0; i < 5; i++ {
 			newToken = generateExamToken()
-			existing, err := models.GetExamByToken(ctx, pool, newToken)
+			existing, err := models.GetExamByLiveToken(ctx, pool, newToken)
 			if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.ID == 0) {
 				break
 			}
@@ -1996,8 +2136,12 @@ func EditToken() gin.HandlerFunc {
 			return
 		}
 
-		// Check uniqueness (excluding current exam)
-		existing, err := models.GetExamByToken(ctx, pool, customToken)
+		// Check uniqueness (excluding current exam). GetExamByLiveToken, bukan
+		// GetExamByToken: token RETIRED di exam_token_history bukan lagi
+		// bentrok yang nyata — tidak akan pernah bisa di-join, dan hanya
+		// previous_active_token yang masih diikutkan karena satu rotasi
+		// terakhir masih dipakai device yang sedang berjalan.
+		existing, err := models.GetExamByLiveToken(ctx, pool, customToken)
 		if err == nil && existing.ID != examID {
 			errorResponse(c, http.StatusBadRequest, "Token sudah digunakan oleh ujian lain")
 			return

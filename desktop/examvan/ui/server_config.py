@@ -28,6 +28,7 @@ from ..utils import (
     get_device_label,
     map_identity_to_standard,
 )
+from .exam_viewer import answers_match_disk
 
 log = logging.getLogger(__name__)
 
@@ -441,12 +442,12 @@ class ServerConfigDialog(QDialog):
         )
         # Audit 2 Okt 2026 (HIGH H13): identitas di-capture SEKARANG, sebelum
         # thread jalan — bukan dibaca ulang dari config di dalam worker.
-        # Dulu worker membaca `config.get("identity_data")` saat thread
+        # Dulu worker membaca `config.get_identity_data()` saat thread
         # berjalan; kalau di tengah pengiriman identitas di config
         # dibersihkan (clear_identity) atau ditimpa siswa berikutnya,
         # worker mengirim 400 / jawaban tercatat atas nama orang yang
         # salah, dan halaman selamat tampil kosong.
-        self._recovery_identity = dict(config.get("identity_data", {}) or {})
+        self._recovery_identity = dict(config.get_identity_data() or {})
         if reply != QMessageBox.Yes:
             self._enable_connect_ui()
             self.lbl_status.setText("")
@@ -519,7 +520,23 @@ class ServerConfigDialog(QDialog):
                         "tetap tersimpan — coba lagi.",
                     )
             if resp.success:
-                config.clear_answers(exam.id)
+                # Owner guard yang SAMA dengan jalur background
+                # (`exam_viewer._background_submit_thread`): worker ini
+                # bisa berjalan ~84 dtk (retry 7 + polling 202), dan
+                # selama itu siswa bisa re-entry dan memulai percobaan
+                # baru yang menulis autosave-nya sendiri. Tanpa guard,
+                # sukses TERLAMBAT dari percobaan lama menghapus jawaban
+                # percobaan baru — persis yang sudah diperbaiki di sisi
+                # viewer. Isi disk yang berbeda berarti milik percobaan
+                # lain, bukan urusan thread ini.
+                if answers_match_disk(exam.id, answers):
+                    config.clear_answers(exam.id)
+                else:
+                    log.info(
+                        "skip clear_answers di recovery: disk berisi jawaban "
+                        "percobaan lain untuk exam %s (payload ini sudah durable)",
+                        exam.id,
+                    )
                 try:
                     api.complete_exam(self._server_url, exam.id, token, mac)
                 except Exception:
@@ -560,15 +577,19 @@ class ServerConfigDialog(QDialog):
 
         # Identitas yang DIPAKAI worker recovery (audit HIGH H13) — bukan
         # apa pun yang kebetulan ada di config saat halaman ini tampil.
-        identity = self._recovery_identity or (
-            config.get("identity_data", {}) or {}
-        )
+        identity = self._recovery_identity or config.get_identity_data()
         # H2: identitas via pemetaan kanonik yang sama dengan submit dan
         # approval — bukan lookup mentah "nama"/"nomor_ujian".
         std = map_identity_to_standard(identity)
+        # Token yang tervalidasi, BUKAN `config.get("exam_token")`: config
+        # masih menyimpan token dari percobaan sebelumnya kalau siswa
+        # mengetik ulang token di kotak yang sama (recovery dibaca ulang
+        # pada connect berikutnya), dan link yang ditampilkan harus milik
+        # ujian yang benar-benar dikerjakan — bukan milik token basi.
+        exam_token = self.validated_token
         congrats = CongratulationsWindow(
             server_url=self._server_url,
-            exam_token=str(config.get("exam_token", "") or "").strip().upper(),
+            exam_token=exam_token,
             exam_name=getattr(self._exam, "name", ""),
             student_name=str(std.get("student_name", "")),
             student_number=str(std.get("exam_number", "")),
@@ -579,6 +600,36 @@ class ServerConfigDialog(QDialog):
         congrats.setAttribute(Qt.WA_DeleteOnClose)
         congrats.show_fullscreen()
         self._congrats_ref = congrats
+
+        # H2: halaman ini menaruh token ujian — di mode static-token itu
+        # kredensial hasil SELURUH KELAS — SETELAH `deactivate()` sudah
+        # melepas WDA_MONITOR, keyboard hook, ClipCursor, dan sweeper
+        # clipboard. Tanpa baris ini, jalur recovery (justru yang dipakai
+        # saat auto-submit background gagal) adalah satu-satunya halaman
+        # hasil yang bisa difoto bebas. Helper modul-level dipakai karena
+        # di titik ini tidak ada enforcer yang hidup: `_active`-nya sudah
+        # False, jadi `protect_window` versi enforcer akan jadi no-op.
+        from ..security.enforcer import protect_window_capture
+
+        if not protect_window_capture(congrats):
+            log.warning(
+                "proteksi capture halaman hasil recovery gagal — token "
+                "ujian bisa terekam lewat PrintScreen"
+            )
+
+        # M-token-leak: kotak token dikosongkan begitu ujian benar-benar
+        # selesai. Pada jalur ini tidak pernah ada ExamViewerWindow yang
+        # dibuat, jadi pembersihan `__main__` (`_on_viewer_closed`) tidak
+        # pernah jalan — dan kotak yang sudah ter-prefill adalah satu
+        # klik (atau satu Enter) dari memakai token kelas lagi di PC lab
+        # yang dipakai bersama. `config["exam_token"]` SENGAJA dibiarkan:
+        # token itu kunci XOR decode jawaban tersimpan (lihat
+        # `_recovery_submit_thread`), dan `remember_url` sudah mengatur
+        # apakah token boleh di-prefill pada kunjungan berikutnya.
+        try:
+            self.input_token.clear()
+        except Exception:
+            log.debug("could not clear token input", exc_info=True)
 
     def _offer_pending_recovery(self, identity: Dict[str, str]) -> bool:
         """True bila siswa boleh lanjut. Tidak pernah menolak.
@@ -660,13 +711,21 @@ class ServerConfigDialog(QDialog):
         QApplication.processEvents()
         if dlg.exec_() == QDialog.Accepted:
             identity = dlg.get_identity_data()
+            # Ronde 6 (item 3): identitas DAN konteksnya disimpan sebagai
+            # SATU kunci lewat satu `_save()` (config.set_identity_session).
+            # Dua `config.set()` terpisah berarti dua penulisan penuh file,
+            # dan crash di antaranya menyisakan identitas siswa A dengan
+            # konteks yang menunjuk ujian lain — persis kondisi yang harus
+            # mustahil, karena konteks itulah penjaga anti-prefill-silangan
+            # (H8).
+            #
             # Identitas disimpan DULU, sebelum recovery dicek.
             #
             # `_sig_recovery_available.connect(self._show_recovery)` tanpa
             # `Qt.QueuedConnection`, jadi `_offer_pending_recovery()`
             # memanggil `_show_recovery()` secara SYNCHRONOUS -- dan di
             # situulah thread `_recovery_submit_thread` dijalankan. Thread
-            # itu membaca identitas dari `config.get("identity_data")`.
+            # itu membaca identitas dari `config.get_identity_data()`.
             #
             # Urutan lama (set -> return -> set) berarti worker membaca
             # store yang masih kosong: server membalas 400 "Identitas
@@ -679,14 +738,13 @@ class ServerConfigDialog(QDialog):
             # Pemulihan jawaban yang belum terkirim. Bukan pembatasan:
             # siswa boleh mengulang, tapi jawaban yang masih tertinggal di
             # disk milik dia dan jangan sampai hilang diam-diam.
-            config.set("identity_data", identity)
-            # H8: ikat identitas tersimpan ke ujian + token ini supaya
-            # prefill berikutnya tidak dipakai siswa/ujian lain.
             try:
                 token_now = self.validated_token
             except Exception:
                 token_now = ""
-            config.set("identity_context", {
+            # H8: ikat identitas tersimpan ke ujian + token ini supaya
+            # prefill berikutnya tidak dipakai siswa/ujian lain.
+            config.set_identity_session(identity, {
                 "exam_id": self._exam.id,
                 "token": str(token_now or "").strip().upper(),
             })
@@ -706,11 +764,11 @@ class ServerConfigDialog(QDialog):
                 # Ini kebocoran yang sama yang ditutup untuk jalur
                 # pembatalan layar persetujuan; jalur recovery membuka
                 # hole yang sama dari arah lain.
+                #
+                # `clear_identity()` sekarang membersihkan identitas DAN
+                # konteksnya sekaligus, jadi tidak ada lagi `set
+                # ("identity_context", {})` terpisah di sini.
                 config.clear_identity()
-                try:
-                    config.set("identity_context", {})
-                except Exception:
-                    log.debug("clear identity_context gagal", exc_info=True)
                 dlg.deleteLater()
                 return
             # UI koneksi dikembalikan SEBELUM emit: __main__.on_exam_selected
@@ -719,6 +777,12 @@ class ServerConfigDialog(QDialog):
             # JANGAN accept() di sini: on_exam_selected mengelola visibilitas
             # sendiri (hide saat mulai, show saat batal); accept() menutup
             # dialog yang baru saja ditampilkan lagi (zombie tanpa jendela).
+            #
+            # Ronde 6 (item 5): baru setelah recovery (yang lebih mendesak)
+            # menawarkan pilihan eksplisit soal marker "sudah terkumpul".
+            if not self._offer_resubmit_choice(identity):
+                dlg.deleteLater()
+                return
             self._enable_connect_ui()
             self.exam_selected.emit(self._exam, self._server_url, identity)
         else:
@@ -732,12 +796,91 @@ class ServerConfigDialog(QDialog):
         except Exception:
             log.debug("deleteLater IdentityDialog gagal", exc_info=True)
 
+    def _offer_resubmit_choice(self, identity: Dict[str, str]) -> bool:
+        """Tawarkan pilihan eksplisit bila identitas ini SUDAH pernah submit.
+
+        Ronde 6 (item 5). `config.is_submitted` adalah penanda "percobaan ini
+        sudah mengumpulkan jawaban di mesin ini" (`mark_submitted` di
+        `_cleanup_after_submit`). ENTITY-nya punya penulis tapi tidak punya
+        pembaca produksi: `ui/exam_viewer.py` memberi tahu pembaca bahwa
+        "`ServerConfigDialog.is_submitted`" memblokir re-entry, dan itu tidak
+        pernah terjadi. Gate yang sebenarnya ada di server
+        (`repeat_required`).
+
+        Yang diubah di sini BUKAN policy. Policy tetap: TIDAK ADA yang
+        diblokir di client — `_offer_pending_recovery` tetap `return True`
+        tanpa syarat, dan ini juga tidak menolak. Yang ditambahkan adalah
+        INFORMASI: siswa yang kembali dengan identitas yang sama diberi tahu
+        jawabannya sudah tercatat, lalu memilih sendiri.
+
+        Kenapa hanya marker, bukan "ada jawaban di disk": file jawaban adalah
+        fallback yang dipakai identitas LAIN bila autosave/autosubmit-nya
+        gagal, dan pengaman kepemiliknya sudah ada di
+        `_offer_pending_recovery`. Menoffer "kirim ulang" berdasarkan file
+        akan membuka overwrite terhadap baris yang sudah benar.
+
+        Battasi ke identitas + ujian yang sama: `is_submitted` sudah ber-key
+        `build_student_key`, jadi marker siswa lain di PC yang sama tidak
+        tersentuh. Kegagalan membaca marker TIDAK boleh menutup jalan: bersihkan
+        identitas dan membiarkan siswa masuk — client bukan tempat aturan
+        yang tidak bisa diaudit.
+        """
+        assert self._exam is not None
+        try:
+            attempt = build_student_key(identity, self.validated_token)
+            if not config.is_submitted(self._exam.id, attempt):
+                return True
+        except Exception:
+            log.warning("gagal membaca marker submit", exc_info=True)
+            return True
+        # `question()` static hanya menyediakan label "Yes"/"No", yang
+        # mengikuti locale sistem. Dua label eksplisit
+        # ("Kerjakan Ulang" / "Kembali") lebih jujur untuk keputusan
+        # yang membuang pekerjaan ujian yang sudah dikerjakan.
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Jawaban Sudah Terkumpul")
+        box.setText(
+            "Jawaban untuk identitas ini sudah tercatat di perangkat ini.\n\n"
+            "Masuk lagi berarti mengerjakan ujian dari awal — jawaban yang "
+            "sudah terkirim tetap ada di server.\n\n"
+            "Kerjakan ulang sekarang?"
+        )
+        box.addButton("Kerjakan Ulang", QMessageBox.YesRole)
+        back_btn = box.addButton("Kembali", QMessageBox.NoRole)
+        # Default = "Kembali": satu Enter yang tidak sengaja — persis
+        # yang `_on_submit` di dialog identitas lakukan untuk menutup
+        # form — tidak boleh ikut memulai percobaan baru.
+        box.setDefaultButton(back_btn)
+        # `exec_()` mengembalikan StandardButton yang diklik (documented
+        # untuk QMessageBox), jadi keputusan tidak bergantung pada
+        # `clickedButton()`.
+        reply = box.exec_()
+        if reply == QMessageBox.Yes:
+            return True
+        log.info(
+            "siswa memilih kembali: marker submit untuk exam %s, identitas %s",
+            self._exam.id, attempt,
+        )
+        # UJIAN TIDAK DIMULAI. Identitas yang baru diketik tidak boleh
+        # tertinggal: tidak ada viewer yang dibuat, jadi tidak ada sinyal
+        # `closed` yang memanggil `clear_identity()`.
+        config.clear_identity()
+        self._enable_connect_ui()
+        return False
+
     def _prefill_identity_if_same_exam(self) -> Dict[str, str]:
         """Identitas tersimpan HANYA bila konteksnya cocok (H8).
 
-        `identity_context` ditulis bersamaan dengan `identity_data`
-        (exam_id + token saat itu). Konteks beda → kembalikan {} supaya
-        form kosong untuk siswa/ujian berikutnya.
+        `identity_session` (lihat `config.set_identity_session`) menyimpan
+        identitas DAN konteksnya (exam_id + token saat itu) sebagai satu
+        pasangan, jadi keduanya tidak bisa terpisah oleh crash di tengah
+        penulisan. Konteks beda → kembalikan {} supaya form kosong untuk
+        siswa/ujian berikutnya.
+
+        `config.get_identity_session()` sudah melemahkan pasangan: bentuk
+        yang tidak lengkap terbaca sebagai tidak ada, jadi tidak mungkin
+        ada identitas tanpa konteks yang lolos ke form.
         """
         try:
             token_now = self.validated_token
@@ -745,16 +888,16 @@ class ServerConfigDialog(QDialog):
             token_now = ""
         token_now = str(token_now or "").strip().upper()
         try:
-            ctx = config.get("identity_context", {}) or {}
+            session = config.get_identity_session()
         except Exception:
             return {}
+        ctx = session["context"]
+        stored = session["identity_data"]
         if (
-            isinstance(ctx, dict)
-            and ctx.get("exam_id") == self._exam.id
+            ctx.get("exam_id") == self._exam.id
             and str(ctx.get("token") or "").strip().upper() == token_now
             and token_now
         ):
-            stored = config.get("identity_data", {}) or {}
             return dict(stored) if isinstance(stored, dict) else {}
         return {}
 

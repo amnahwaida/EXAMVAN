@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -162,7 +163,50 @@ func successData(c *gin.Context, data gin.H) {
 // Input sanitisation (mirrors Python sanitize_student_input)
 // ---------------------------------------------------------------------------
 
+// stripControlAndBidi membuang karakter yang bisa dipakai menyamar di tabel
+// hasil publik: seluruh format/bidi control (kategori Unicode Cf — U+200E
+// LRM, U+200F RLM, U+202A–U+202E embedding/override, U+2066–U+2069 isolate,
+// U+FEFF BOM, zero-width U+200B–U+200D, dan seterusnya) plus karakter kontrol
+// ASCII, kecuali tab dan newline.
+//
+// Kenapa wajib: html/template meng-escape HTML, bukan karakter kontrol, jadi
+// U+202E (RIGHT-TO-LEFT OVERRIDE) yang tersimpan akan membalik urutan tampilan
+// di tabel hasil yang dilihat seluruh kelas — "Budi" bisa tampil seolah-olah
+// "idub". Client desktop sudah membersihkan string display-nya sendiri, tapi
+// server tidak boleh menyimpan apa pun yang ia terima mentah.
+//
+// Tab dan newline tetap dipertahankan karena identitas boleh multiline
+// (alamat). CR ikut terbuang karena merupakan karakter kontrol; newline-nya
+// tetap ada sehingga paste dari Windows tidak kehilangan pemisah baris.
+//
+// Trade-off yang disengaja: U+200D (ZWJ) juga ikut terbuang, jadi sequence
+// emoji majemuk seperti emoji keluarga akan terpisah. Untuk field nama/nomor/
+// kelas hal itu nyaris tidak pernah dipakai, sementara spoofing nama lewat
+// bidi override terlihat oleh seisi kelas.
+func stripControlAndBidi(v string) string {
+	if v == "" {
+		return v
+	}
+	var b strings.Builder
+	b.Grow(len(v))
+	for _, r := range v {
+		if r == '\t' || r == '\n' {
+			b.WriteRune(r)
+			continue
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func sanitize(v string) string {
+	// Buang karakter kontrol/bidi DULU, baru pangkas: kalau dipangkas lebih
+	// dulu, 200 rune teratas bisa habis dipakai rune tersembunyi dan sisa
+	// teks yang berguna justru terpotong.
+	v = stripControlAndBidi(v)
 	v = strings.TrimSpace(v)
 	// Potong per RUNE (bukan per byte): potongan 200 byte bisa membelah rune
 	// UTF-8 multi-byte di tengah → sekuens byte invalid → Postgres menolak
@@ -176,16 +220,37 @@ func sanitize(v string) string {
 }
 
 // sanitizeMap sanitises all string values in a map and returns the result.
+// Map bersarang dan slice ikut di-jelajah sampai ke string terdalam — dulu hanya
+// level atas yang dibersihkan, sehingga identity_data berbentuk
+// {"a":{"b":"\u202evil\u202c"}} tetap menyimpan karakter bidi yang dirender di
+// halaman hasil. Nilai non-string (angka, bool, nil) dibiarkan apa adanya
+// supaya bentuk JSON yang disimpan tidak berubah.
 func sanitizeMap(m map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(m))
 	for k, v := range m {
-		if s, ok := v.(string); ok {
-			out[k] = sanitize(s)
-		} else {
-			out[k] = v
-		}
+		out[k] = sanitizeValue(v)
 	}
 	return out
+}
+
+// sanitizeValue membersihkan satu nilai dari identity_data pada kedalaman
+// berapapun: string lewat sanitize, map di-down ke sanitizeMap, dan slice
+// elemen per elemen. Tipe lain dikembalikan tanpa perubahan.
+func sanitizeValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case string:
+		return sanitize(val)
+	case map[string]interface{}:
+		return sanitizeMap(val)
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, item := range val {
+			out[i] = sanitizeValue(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,23 +1065,34 @@ func SubmitExam() gin.HandlerFunc {
 		}
 
 		// --- Sanitise identity data ---
+		// Dibangun SATU KALI lalu dipakai untuk validasi, job async, dan
+		// penyimpanan sync. Sebelumnya validasi membaca body.IdentityData yang
+		// mentah dan job async meng-enqueue yang mentah juga, sehingga tiga
+		// hal tidak sinkron:
+		//   - nilai >200 rune lolos validasi lalu disimpan terpotong 200 rune
+		//     (siswa melihat nama terpotong tanpa tanda apa pun);
+		//   - nilai yang isinya hanya karakter tersembunyi lolos sebagai
+		//     "terisi" lalu tersimpan jadi string kosong;
+		//   - jalur async (jalur produksi normal) tidak menyanitasi sama
+		//     sekali, jadi karakter bidi tetap sampai ke tabel hasil publik.
 		var identityDataJSON *string
+		var sanitizedIdentity map[string]interface{}
 		var studentName, examNumber, studentClass string
 
 		if body.IdentityData != nil {
-			sanitized := sanitizeMap(body.IdentityData)
-			raw, _ := json.Marshal(sanitized)
+			sanitizedIdentity = sanitizeMap(body.IdentityData)
+			raw, _ := json.Marshal(sanitizedIdentity)
 			s := string(raw)
 			identityDataJSON = &s
 
 			// Read standard keys from identity_data if present
-			if v, ok := sanitized["student_name"].(string); ok {
+			if v, ok := sanitizedIdentity["student_name"].(string); ok {
 				studentName = v
 			}
-			if v, ok := sanitized["exam_number"].(string); ok {
+			if v, ok := sanitizedIdentity["exam_number"].(string); ok {
 				examNumber = v
 			}
-			if v, ok := sanitized["student_class"].(string); ok {
+			if v, ok := sanitizedIdentity["student_class"].(string); ok {
 				studentClass = v
 			}
 		}
@@ -1119,50 +1195,31 @@ func SubmitExam() gin.HandlerFunc {
 
 		// Validate that all identity fields in the exam's config are filled.
 		// If identity_fields config is empty, default to student_name, exam_number, student_class.
-		var expectedFields []struct {
-			Key      string `json:"key"`
-			Label    string `json:"label"`
-			Required bool   `json:"required"`
-		}
+		var expectedFields []identityField
 
 		if exam.IdentityFields != nil && *exam.IdentityFields != "" && *exam.IdentityFields != "[]" {
 			_ = json.Unmarshal([]byte(*exam.IdentityFields), &expectedFields)
 		} else {
-			expectedFields = []struct {
-				Key      string `json:"key"`
-				Label    string `json:"label"`
-				Required bool   `json:"required"`
-			}{
+			expectedFields = []identityField{
 				{Key: "student_name", Label: "Nama Siswa", Required: true},
 				{Key: "exam_number", Label: "Nomor Ujian", Required: true},
 				{Key: "student_class", Label: "Kelas", Required: true},
 			}
 		}
 
-		for _, field := range expectedFields {
-			if !field.Required {
-				continue
-			}
-			var val string
-			if body.IdentityData != nil {
-				if v, ok := body.IdentityData[field.Key].(string); ok {
-					val = strings.TrimSpace(v)
-				}
-			}
-			if val == "" {
-				if field.Key == "student_name" {
-					val = strings.TrimSpace(studentName)
-				} else if field.Key == "exam_number" {
-					val = strings.TrimSpace(examNumber)
-				} else if field.Key == "student_class" {
-					val = strings.TrimSpace(studentClass)
-				}
-			}
-
-			if val == "" {
-				errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Identitas '%s' wajib diisi", field.Label))
-				return
-			}
+		// Kolom kanonik hasil fallback body di atas — dipakai hanya untuk
+		// field bertipe key kanonik, supaya jalur ini tidak berubah.
+		canonical := map[string]string{
+			"student_name":  studentName,
+			"exam_number":   examNumber,
+			"student_class": studentClass,
+		}
+		// Validasi membaca SALINAN TERSIMPAN (sanitizedIdentity), bukan
+		// body.IdentityData mentah — kalau tidak, nilai yang hanya berisi
+		// karakter tersembunyi lolos sebagai "terisi" lalu tersimpan kosong.
+		if label := firstMissingRequiredIdentity(sanitizedIdentity, expectedFields, canonical); label != "" {
+			errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Identitas '%s' wajib diisi", label))
+			return
 		}
 
 		// --- Answers JSON ---
@@ -1179,7 +1236,10 @@ func SubmitExam() gin.HandlerFunc {
 				"student_name":  studentName,
 				"exam_number":   examNumber,
 				"student_class": studentClass,
-				"identity_data": body.IdentityData,
+				// Salinan tersanitasi, bukan body.IdentityData mentah: job ini
+				// yang nanti ditulis worker ke submissions.identity_data, dan
+				// kolom itu dirender di tabel hasil yang dilihat seluruh kelas.
+				"identity_data": sanitizedIdentity,
 				"answers":       body.Answers,
 				"start_time":    startTime,
 				"mac_address":   macAddress,
@@ -1274,6 +1334,69 @@ func calculateScoreSync(ctx context.Context, pool *pgxpool.Pool, examID int, ans
 	}
 
 	return models.CalculateSubmissionScore(answers, questions)
+}
+
+// identityField mirrors one entry of exams.identity_fields as read on the
+// submit path.
+type identityField struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Required bool   `json:"required"`
+}
+
+// identityFieldValue resolves the student's answer for ONE expected field.
+//
+// Key KOSONG dibaca POSISIONAL lewat `field_<index>` (index = posisi field di
+// config), bukan lewat `identity_data[""]`. Alasannya `field_<n>` bukan
+// namespace synthetic: `static/js/admin.js:1013` menuliskannya untuk SETIAP
+// label yang normalisasi ke string kosong, dan `identity_dialog.py` menamai
+// field tanpa key dengan `field_<index>` yang sama. Dulu lookup memakai
+// `identity_data[field.Key]` apa adanya, jadi alias `""` hanya menutupi
+// config dengan TEPAT SATU field tanpa key; dua atau lebih key kosong = 400
+// "Identitas 'Kelas' wajib diisi" selamanya meski `field_0`/`field_1` sudah
+// terisi. Satu perubahan ini menutup 1 maupun N key kosong.
+//
+// Key yang tidak kosong TIDAK tersentuh: dibaca persis seperti sebelumnya,
+// dengan alias `""` client tetap diterima sebagai bonus kompatibilitas.
+func identityFieldValue(data map[string]interface{}, field identityField, index int) string {
+	keys := []string{field.Key}
+	if field.Key == "" {
+		keys = append(keys, fmt.Sprintf("field_%d", index), "")
+	}
+	for _, k := range keys {
+		if v, ok := data[k].(string); ok {
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// firstMissingRequiredIdentity returns the label of the first REQUIRED field
+// the client did not answer, or "" when the config is satisfiable.
+//
+// `canonical` holds the top-level student_name/exam_number/student_class
+// fallback (see the handler) and is consulted only for fields whose stored
+// key is exactly that canonical key — the historical behaviour, unchanged.
+func firstMissingRequiredIdentity(
+	data map[string]interface{},
+	fields []identityField,
+	canonical map[string]string,
+) string {
+	for idx, field := range fields {
+		if !field.Required {
+			continue
+		}
+		if identityFieldValue(data, field, idx) != "" {
+			continue
+		}
+		if v, ok := canonical[field.Key]; ok && strings.TrimSpace(v) != "" {
+			continue
+		}
+		return field.Label
+	}
+	return ""
 }
 
 // sanitizeMAC restricts a MAC address / device identifier to a safe character
@@ -1571,9 +1694,17 @@ func AccessLog() gin.HandlerFunc {
 		}
 
 		// --- Truncate string fields ---
-		studentName := truncate(body.StudentName, 200)
-		examNumber := truncate(body.ExamNumber, 100)
-		studentClass := truncate(body.StudentClass, 100)
+		// `sanitize` (bukan `truncate`) supaya karakter bidi U+202E & friends
+		// tidak masuk ke `student_access_logs` — dashboard monitoring
+		// pengawas menampilkan kolom ini apa adanya. Batasnya 200 rune seragam,
+		// sama dengan jalur submit; `truncate` 100/100 yang lama hanya
+		// memotong ExamNumber lebih cepat tanpa alasan yang jelas.
+		studentName := sanitize(body.StudentName)
+		examNumber := sanitize(body.ExamNumber)
+		studentClass := sanitize(body.StudentClass)
+		// `device_info` tetap `truncate`: itu string bebas (versi + platform),
+		// bukan identitas — dan `sanitize` membuang karakter kontrol yang
+		// sah untuk user-agent. Tidak ada PII di dalamnya.
 		deviceInfo := truncate(body.DeviceInfo, 200)
 		ipAddress := c.ClientIP()
 

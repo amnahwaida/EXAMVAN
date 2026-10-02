@@ -357,10 +357,23 @@ class NoClientSideGateTest(RecoveryGateTestCase):
     membaca .iss sebagai teks.
     """
 
-    def _run_dialog(self, dlg, identity):
+    def _run_dialog(self, dlg, identity, redo=QMessageBox.Yes):
         emitted = []
         dlg.exam_selected.connect(lambda *a: emitted.append(a))
-        with mock.patch("examvan.ui.identity_dialog.IdentityDialog") as Dlg:
+        # Ronde 6 (item 5): dialog kini MEMBAWA marker "sudah terkumpul"
+        # (`config.is_submitted`) sebagai pilihan eksplisit, jadi flow ini
+        # bisa membuka QMessageBox modal. Tanpa stub, test headless
+        # menggantung sampai runner dibunuh — persis kelas bug yang
+        # `_detach_identity_dialog` di atas dokumentasikan. `exec_()`
+        # mengembalikan StandardButton yang diklik (dokumentasi Qt untuk
+        # QMessageBox).
+        # Bandingkan DENGAN `is`: StandardButton adalah flag bit (No != 0),
+        # jadi `if redo` selalu benar dan "Kembali" tidak pernah terjadi.
+        reply = QMessageBox.No if redo == QMessageBox.No else QMessageBox.Yes
+        with mock.patch("examvan.ui.identity_dialog.IdentityDialog") as Dlg, \
+             mock.patch.object(QMessageBox, "exec_", lambda self: reply), \
+             mock.patch.object(QMessageBox, "question",
+                               return_value=QMessageBox.No):
             inst = Dlg.return_value
             inst.exec_.return_value = QDialog.Accepted
             inst.get_identity_data.return_value = identity
@@ -397,8 +410,37 @@ class NoClientSideGateTest(RecoveryGateTestCase):
         )
 
     def test_the_blocking_call_site_is_gone(self):
+        # Ronde 6 (item 5): ini tadinya `assertNotIn("is_submitted", src)`,
+        # yaitu pencarian SUBSTRING di seluruh file. Chak itu terlalu luas:
+        # dia melarang juga pembacaan marker yang tidak memblokir, padahal
+        # justru itulah perbaikannya — `config.is_submitted` lama punya
+        # penulis tanpa pembaca, dan `ui/exam_viewer.py` mengiklankan
+        # "`ServerConfigDialog.is_submitted`" memblokir re-entry yang tidak
+        # pernah terjadi. Invarian yang benar-benar dilindungi test ini
+        # adalah "client tidak MEMBLOKIR", jadi sekarang diuji secara
+        # perilaku, bukan lewat nama simbol.
         src = (REPO_PATH / "desktop/examvan/ui/server_config.py").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("is_submitted", src)
-        self.assertNotIn("sudah dikumpulkan", src)
+        # Pesan penolakan tidak boleh muncul sebagai status dialog.
+        self.assertNotIn("sudah dikumpulkan", src.lower())
+
+        # `_offer_pending_recovery` tetap TIDAK PERNAH menolak.
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        dlg = self._dlg()
+        self.assertTrue(dlg._offer_pending_recovery(BUDI))
+        self.assertTrue(dlg._offer_pending_recovery(SITI))
+
+    def test_same_student_may_still_join_after_choosing_redo(self):
+        # Tambahan: setelah marker di-konsumsi, siswa yang memilih
+        # "Kerjakan Ulang" tetap sampai ke exam_selected.
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        emitted = self._run_dialog(self._dlg(), BUDI, redo=QMessageBox.Yes)
+        self.assertEqual(len(emitted), 1, emitted)
+        self.assertEqual(emitted[0][2], BUDI)
+
+    def test_same_student_may_still_join_after_choosing_go_back(self):
+        # Dan "Kembali" TIDAK join — pilihan itu harus benar-benar berlaku.
+        config.mark_submitted(7, "n01", label="exam_number=n01")
+        emitted = self._run_dialog(self._dlg(), BUDI, redo=QMessageBox.No)
+        self.assertEqual(emitted, [])

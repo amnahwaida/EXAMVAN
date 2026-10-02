@@ -86,7 +86,7 @@ class ModalDialogDoesNotAutoSubmitTestCase(unittest.TestCase):
         return viewer
 
     def _fake_modal_dialog(self, ms=900, on_tick=None):
-        """Pengganti QMessageBox.question yang menjalankan nested loop.
+        """Pengganti QMessageBox.exec_ yang menjalankan nested loop.
 
         Dialog modal sungguhan memblokir dengan `exec()`, yang tidak
         pernah kembali ke test. Yang penting untuk bug ini adalah
@@ -121,7 +121,10 @@ class ModalDialogDoesNotAutoSubmitTestCase(unittest.TestCase):
             )
             return self._fake_modal_dialog(ms, on_tick)(*args, **kwargs)
 
-        with mock.patch("examvan.ui.exam_viewer.QMessageBox.question", question):
+        # Dialog konfirmasi sekarang dibangun eksplisit lalu
+        # `exec_()`-kan (teks server tidak boleh dirender sebagai
+        # rich text), jadi yang perlu diganti adalah `exec_()`.
+        with mock.patch("examvan.ui.exam_viewer.QMessageBox.exec_", question):
             self.seen = {}
             try:
                 viewer._on_submit()
@@ -153,7 +156,7 @@ class ModalDialogDoesNotAutoSubmitTestCase(unittest.TestCase):
         viewer = self._viewer("medium")
         enforcer = viewer._security
         with mock.patch(
-            "examvan.ui.exam_viewer.QMessageBox.question",
+            "examvan.ui.exam_viewer.QMessageBox.exec_",
             self._fake_modal_dialog(200),
         ):
             viewer._on_submit()

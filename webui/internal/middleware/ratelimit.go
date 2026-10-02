@@ -68,20 +68,68 @@ func getRateLimitKeys(c *gin.Context, includeFP bool) []string {
 // RateLimitIP enforces the cap on the client IP/user dimension ONLY — no
 // fingerprint dimension. This is the default for the long-lived exam routes so
 // a mid-exam device_id change can never interfere with an in-progress exam.
+//
+// Bucket = (IP/user, fingerprint bila aktif, window) dengan SATU counter untuk
+// semua rute — lihat RateLimitIPPerRoute untuk versi berdimensi rute.
 func RateLimitIP(maxAttempts int, window time.Duration) gin.HandlerFunc {
-	return newRateLimit(maxAttempts, window, false)
+	return newRateLimit(maxAttempts, window, false, false)
 }
 
 // RateLimit enforces the cap on the client IP/user AND fingerprint dimensions
 // (when a fingerprint is supplied). Used on short-lived public auth actions.
 func RateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
-	return newRateLimit(maxAttempts, window, true)
+	return newRateLimit(maxAttempts, window, true, false)
 }
 
-func newRateLimit(maxAttempts int, window time.Duration, includeFP bool) gin.HandlerFunc {
+// rateLimitRouteScopeNoRoute adalah fallback ketika permintaan tidak cocok ke
+// rute mana pun (404, atau limiter yang dipasang di luar router). Nilainya
+// harus stabil dan bukan string kosong supaya semua bucket 404 tetap terkumpul
+// ke satu key — bukan bocor ke bucket rute lain.
+const rateLimitRouteScopeNoRoute = "no-route"
+
+// rateLimitRouteScope mengembalikan dimensi RUTE dari bucket limiter: template
+// rute yang sudah dicocokkan gin (c.FullPath()), bukan path konkret — supaya
+// /hasil/AAA11111 dan /hasil/BBB22222 satu bucket (ayah/IBU di depan NAT yang
+// sama harus ikut ter-throttle bersama), sementara /api/exams dan
+// /api/exams/:exam_id/result bucket terpisah.
+func rateLimitRouteScope(c *gin.Context) string {
+	if fp := c.FullPath(); fp != "" {
+		return fp
+	}
+	return rateLimitRouteScopeNoRoute
+}
+
+// RateLimitIPPerRoute sama dengan RateLimitIP, tapi bucket-nya berdimensi rute:
+// identitas bucket = (IP/user, RUTE, window).
+//
+// Kenapa dimensi rute wajib ada: tanpa itu satu IP di belakang NAT sekolah
+// hanya punya SATU counter untuk seluruh rute siswa, sehingga budget terkecil
+// yang dikonfigurasi menjadi plafon semua rute — polling approval ruang aktif
+// ikut menguras plafon /hasil, dan sebaliknya. Gejalanya "GET /api/exams 429s
+// 440 siswa" padahal angka 60/menit itu dihitung untuk satu perangkat, bukan
+// satu ruangan.
+//
+// Batas pengaman yang tetap dijaga: satu rute tidak bisa melewati plafonnya
+// sendiri (dikunci TestRateLimitPerRoute_SameRouteStillThrottlesAtItsOwnBudget).
+//
+// RateLimitIP/RateLimit (tanpa scope rute) sengaja dipertahankan untuk keluarga
+// login anti-brute-force dan limiter tingkat grup di admin: satu bucket bersama
+// di antara rute-rute sekeluarga itu memang disengaja — 10/menit di /login dan
+// /admin/login harus tetap 10/menit TOTAL, bukan 20/menit.
+func RateLimitIPPerRoute(maxAttempts int, window time.Duration) gin.HandlerFunc {
+	return newRateLimit(maxAttempts, window, false, true)
+}
+
+// RateLimitPerRoute adalah RateLimitIPPerRoute plus dimensi fingerprint, untuk
+// aksi auth publik berumur pendek yang juga butuh budget per-rute.
+func RateLimitPerRoute(maxAttempts int, window time.Duration) gin.HandlerFunc {
+	return newRateLimit(maxAttempts, window, true, true)
+}
+
+func newRateLimit(maxAttempts int, window time.Duration, includeFP bool, perRoute bool) gin.HandlerFunc {
 	// Pre-create the handlers so we don't recreate them on every request
-	memHandler := newMemoryRateLimit(maxAttempts, window, includeFP)
-	redisHandler := newRedisRateLimit(maxAttempts, window, includeFP)
+	memHandler := newMemoryRateLimit(maxAttempts, window, includeFP, perRoute)
+	redisHandler := newRedisRateLimit(maxAttempts, window, includeFP, perRoute)
 
 	return func(c *gin.Context) {
 		rdbVal, exists := c.Get("redis")
@@ -91,6 +139,17 @@ func newRateLimit(maxAttempts int, window time.Duration, includeFP bool) gin.Han
 			memHandler(c)
 		}
 	}
+}
+
+// rateLimitBucketIdentity menyusun string identitas bucket yang dipakai kedua
+// limiter (memory & Redis) supaya keduanya menghitung atas kunci yang sama.
+// Separator '|' tidak pernah muncul di template rute gin maupun di IP/user key,
+// jadi batas-batas field-nya jelas di log.
+func rateLimitBucketIdentity(scope, key string) string {
+	if scope == "" {
+		return key
+	}
+	return scope + "|" + key
 }
 
 type memEntry struct {
@@ -138,16 +197,21 @@ func startMemCleaner() {
 	})
 }
 
-func newMemoryRateLimit(maxAttempts int, window time.Duration, includeFP bool) gin.HandlerFunc {
+func newMemoryRateLimit(maxAttempts int, window time.Duration, includeFP bool, perRoute bool) gin.HandlerFunc {
 	startMemCleaner()
 
 	return func(c *gin.Context) {
+		scope := ""
+		if perRoute {
+			scope = rateLimitRouteScope(c)
+		}
 		keys := getRateLimitKeys(c, includeFP)
 		now := time.Now()
 
 		memStoreMu.Lock()
 		blocked := false
 		for _, key := range keys {
+			key = rateLimitBucketIdentity(scope, key)
 			// Double check size bounds on write
 			if len(memStore) >= maxMemEntries && memStore[key] == nil {
 				// Evict oldest random entry to avoid unbounded growth
@@ -186,10 +250,14 @@ func newMemoryRateLimit(maxAttempts int, window time.Duration, includeFP bool) g
 	}
 }
 
-func newRedisRateLimit(maxAttempts int, window time.Duration, includeFP bool) gin.HandlerFunc {
+func newRedisRateLimit(maxAttempts int, window time.Duration, includeFP bool, perRoute bool) gin.HandlerFunc {
 	windowMillis := window.Milliseconds()
 
 	return func(c *gin.Context) {
+		scope := ""
+		if perRoute {
+			scope = rateLimitRouteScope(c)
+		}
 		keys := getRateLimitKeys(c, includeFP)
 		now := time.Now().UnixMilli()
 		cutoff := now - windowMillis
@@ -216,7 +284,7 @@ func newRedisRateLimit(maxAttempts int, window time.Duration, includeFP bool) gi
 		cmdBase := 0
 		pipe := rdb.Pipeline()
 		for _, k := range keys {
-			key := fmt.Sprintf("ratelimit:%s:%d", k, windowMillis)
+			key := fmt.Sprintf("ratelimit:%s:%d", rateLimitBucketIdentity(scope, k), windowMillis)
 			pipe.ZAdd(ctx, key, redis.Z{Score: float64(now), Member: member})
 			pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", cutoff))
 			pipe.ZCard(ctx, key)

@@ -43,6 +43,37 @@ CLIPBOARD_INTERVAL_MS = 10000
 FOCUS_POLL_INTERVAL_MS = 500
 
 
+def protect_window_capture(window: Any) -> bool:
+    """Pasang proteksi tangkapan layar pada window LAIN, tanpa enforcer aktif.
+
+    Halaman yang sengaja menaruh token ujian di layar (halaman "selesai")
+    dibuat SETELAH `SecurityEnforcer.deactivate()`: WDA_MONITOR, keyboard
+    hook, ClipCursor, dan sweeper clipboard sudah dilepas, dan `_active`
+    sudah False. Satu-satunya proteksi yang masih bermakna di titik itu
+    adalah afinitas display per-HWND — jadi pemanggilannya TIDAK boleh
+    bergantung pada state enforcer.
+
+    Karena itu helper ini modul-level, bukan method: pemanggilnya (dialog
+    konfigurasi server untuk halaman hasil jalur RECOVERY) memang tidak
+    memegang instance enforcer — ujiannya sudah selesai.
+
+    Best-effort: kegagalan backend dicatat, tidak dilempar, dan
+    mengembalikan False supaya pemanggil bisa menulis peringatan sendiri
+    di log-nya. `window is None` juga False, bukan exception.
+
+    `SetWindowDisplayAffinity` disimpan per-HWND, jadi tidak perlu dilepas
+    manual — nilainya ikut hilang bersama HWND ketika jendela ditutup.
+    """
+    if window is None:
+        return False
+    try:
+        get_backend().set_capture_protection(window)
+        return True
+    except Exception:
+        log.warning("proteksi capture halaman gagal", exc_info=True)
+        return False
+
+
 class SecurityEnforcer(QObject):
     """Enforces exam security based on mode."""
 
@@ -66,6 +97,19 @@ class SecurityEnforcer(QObject):
         self._window = window
         self._kiosk = kiosk_mode
         self._active = False
+        # True HANYA setelah `_activate_strict` benar-benar memasang
+        # FramelessWindowHint + WindowStaysOnTopHint. `deactivate()`
+        # memakainya sebagai syarat melepas kedua flag itu: `setWindowFlag`
+        # menyembunyikan window dan membuat HWND baru, jadi memanggilnya di
+        # tier yang tidak memasang flag hanya menambah hide → recreate →
+        # show tanpa gunanya.
+        self._strict_flags_applied = False
+        # True setelah `activeChanged` benar-benar tersambung ke
+        # `_on_window_active_changed`. Berguna sebagai latch (mencegah
+        # sambungan ganda saat `eventFilter` mencoba lagi dari `QEvent.Show`)
+        # dan sebagai penanda yang bisa diuji — dulu kegagalan menyambungkan
+        # ditelan `except: pass` tanpa jejak.
+        self._active_changed_connected = False
 
         # Platform backend
         self._backend = get_backend()
@@ -95,10 +139,17 @@ class SecurityEnforcer(QObject):
         # (False) oleh: timeout (auto-submit) atau interaksi nyata siswa
         # (eventFilter — klik/ketik di window).
         self._strict_focus_episode = False
-        # Wall-clock awal episode focus-loss yang sedang berjalan (None bila
-        # tidak ada episode). Sabuk pengaman H3/F-1: episode yang tidak
-        # kunjung submit dipaksa auto-submit setelah 60 detik (lihat
+        # Awal episode focus-loss yang sedang berjalan, di JAM MONOTONIC
+        # (None bila tidak ada episode). Sabuk pengaman H3/F-1: episode yang
+        # tidak kunjung submit dipaksa auto-submit setelah 60 detik (lihat
         # _poll_focus), apa pun yang me-re-arm countdown-nya.
+        #
+        # Monotonic, bukan `time.time()`: jam dinding bisa melompat ke depan
+        # atau ke belakang (sinkronisasi NTP, langkah DST, koreksi manual),
+        # dan cap ini MEMAKSA auto-submit — lompatan ke depan berarti
+        # jawaban siswa terkirim di tengah ia masih mengerjakan soal.
+        # Semua interval lain di klien (`timer.py`, `api.py`, `ws.py`) juga
+        # memakai jam monotonic; episode focus-loss satu-satunya yang tidak.
         self._focus_episode_start = None
         # Berapa kali _on_focus_timeout menunda berturut-turut karena popup
         # aplikasi masih terbuka. Dibatasi (cap 3): tanpa batas, popup yang
@@ -169,7 +220,26 @@ class SecurityEnforcer(QObject):
             if self._focus_guard_depth == 0:
                 self._focus_guard_paused = False
                 if self._focus_guard_resume:
-                    self._focus_timer.start()
+                    # Countdown hanya boleh dilanjutkan kalau episode
+                    # focus-loss yang menjadi alasan mulainya MASIH ADA.
+                    # `eventFilter` mengakhiri episode setiap ada interaksi
+                    # nyata (klik/ketik) di window ujian — termasuk yang
+                    # terjadi selama dialog terbuka — dan tanpa cek ini
+                    # countdown 3 detik berjalan tanpa `_focus_episode_start`
+                    # di belakangnya: tidak ada yang bisa meng-cap-nya, dan
+                    # `_poll_focus` bisa membatalkannya karena tidak melihat
+                    # episode. Tidak ada yang bisa menjelaskannya dari log.
+                    #
+                    # Arahnya aman: episode yang sudah berakhir tidak perlu
+                    # auto-submit, dan polling (<=500 ms) sudah membatalkan
+                    # countdown yatim itu kalau somehow tetap berjalan.
+                    if self._strict_focus_episode:
+                        self._focus_timer.start()
+                    else:
+                        log.info(
+                            "episode focus-loss selesai selama dialog — "
+                            "countdown tidak dilanjutkan"
+                        )
                 self._focus_guard_resume = False
 
     # ------------------------------------------------------------------
@@ -292,7 +362,18 @@ class SecurityEnforcer(QObject):
 
         # Kembalikan flag window yang dipasang _activate_strict: tanpa ini
         # halaman selamat tetap frameless + always-on-top (terjebak).
-        if self._window is not None:
+        #
+        # HANYA kalau tier ini benar-benar memasangnya. `setWindowFlag`
+        # menyembunyikan window untuk membuang HWND lama lalu membuat yang
+        # baru, jadi memanggilnya di low/medium (yang tidak pernah memasang
+        # kedua flag) adalah hide → recreate → show tanpa gunanya — dan
+        # `show()` tanpa syaratnya menampilkan kembali jendela yang baru
+        # saja disembunyikan (terukur `visible=False` → `visible=True` di
+        # semua tier), termasuk setelah dialog keluar low dan sesudah
+        # submit, tepat saat halaman selamat dirender.
+        if self._window is not None and self._strict_flags_applied:
+            was_visible = bool(self._window.isVisible())
+            self._strict_flags_applied = False
             try:
                 self._window.setWindowFlag(Qt.FramelessWindowHint, False)
             except Exception:
@@ -301,10 +382,13 @@ class SecurityEnforcer(QObject):
                 self._window.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             except Exception:
                 log.exception("failed to clear WindowStaysOnTopHint")
-            try:
-                self._window.show()
-            except Exception:
-                log.exception("failed to re-show window after deactivate")
+            # HWND baru harus dikembalikan ke siswa — tapi HANYA kalau
+            # jendela memang sedang terlihat sebelum flag dilepas.
+            if was_visible:
+                try:
+                    self._window.show()
+                except Exception:
+                    log.exception("failed to re-show window after deactivate")
 
         # Lepas sinyal focus-guard yang dipasang _activate_medium.
         try:
@@ -324,6 +408,10 @@ class SecurityEnforcer(QObject):
                     )
                 except Exception:
                     pass
+                # Latch ikut dilepas: enforcer berikutnya pada window yang
+                # sama harus boleh menyambung ulang, dan tidak boleh
+                # menganggap dirinya sudah tersambung.
+                self._active_changed_connected = False
         except Exception:
             log.exception("failed to disconnect activeChanged")
 
@@ -504,19 +592,12 @@ class SecurityEnforcer(QObject):
         halaman harus tetap punya tombol "Selesai" yang bisa diklik dan
         tidak boleh jadi frameless/always-on-top.
 
-        `SetWindowDisplayAffinity` disimpan per-HWND, jadi tidak perlu
-        dilepas manual — nilainya ikut hilang bersama HWND ketika
-        jendela ditutup/di-destroy.
+        Badannya didelegasikan ke `protect_window_capture` (modul-level)
+        supaya jalur yang tidak memegang enforcer sama sekali — halaman
+        hasil RECOVERY di `ServerConfigDialog` — mendapat proteksi yang
+        sama persis, bukan salinan yang bisa meleset.
         """
-        if window is None:
-            return False
-        try:
-            self._backend.set_capture_protection(window)
-            return True
-        except Exception:
-            log.warning("proteksi capture halaman congratulations gagal",
-                        exc_info=True)
-            return False
+        return protect_window_capture(window)
 
     # ------------------------------------------------------------------
     # Medium mode
@@ -534,12 +615,20 @@ class SecurityEnforcer(QObject):
             log.info("Focus loss monitoring activated")
 
         if self._window:
-            try:
-                self._window.windowHandle().activeChanged.connect(
-                    self._on_window_active_changed
+            # Titik masuk fokus #2. Kegagalan DISINI tidak boleh diam-diam:
+            # dulu sambungan ini hanya berhasil karena `set_capture_protection`
+            # di atas kebetulan memanggil `winId()` lebih dulu (dan
+            # `winId()` yang membuat HWND-nya). Ubah urutan satu baris →
+            # `windowHandle()` None → sambungan hilang tanpa log, jalur #1
+            # (`applicationStateChanged`) tetap hidup, dan tidak ada yang
+            # complaining. Peringatan + percobaan ulang dari `showEvent`
+            # (lihat `eventFilter`) keduanya wajib.
+            if not self._connect_active_changed():
+                log.warning(
+                    "windowHandle() belum ada saat aktivasi — titik masuk "
+                    "fokus #2 (activeChanged) dicoba lagi saat window "
+                    "ditampilkan",
                 )
-            except Exception:
-                pass
 
         # Filter event untuk episode focus-loss strict (H5): interaksi nyata
         # siswa (klik/ketik DI window ujian) adalah satu-satunya yang
@@ -583,8 +672,35 @@ class SecurityEnforcer(QObject):
         except Exception:
             return False
 
+    def _connect_active_changed(self) -> bool:
+        """Sambungkan `_on_window_active_changed` ke `activeChanged`.
+
+        True → sudah terpasang (sekarang atau sebelumnya). False → handle
+        belum ada / sambungan ditolak; pemanggil boleh mencoba lagi nanti
+        (event `Show` memanggil fungsi yang sama).
+
+        Idempoten: latch `_active_changed_connected` mencegah dua sambungan
+        ke slot yang sama, yang akan membuat handler jalan dua kali per
+        perubahan fokus.
+        """
+        if self._window is None or self._active_changed_connected:
+            return self._active_changed_connected
+        try:
+            handle = self._window.windowHandle()
+            if handle is None:
+                return False
+            handle.activeChanged.connect(self._on_window_active_changed)
+        except Exception:
+            log.warning(
+                "gagal menyambungkan activeChanged — titik masuk fokus #2 "
+                "tidak aktif", exc_info=True,
+            )
+            return False
+        self._active_changed_connected = True
+        return True
+
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
-        """Akhirkan episode focus-loss strict saat siswa benar-benar kembali.
+        """Akhiri episode focus-loss strict saat siswa benar-benar kembali.
 
         `raise_()` + `activateWindow()` yang kita picu sendiri MENGEMBALIKAN
         window jadi aktif, tapi itu bukan bukti siswa kembali — jendela
@@ -592,14 +708,26 @@ class SecurityEnforcer(QObject):
         nyata (tombol mouse atau tombol keyboard diterima window ini) satu-
         satunya sinyal yang dipercaya untuk mengakhiri episode dan
         mengizinkan countdown dibatalkan lagi oleh polling.
+
+        Sisi kedua dari fungsi ini: `QEvent.Show` mencoba lagi penyambungan
+        `activeChanged`. HWND baru dibuat saat window ditampilkan, jadi ini
+        titik yang tepat untuk memulihkan titik masuk fokus #2 yang gagal
+        karena `windowHandle()` masih None saat aktivasi.
         """
         try:
             from PyQt5.QtCore import QEvent
             if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress):
                 self._strict_focus_episode = False
                 self._focus_episode_start = None
+            elif event.type() == QEvent.Show:
+                if self._active and not self._active_changed_connected:
+                    if self._connect_active_changed():
+                        log.info(
+                            "activeChanged tersambung saat window "
+                            "ditampilkan — titik masuk fokus #2 aktif",
+                        )
         except Exception:
-            pass
+            log.debug("eventFilter gagal", exc_info=True)
         return super().eventFilter(obj, event)
 
     def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
@@ -625,7 +753,7 @@ class SecurityEnforcer(QObject):
                 # episode), bukan di tiap re-arm countdown, supaya popup
                 # abadi tidak menunda auto-submit selamanya.
                 self._strict_focus_episode = True
-                self._focus_episode_start = time.time()
+                self._focus_episode_start = time.monotonic()
                 self._focus_defer_count = 0
             log.warning("Focus lost — starting 3s auto-submit countdown")
             if not self._focus_timer.isActive():
@@ -663,7 +791,7 @@ class SecurityEnforcer(QObject):
         if (
             self._strict_focus_episode
             and self._focus_episode_start is not None
-            and (time.time() - self._focus_episode_start) > 60
+            and (time.monotonic() - self._focus_episode_start) > 60
         ):
             log.warning("Focus episode exceeded 60s — forcing auto-submit")
             self._strict_focus_episode = False
@@ -682,6 +810,25 @@ class SecurityEnforcer(QObject):
         if self._app_popup_open():
             return
 
+        if self._level != LEVEL_LOW or self._strict:
+            # Proteksi capture diulang dengan kaden polling yang sama, di
+            # MEDIUM maupun strict.
+            #
+            # Dulu panggilan ini hidup di dalam blok `if self._strict:` di
+            # bawah, jadi medium hanya punya satu kesempatan: pasang saat
+            # aktivasi, lalu re-aktif dari `QEvent.WindowStateChange`.
+            # Rekonstruksi HWND di luar event itu — `setWindowFlags()` yang
+            # dilakukan enforcer strict, perubahan display, beberapa versi
+            # DWM — menghapus afinitas per-HWND itu tanpa satu baris log pun,
+            # dan ujian MEDIUM berjalan sampai akhir tanpa WDA_MONITOR
+            # sementara banner tetap berbunyi "MEDIUM".
+            #
+            # `reassert_capture_protection()` sudah sendiri dijaga
+            # (`_active` + window ada, kegagalan backend dicatat), dan
+            # low tetap dikecualikan di sini: tier paling terbuka tidak
+            # boleh mendapat WDA_MONITOR hanya karena polling.
+            self.reassert_capture_protection()
+
         if self._strict:
             self._window.raise_()
             self._window.activateWindow()
@@ -690,10 +837,6 @@ class SecurityEnforcer(QObject):
             # ulangan ini kunci pointer lepas tanpa jejak. Lihat
             # _activate_strict untuk penjelasannya.
             self._backend.confine_pointer(self._window)
-            # Proteksi capture juga dipasang ulang dengan kaden yang sama:
-            # HWND baru (showFullScreen) atau compositor lain bisa
-            # menimpanya kapan pun.
-            self.reassert_capture_protection()
             # Audit 2 Okt 2026 (HIGH H5): di strict, guard fokus tidak
             # berfungsi sama sekali. Siklusnya: siswa keluar → poll melihat
             # window tidak aktif → countdown 3 detik mulai → tick berikutnya
@@ -714,7 +857,7 @@ class SecurityEnforcer(QObject):
                         # Episode BARU: reset budget deferral (L-1) + catat
                         # awal untuk cap 60 detik.
                         self._focus_defer_count = 0
-                        self._focus_episode_start = time.time()
+                        self._focus_episode_start = time.monotonic()
                     self._strict_focus_episode = True
                     self._focus_timer.start()
             elif self._focus_timer.isActive() and not self._strict_focus_episode:
@@ -728,7 +871,7 @@ class SecurityEnforcer(QObject):
                 log.warning("Poll: window not active — starting 3s countdown")
                 if not self._strict_focus_episode:
                     self._focus_defer_count = 0
-                    self._focus_episode_start = time.time()
+                    self._focus_episode_start = time.monotonic()
                 self._strict_focus_episode = True
                 self._focus_timer.start()
         else:
@@ -778,9 +921,15 @@ class SecurityEnforcer(QObject):
             | Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
         )
+        # Latch: `deactivate()` hanya boleh melepas flag yang DI SINI
+        # dipasang. Tanpa latch itu, low/medium ikut menulis ulang flag
+        # yang tidak pernah mereka punya (hide + HWND-recreate + show).
+        self._strict_flags_applied = True
+        # `setWindowFlags` — bukan `showFullScreen()` — yang membuat Qt
+        # membuang HWND lama dan membuat yang baru, jadi proteksi capture
+        # yang dipasang fase medium (di HWND lama) hilang: pasang ulang di
+        # HWND baru.
         self._window.showFullScreen()
-        # showFullScreen membuat ulang HWND: proteksi capture yang dipasang
-        # fase medium (di HWND lama) hilang — pasang ulang di HWND baru.
         try:
             self._backend.set_capture_protection(self._window)
         except Exception:

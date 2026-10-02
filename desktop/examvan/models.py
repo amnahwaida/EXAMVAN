@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,8 @@ from .security_levels import (
     is_effective_strict,
     normalize_level,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def _as_dict(data: Any) -> Dict[str, Any]:
@@ -87,11 +90,35 @@ class Exam:
         # diiterasi, dan hanya item dict yang dipetakan — sisanya dibuang
         # alih-alih AttributeError 'str' object has no attribute 'get'.
         fields_raw = data.get("identity_fields")
+        exam_name = str(data.get("name") or "") or f"id={data.get('id')!r}"
         fields: List[IdentityField] = []
         if isinstance(fields_raw, list):
             for f in fields_raw:
                 if not isinstance(f, dict):
                     continue
+                # Ronde 6 (item 2): key WAJIB berupa string. Angka di JSON
+                # (`123`) tidak bisa di-decode ke `Key string` di Go, jadi
+                # `api/exams.go` membuang UnmarshalTypeError dan field itu
+                # tersimpan dengan `Key:""`. Client di sini memanggil
+                # `str()`, jadi angka 123 menjadi "123.0" dan terkirim —
+                # sementara `identityFieldValue` mencari `field_<idx>` lalu
+                # `""`, tidak pernah "123.0": field wajib selalu kosong dan
+                # setiap submit dijawab 400 "Identitas '<label>' wajib diisi"
+                # tanpa ada yang bisa memperbaikinya dari sisi siswa.
+                #
+                # Coercion TETAP dilakukan (server rusak tidak boleh
+                # menjatuhkan dialog join), tapi key yang salah bentuk
+                # sekarang DI-LOG dengan nama ujian supaya bisa didiagnosis.
+                raw_key = f.get("key")
+                if raw_key is not None and not isinstance(raw_key, str):
+                    _log.warning(
+                        "key kolom identitas bukan teks (%r, tipe %s) pada "
+                        "ujian %r (label %r) — dikonversi jadi %r; server "
+                        "membaca key kosong untuk field ini sehingga "
+                        "pengumpulan jawaban akan ditolak",
+                        raw_key, type(raw_key).__name__, exam_name,
+                        f.get("label"), str(raw_key or ""),
+                    )
                 fields.append(
                     IdentityField(
                         key=str(f.get("key") or ""),

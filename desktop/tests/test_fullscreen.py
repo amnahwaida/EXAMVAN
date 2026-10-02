@@ -326,7 +326,11 @@ class ExamViewerFullscreenTest(unittest.TestCase):
         # mem-block. Menjawab "No" membuat test gagal sebagai assertion, bukan
         # hang. Pola yang sama dipakai tests/test_exam_mode_enforcement.py.
         patcher = mock.patch.object(
-            exam_viewer.QMessageBox, "question",
+            # Dialog konfirmasi dibangun eksplisit + `setTextFormat`
+            # (teks server tidak boleh jadi rich text), jadi yang perlu
+            # diblokir sekarang adalah `exec_()` — bukan lagi
+            # `QMessageBox.question()` yang tidak pernah dipanggil.
+            exam_viewer.QMessageBox, "exec_",
             return_value=exam_viewer.QMessageBox.No,
         )
         patcher.start()

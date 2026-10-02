@@ -270,7 +270,11 @@ class ViewerCloseGateTestCase(unittest.TestCase):
         # regression shows up as an assertion failure instead of a hang, and
         # each test still asserts on the dialog via its own patch.
         self._confirm_patch = mock.patch.object(
-            exam_viewer.QMessageBox, "question", return_value=exam_viewer.QMessageBox.No
+            # Dialog konfirmasi dibangun eksplisit + `setTextFormat`
+            # (teks server tidak boleh jadi rich text), jadi yang perlu
+            # diblokir sekarang adalah `exec_()` — bukan lagi
+            # `QMessageBox.question()` yang tidak pernah dipanggil.
+            exam_viewer.QMessageBox, "exec_", return_value=exam_viewer.QMessageBox.No
         )
         self._confirm_patch.start()
         self.addCleanup(self._confirm_patch.stop)
@@ -313,7 +317,11 @@ class ViewerCloseGateTestCase(unittest.TestCase):
         win = self._make_window(LEVEL_LOW)
         ev = _FakeCloseEvent()
         with mock.patch.object(
-            exam_viewer.QMessageBox, "question", return_value=exam_viewer.QMessageBox.No
+            # Dialog konfirmasi dibangun eksplisit + `setTextFormat`
+            # (teks server tidak boleh jadi rich text), jadi yang perlu
+            # diblokir sekarang adalah `exec_()` — bukan lagi
+            # `QMessageBox.question()` yang tidak pernah dipanggil.
+            exam_viewer.QMessageBox, "exec_", return_value=exam_viewer.QMessageBox.No
         ):
             win.closeEvent(ev)
         self.assertFalse(ev.isAccepted())
@@ -324,7 +332,7 @@ class ViewerCloseGateTestCase(unittest.TestCase):
         ev = _FakeCloseEvent()
         with mock.patch.object(
             exam_viewer.QMessageBox,
-            "question",
+            "exec_",
             return_value=exam_viewer.QMessageBox.Yes,
         ):
             win.closeEvent(ev)

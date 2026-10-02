@@ -174,7 +174,11 @@ class StrictSignalEpisodeTestCase(unittest.TestCase):
             fired = []
             e.auto_submit.connect(lambda: fired.append(True))
             e._on_app_state_changed(Qt.ApplicationInactive)
-            e._focus_episode_start = time.time() - 61.0
+            # Jam monotonic: episode focus-loss dicatat/dihitung dengan
+            # `time.monotonic()` (bukan `time.time()`) supaya langkah jam
+            # mesin tidak bisa menggeser cap ini — lihat
+            # tests/test_r6_monotonic_cap.py.
+            e._focus_episode_start = time.monotonic() - 61.0
             e._window._active = True
             e._poll_focus()
             self.assertEqual(fired, [True])
@@ -188,7 +192,7 @@ class StrictSignalEpisodeTestCase(unittest.TestCase):
             fired = []
             e.auto_submit.connect(lambda: fired.append(True))
             e._on_app_state_changed(Qt.ApplicationInactive)
-            e._focus_episode_start = time.time()
+            e._focus_episode_start = time.monotonic()
             e._window._active = False
             e._poll_focus()
             self.assertEqual(fired, [])

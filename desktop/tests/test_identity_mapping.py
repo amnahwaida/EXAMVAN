@@ -199,12 +199,15 @@ class DeviceLabelStabilityTest(unittest.TestCase):
 
 
 class FirstWordDispatchRegressionTest(unittest.TestCase):
-    """H1: dispatch kata PERTAMA — `nama_peserta` adalah NAMA.
+    """H1: kata penentu slot dibaca di SELURUH kunci — `nama_peserta` = NAMA.
 
     Dulu grup number dipindai dulu dengan kata bersama (`peserta` ada di
-    kedua grup) sehingga `nama_peserta` jatuh ke exam_number. Sekarang
-    hanya kata pertama yang dibaca; `ujian`/`exam`/`kode`/tanggal sebagai
-    kata pertama tidak pernah dispatch (dilewati, bukan ditebak).
+    kedua grup) sehingga `nama_peserta` jatuh ke exam_number. Sekarang kata
+    tier-1 (`nama`, `nomor`, `kelas`, ...) menang di mana pun posisinya, dan
+    kata tier-2 (`ujian`, `exam`, `siswa`, `peserta`) hanya dipakai kalau
+    tier-1 tidak ada; kata tanggal/jam/waktu tidak pernah mengklaim slot.
+    (R5 H5/H3: hanya kata PERTAMA yang dibaca sehingga kunci
+    `studentClass`/`kode_ujian`/`id_kelas` mendarat di kolom kosong.)
     """
 
     CASES = [
@@ -221,10 +224,16 @@ class FirstWordDispatchRegressionTest(unittest.TestCase):
         ("STUDENT_NAME", "student_name"),  # kanonik case-insensitive
         ("Exam_Number", "exam_number"),
         # Kata pertama tak dikenal → dilewati (tidak menebak slot mana pun)
-        ("ujian", None),
-        ("kode_ujian", None),
         ("tanggal_lahir", None),
         ("gelombang", None),
+        ("exam_date", None),
+        # R5 H5: `ujian`/`kode_ujian` DULU ada di sini sebagai "dilewati".
+        # Itu justru bug-nya: server membaca identity_data dengan key yang
+        # TERSIMPAN mentah, jadi kunci yang tidak cocok tidak pernah 400 —
+        # ia mendarat diam-diam di kolom DB kosong. Sekarang kata penentu
+        # slot boleh berada di kata mana pun di dalam kunci.
+        ("ujian", "exam_number"),
+        ("kode_ujian", "exam_number"),
     ]
 
     def test_first_word_dispatch_table(self):
