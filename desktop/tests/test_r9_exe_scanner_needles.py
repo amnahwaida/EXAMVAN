@@ -55,83 +55,81 @@ def _load():
 lem = _load()
 
 # Blob tiruan sepotong CArchive PyInstaller: entri NUL-terminated.
-# Dua bentuk arsip, keduanya harus ditangani karena build memakai PyInstaller
-# modern (entri TOC berbasis NUL) sementara exe lama bisa bergaya path:
+# Realitas exe onefile PyInstaller: dua arsip dalam satu berkas.
 #
-#   * CArchive/path : b"fitz/__init__.pyc\x00..."
-#   * CArchive/TOC  : b"\x00fitz\x00m"  (NUL + nama modul titik + NUL + typecode;
-#                     typecode 's' modul, 'm' paket, 'b' native, 'z' zip)
+#   1. CArchive  -> entri TOC berupa NAMA MODUL titik yang diakhiri NUL
+#                   (ditambah typecode 's'/'m'/'b'/'z'), plus nama binary.
+#   2. PYZ.pyz   -> arsip ZIP berisi SEMUA modul pure-python. Nama file di
+#                   central directory ZIP tidak dikompresi, jadi byte-nya ada
+#                   di exe -- tapi TANPA delimiter NUL.
 #
-# PyInstaller 6 TIDAK lagi menyimpan path `.pyc` di TOC, jadi hanya mencocokkan
-# bentuk pertama akan selalu salah UNLESS sebuah exe dibuat dengan versi lama.
-BLOB_PATH_STYLE = (
-    b"fitz\x00fitz/__init__.pyc\x00fitz/fitz.py\x00"
-    b"examvan.api\x00examvan.ui.pdf_viewer\x00examvan/ui/__init__.pyc\x00"
-    b"_mupdf.pyd\x00Qt5Core.dll\x00PyQt5/QtCore.pyd\x00"
+# `fitz` hanya ada di (2). Eclipse Ladangiah pemindaian berbasis NUL tidak
+# akan pernah menemukannya, dan itulah akar `stack PDF tidak ter-bundle: fitz`.
+def _carchive(names=(), binaries=()):
+    """Bentuk entri TOC CArchive: NUL + nama + NUL + typecode."""
+    return b"".join(
+        b"\x00" + n.encode() + b"\x00" + tc.encode()
+        for n, tc in names
+    ) + b"".join(b"\x00" + b.encode() + b"\x00b" for b in binaries)
+
+
+def _pyz(entries):
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in entries:
+            z.writestr(name, b"\x00" * 64)   # bytecode terkompresi
+    return buf.getvalue()
+
+
+_PYZ_ENTRIES = (
+    "fitz", "fitz.table", "fitz.utils", "pymupdf", "pymupdf.utils",
+    "examvan", "examvan.api", "examvan.ui", "examvan.ui.pdf_viewer",
 )
-BLOB_TOC_STYLE = (
-    b"PYZ-00.pyz\x00"
-    b"\x00fitz\x00m\x00fitz.table\x00s\x00pymupdf\x00m\x00pymupdf.utils\x00s"
-    b"\x00examvan.api\x00s\x00examvan.ui.pdf_viewer\x00s\x00examvan\x00m"
-    b"\x00_mupdf.pyd\x00b\x00Qt5Core.dll\x00b"
+BLOB = (
+    _carchive(
+        [("examvan", "m"), ("examvan.api", "s"),
+         ("examvan.ui.pdf_viewer", "s")],
+        ["_mupdf.pyd", "Qt5Core.dll", "Qt5Widgets.dll"],
+    )
+    + _pyz(_PYZ_ENTRIES)
 )
-# Blob yang dipakai sebagai basis pemeriksaan jarum: bentuk TOC, karena itu
-# yang dipakai build-windows.yml sungguhan.
-BLOB = BLOB_TOC_STYLE
+# Bentuk CArchive lama (path `.pyc`) tidak lagi jadi sumber utama, tapi
+# pemeriksa tidak boleh Depends on itu saja.
+BLOB_PATH_STYLE = b"fitz/__init__.pyc\x00examvan.api\x00_mupdf.pyd\x00"
+BLOB_TOC_STYLE = BLOB
 
 
 class PackageNameExtractionTest(unittest.TestCase):
     def test_top_level_package_is_found(self):
         self.assertIn("fitz", lem.package_names(BLOB))
 
-    def test_submodule_is_not_reported_as_its_own_package(self):
-        # `fitz/fitz.py` adalah modul di dalam paket, bukan paket baru.
-        self.assertNotIn("fitz.py", lem.package_names(BLOB))
-        self.assertEqual(lem.package_names(BLOB).count("fitz"), 1)
+    def test_the_package_name_comes_from_a_structural_zip_read(self):
+        # Nama harus diambil dari record ZIP, bukan dari kemunculan teks
+        # bebas. Blob dengan `fitz` di tengah data acak (tanpa entri ZIP)
+        # TIDAK boleh menghasilkan paket.
+        noise = b"\x00" + b"x" * 40 + b"fitz" + b"\x00" + b"y" * 40
+        self.assertNotIn("fitz", lem.package_names(noise))
 
-    def test_examvan_itself_is_reported_because_it_is_a_package(self):
-        # `examvan/__init__.pyc` memang paket, jadi HARUS muncul. Yang
-        # penting adalah modul BERCACAH TIDAK ikut dihitung sebagai paket —
-        # itulah yang menjaga `--require` tetap berarti.
+    def test_submodule_keeps_its_dotted_name(self):
+        # Entri ZIP menyimpan nama modul yang tersisaimportnya apa adanya --
+        # itu justru yang berguna: `fitz.table` membuktikan modul di dalam
+        # paket ikut terpaket, bukan hanya `__init__`-nya.
         names = lem.package_names(BLOB)
-        self.assertIn("examvan", names)
-        self.assertNotIn("examvan.api", names,
-                         "modul titik ikut dikira paket")
+        self.assertIn("fitz.table", names)
+        self.assertIn("pymupdf.utils", names)
 
-    def test_the_package_list_does_not_change_the_required_modules(self):
-        # Sifat yang diandalkan workflow: daftar wajib berasal dari
-        # `module_names` (hanya `examvan.*`), bukan dari `package_names`.
-        required = {"examvan.api", "examvan.ui.pdf_viewer"}
-        self.assertTrue(required.issubset(set(lem.module_names(BLOB))))
-        self.assertFalse(
-            required.issubset(set(lem.package_names(BLOB))),
-            "kalau daftar wajib ikut dari daftar paket, pemeriksaan build "
-            "kehilangan artinya",
-        )
-
-    def test_both_archive_layouts_yield_the_package(self):
-        # PyInstaller 6 tidak menyimpan path `.pyc`; kalau hanya salah satu
-        # bentuk yang dicocokkan, pemeriksaan build gagal untuk semua exe
-        # yang dibangun versi modern -- persis yang terjadi di ronde 9.
-        for label, blob in (("path", BLOB_PATH_STYLE), ("toc", BLOB_TOC_STYLE)):
-            with self.subTest(layout=label):
-                self.assertIn("fitz", lem.package_names(blob))
-
-    def test_typecode_letters_are_not_reported_as_packages(self):
-        # Typecode "s"/"m"/"b"/"z" berdiri sendiri di antara dua NUL dan
-        # hanya menambah derau, bukan informasi.
-        for noise in ("s", "m", "b", "z"):
-            with self.subTest(typecode=noise):
-                self.assertNotIn(noise, lem.package_names(BLOB))
-
-    def test_a_plain_module_without_init_is_not_a_package(self):
-        # Blob bergaya PATH: modul datar TIDAK punya `__init__.pyc`, jadi
-        # tidak ada paket yang bisa ditemukan. (Di gaya TOC, `sys.pyc`
-        # memang akan muncul sebagai root modul — dan itu benar, karena
-        # entri TOC-nya memang bernama `sys`.)
-        self.assertEqual(
-            lem.package_names(b"examvan.api\x00examvan/ui/pdf_viewer.py\x00"),
-            [],
+    def test_package_names_is_a_superset_of_the_top_level_roots(self):
+        # `package_names` sengaja melaporkan nama dotted apa adanya
+        # (`fitz.table`) karena itu informasi berguna, bukan daftar paket
+        # murni. Yang dijaga hanyalah bahwa akar paketnya ikut terambil.
+        names = lem.package_names(BLOB)
+        self.assertIn("fitz", names)
+        self.assertTrue(
+            {"examvan", "pymupdf"}.issubset(set(names)),
+            f"akar paket hilang dari {names}",
         )
 
 

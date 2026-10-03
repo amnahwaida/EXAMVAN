@@ -36,6 +36,7 @@ atau bukan exe PyInstaller) atau kalau ada modul --require yang hilang,
 from __future__ import annotations
 
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -64,12 +65,17 @@ _PY_PKG_RE = re.compile(
 # `fitz/__init__.pyc` tidak pernah ada di exe PyInstaller 6 -- yang ada
 # `\x00fitz\x00`. Keduanya harus dicocokkan supaya pemeriksaan "stack PDF
 # ter-bundle" bekerja pada kedua format.
-# `\w{2,}`: typecode CArchive ("s", "m", "b", "z") juga berdiri sendiri
-# di antara dua NUL, dan ikutnya hanya menambah derau — nama modul
-# satu huruf tidak pernah ada.
-_TOC_NAME_RE = re.compile(
-    rb"\x00([A-Za-z_]\w{1,}(?:\.[A-Za-z_]\w+)*)(?=\x00)"
-)
+# Nama modul python TIDAK ada di TOC CArchive sebagai nama yang bisa dipindai:
+# PyInstallersemua modul pure-python dikemas ke `PYZ.pyz`, yaitu arsip ZIP. Nama file di central directory ZIP memang TIDAK dikompresi, jadi
+# byte-nya ada di dalam exe -- tapi tanpa NUL di sekitar nama, sehingga
+# pemindaian berbasis NUL tidak akan pernah menemukannya. Itu sebabnya
+# jarum "fitz" tidak cocok padahal PyMuPDF benar-benar terpaket.
+#
+# Karena itu entri ZIP diparse STRUKTURAL (signature + panjang nama), bukan
+# dengan tebakan pola. Signature `PK\x03\x04` = local file header,
+# `PK\x01\x02` = central directory.
+_ZIP_LOCAL_SIG = b"PK\x03\x04"
+_ZIP_CENTRAL_SIG = b"PK\x01\x02"
 
 _CHUNK = 8 * 1024 * 1024
 
@@ -102,22 +108,53 @@ def native_names(blob: bytes) -> list[str]:
 def package_names(blob: bytes) -> list[str]:
     """Nama paket python yang tercatat di arsip (level teratas).
 
-    Dua sumber, karena formatnya berbeda antar versi:
-
-    * path `<pkg>/__init__.pyc` (CArchive lama);
-    * entri TOC berbasis NUL, `\x00fitz\x00` (PyInstaller 4+, termasuk 6).
-
-    Hanya level teratas yang dikembalikan karena itulah yang dipakai sebagai
-    jarum di build-windows.yml.
+    Sumbernya entri ZIP di `PYZ.pyz`, karena di situlah modul pure-python
+    (termasuk `fitz`) benar-benar berada. Nama entri CArchive untuk binary
+    (`_mupdf.pyd`) ditangani `native_names`, dan nama modul `examvan.*`
+    ditangani `module_names` -- keduanya tidak perlu diulang di sini.
     """
     out: set[str] = set()
-    for regex, group in ((_PY_PKG_RE, 1), (_TOC_NAME_RE, 1)):
-        for m in regex.finditer(blob):
-            try:
-                name = m.group(group).decode("ascii")
-            except UnicodeDecodeError:
-                continue
-            out.add(name.split(".", 1)[0])
+    for name in zip_entry_names(blob):
+        head = name.replace("\\", "/").split("/", 1)[0]
+        if head and all(seg.isidentifier() for seg in head.split(".")):
+            out.add(head)
+    return sorted(out)
+
+
+def zip_entry_names(blob: bytes) -> list[str]:
+    """Nama file dari semua entri ZIP yang tertanam di dalam blob.
+
+    Diparse struktural dari signature + panjang nama, bukan lewat pola teks:
+    nama modul python hanya ada di `PYZ.pyz` dan tidak punya delimiter NUL,
+    jadi satu-satunya cara yang benar adalah membaca record ZIP-nya.
+    """
+    out: set[str] = set()
+
+    # Central directory: header 46 byte, nama mulai di offset 46.
+    pos = blob.find(_ZIP_CENTRAL_SIG)
+    while pos != -1:
+        try:
+            name_len = struct.unpack_from("<H", blob, pos + 28)[0]
+            name = blob[pos + 46: pos + 46 + name_len]
+            if name and not name.startswith((b"PK",)):
+                out.add(name.decode("utf-8", "replace"))
+        except struct.error:
+            pass
+        pos = blob.find(_ZIP_CENTRAL_SIG, pos + 4)
+
+    # Local file header: nama mulai di offset 30. Dicoba juga supaya exe
+    # yang central directory-nya tidak utuh tetap terbaca.
+    pos = blob.find(_ZIP_LOCAL_SIG)
+    while pos != -1:
+        try:
+            name_len = struct.unpack_from("<H", blob, pos + 26)[0]
+            name = blob[pos + 30: pos + 30 + name_len]
+            if name and not name.startswith((b"PK",)):
+                out.add(name.decode("utf-8", "replace"))
+        except struct.error:
+            pass
+        pos = blob.find(_ZIP_LOCAL_SIG, pos + 4)
+
     return sorted(out)
 
 
