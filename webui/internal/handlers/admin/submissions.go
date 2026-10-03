@@ -580,10 +580,18 @@ func ExportSubmissions() gin.HandlerFunc {
 		}
 
 		if examFilter > 0 {
-			// Specific exam export — enforce tenant ownership (mirrors
-			// SubmissionDetail/ExportSubmissionDetail) to prevent cross-tenant
-			// IDOR that would otherwise leak another tenant's student PII.
-			if !checkExamOwnership(c, pool, examFilter) {
+			// Specific exam export — gate the download with the SAME access
+			// predicate the submissions page/list uses (UserCanAccessExam), so
+			// "page is visible" always implies "export is allowed". Using
+			// checkExamOwnership here was stricter than the list/dropdown and
+			// the all-exams export: its operator branch compares the raw
+			// free-text `instansi` byte-for-byte (case-sensitive, untrimmed, no
+			// instansi_id), while the rest of the app matches tenants via
+			// InstansiMatchSelfSQL (canonical instansi_id, case-insensitive name
+			// fallback). That mismatch made a legitimate same-instansi operator
+			// (or an assigned pengawas) get 403 for a specific exam even though
+			// the page listed it and "Semua Ujian" exported fine.
+			if !models.UserCanAccessExam(ctx, pool, userID, isSuper, examFilter) {
 				errorResponse(c, http.StatusForbidden, "Akses ditolak")
 				return
 			}

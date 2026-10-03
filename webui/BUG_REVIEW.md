@@ -21,6 +21,34 @@ Semua temuan CRITICAL/HIGH/MEDIUM/LOW **sudah diperbaiki** + plausibles yang ama
 
 ---
 
+## ✅ PERBAIKAN — EXPORT EXCEL UJIAN SPESIFIK + PENYELARASAN TENANT (3 Oktober 2026)
+
+Review lanjutan temuan [HIGH #3](#3-idor-lintas-tenant-export-submission-tenant-lain-pii-siswa). `go build`, `go vet`, `go test` (paket admin/middleware/models) lolos; 5 tes UI `node --test` hijau. Tes Go integrasi di atas memerlukan `TEST_DATABASE_URL` (skip lokal tanpa DB).
+
+### A. Operator tidak bisa mengunduh Excel untuk ujian spesifik (403 palsu)
+- **Masalah:** `ExportSubmissions` (`internal/handlers/admin/submissions.go`) menggerbangi `?exam_id=<N>` dengan `checkExamOwnership`, yang cabang operator-nya membandingkan `instansi` byte-exact (`userInstansi == ownerInstansi`; case-sensitive, tanpa trim, tanpa `instansi_id`). Sementara daftar halaman, dropdown filter, kartu info (`models.UserCanAccessExam`), dan export "Semua Ujian" (`LOWER(instansi)`) memakai pencocokan yang lebih longgar. Akibatnya operator se-instansi yang sah (mis. nama instansi beda kapitalisasi/whitespace, atau relasi tenant kanonik lewat `instansi_id`) bisa MEMILIH ujian dan mengekspor-semua, tetapi kena 403 "Akses ditolak" saat mengunduh ujian itu. Pengawas yang ditugaskan juga ditolak karena `checkExamOwnership` tak punya klausa `exam_pengawas`.
+- **Fix:** gerbang export spesifik kini memakai `models.UserCanAccessExam(...)` — predikat yang sama dengan halaman/daftar — sehingga "halaman terlihat ⇒ export boleh". Cross-tenant tetap 403.
+- **Tes:** `internal/handlers/admin/submissions_export_scoping_test.go` — `TestSubmissionsExportSpecificExam{OperatorSameTenantDifferentCase,Pengawas,CrossTenantDenied}`; UI `static/js/uiux-batch40-export-submission.test.mjs` (URL memuat `&exam_id`, ekspor-semua tanpa `exam_id`, pesan 403 server ditampilkan).
+
+### B. `checkExamOwnership` diselaraskan ke `InstansiMatchSelfSQL`
+- **Masalah:** fungsi ini mengulang logika tenant sendiri dengan perbandingan byte-exact, berbeda dari `models.UserCanControlExam`/`FilterAccessibleExamIDs` dan `UserCanAccessExam` yang memakai `InstansiMatchSelfSQL` (kesamaan `instansi_id` kanonik + fallback nama case-insensitive).
+- **Fix:** `checkExamOwnership` (`internal/handlers/admin/helpers.go`) kini mendelegasikan ke `models.UserCanControlExam`, sehingga seluruh aksi manajemen single-exam (`exams.go`, 13 call-site) memakai aturan tenant yang sama dengan jalur batch. Pengawas tetap tanpa hak manajemen; bucket `''`/`personal` tetap fail-closed.
+- **Tes:** `TestCheckExamOwnershipUsesCanonicalInstansiMatch` (owner ✅, operator se-tenant beda kapitalisasi ✅, pengawas-only ❌, cross-tenant ❌).
+
+### C. Perbandingan instansi byte-exact pada jalur delegasi → pencocokan kanonik
+- **Lokasi:** `internal/handlers/admin/exams.go` (`DelegateData`, `PostDelegateExam`, dan picker `GetQuestions`).
+- **Masalah:** `examInstansi != opInstansi` dan `targetInstansi != opInstansi` (empat call-site) membandingkan nama instansi secara byte-exact (case-sensitive, tanpa trim), bertentangan dengan aturan terdokumentasi `sameInstansi`. Query picker guru/pengawas juga memakai `LOWER(instansi) = LOWER($1)` (nama saja) — baik di `DelegateData` maupun picker pengawas `GetQuestions` — sehingga dua sekolah bernama sama bisa saling bocor daftar, dan sub-akun yang label namanya bergeser hilang dari picker sekolahnya.
+- **Fix:** `DelegateData`/`PostDelegateExam` kini mengambil scope operator via `getInstansiScopeForOperator` (id + nama; bucket `personal`/`owner` ditolak lewat `IsBucket`). Cek tenant ujian & validasi target memakai `operatorScopeMatches` (kesamaan `instansi_id` kanonik + fallback nama case-insensitive). Query picker guru/pengawas di `DelegateData` dan picker pengawas di `GetQuestions` memakai scope pemilik ujian/operator + fragmen `models.InstansiMatchSQL` dengan placeholder args mengikuti fragmen.
+- **Tes:** `internal/handlers/admin/exams_delegate_picker_test.go` — `TestDelegatePickerScopesByCanonicalInstansiID` (dua sekolah bernama sama beda `instansi_id`: guru/pengawas tenant lain tidak boleh muncul; baris se-id dengan label bergeser tetap muncul; pembuat ujian dikecualikan).
+- **Catatan:** `internal/middleware/auth.go:242` (`cur != dbInstansi`) **sengaja tidak** diubah — itu perbandingan sesi-vs-DB untuk self-heal (bukan otorisasi tenant), dan perbandingan byte-exact memang diinginkan agar nilai sesi yang kedaluwarsa ikut di-refresh.
+
+### D. Audit perbandingan instansi sisi frontend/JS
+- **Cakupan:** seluruh `webui/static/js/**.js` + template `admin/**.html` disisir untuk `instansi ===/!==/==/!=`.
+- **Hasil:** hanya satu perbandingan nilai instansi di JS — `admin.js:2323` `if (newInstansi === currentValue)` pada editor instansi inline. Ini **short-circuit "tanpa perubahan"** (melewati request API yang mubazir), **bukan** otorisasi tenant; perbandingan exact memang disengaja karena mengubah kapitalisasi nama adalah perubahan sah yang harus tetap dikirim. Tidak ada gerbang tenant atau filter client-side lain di JS/template.
+- **Keputusan:** tidak ada perubahan JS yang diperlukan (dianggap benar setelah verifikasi).
+
+---
+
 ## ✅ PERBAIKAN TAMBAHAN — ALUR UJIAN (9 Agustus 2026)
 
 Review lanjutan tiga temuan di alur submission/penjadwalan. **Semua sudah diperbaiki + ditest** (`go build`, `go vet`, `go test` lolos; status 9 Agustus 2026). Catatan lengkap di [README.md → Perbaikan Ujian Serentak](../README.md#perbaikan-ujian-serentak--submit-async-jadwal--perangkat-bersama-9-agustus-2026).
@@ -139,6 +167,7 @@ Audit lengkap index untuk seluruh kolom FK (termasuk 4 index baru: `idx_admin_us
 - **Masalah:** `ExportSubmissions` membaca `exam_id` dari query dan menjalankan `SELECT ... FROM submissions WHERE exam_id=$1` **tanpa** cek kepemilikan. Route hanya di belakang `AuthRequired()` (GET → tanpa CSRF, tanpa gate tenant). Endpoint saudaranya (`ListSubmissions`, `SubmissionDetail`, dll.) semua sudah men-scope — hanya path ini yang bolong.
 - **Eksploitasi:** `GET /admin/api/submissions/export?exam_id=1234` dengan cookie sesi valid mengunduh CSV seluruh siswa (nama, nomor, kelas, skor, MAC/device) dari ujian tenant lain. Enumerasi `exam_id` = bocor semua tenant.
 - **Fix:** Panggil `checkExamOwnership(c, pool, examFilter)` di awal `exportSingleExamCSV` (atau `ExportSubmissions` saat `examFilter>0`), balas 403/404 jika gagal.
+- **Diperbarui (3 Oktober 2026):** gerbang export spesifik kini memakai `models.UserCanAccessExam` agar konsisten dengan halaman/daftar (lihat bagian perbaikan di bawah); `checkExamOwnership` sendiri sudah diselaraskan ke `InstansiMatchSelfSQL`.
 
 ### 4. IDOR lintas-tenant: WebSocket monitoring ujian tenant lain
 - **Lokasi:** `cmd/server/main.go:340` (handler `/ws/:room_id`); broadcast di `internal/websocket/hub.go:343,371`.

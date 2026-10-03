@@ -1427,19 +1427,26 @@ func GetQuestions() gin.HandlerFunc {
 				})
 			}
 
-			// Available pengawas (same instansi as exam creator, active, pengawas role)
+			// Available pengawas (same tenant as exam creator, active, pengawas
+			// role). Tenant matched canonically (instansi_id, legacy name
+			// fallback) so a same-NAMED other school never leaks into the picker
+			// and a drifted label still lists its own school.
 			var creatorInstansi string
+			var creatorInstansiID *int
 			_ = pool.QueryRow(ctx,
-				`SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`,
-				exam.CreatedBy).Scan(&creatorInstansi)
+				`SELECT COALESCE(instansi, ''), instansi_id FROM admin_users WHERE id = $1`,
+				exam.CreatedBy).Scan(&creatorInstansi, &creatorInstansiID)
 
 			availablePengawas := []gin.H{}
-			if creatorInstansi != "" {
-				rows, err := pool.Query(ctx,
-					`SELECT id, username, COALESCE(instansi, '') as instansi FROM admin_users
-					 WHERE LOWER(instansi) = LOWER($1) AND status = 'active'
+			creatorScope := models.InstansiScope{ID: creatorInstansiID, Name: strings.TrimSpace(creatorInstansi)}
+			if !creatorScope.IsBucket() {
+				frag, fragArgs := models.InstansiMatchSQL("", 1, creatorScope)
+				pengawasQuery := `
+					SELECT id, username, COALESCE(instansi, '') as instansi FROM admin_users
+					 WHERE ` + frag + ` AND status = 'active'
 					   AND (role = 'pengawas' OR role ILIKE '%"pengawas"%')
-					 ORDER BY username`, creatorInstansi)
+					 ORDER BY username`
+				rows, err := pool.Query(ctx, pengawasQuery, fragArgs...)
 				if err == nil {
 					for rows.Next() {
 						var id int
@@ -2515,10 +2522,13 @@ func DelegateData() gin.HandlerFunc {
 		userID := getCurrentUserID(c)
 		ctx := c.Request.Context()
 
-		// Get operator's instansi
-		var opInstansi string
-		err = pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&opInstansi)
-		if err != nil || opInstansi == "" {
+		// Operator tenant scope: canonical instansi_id + display name, so the
+		// picker and the exam/target checks below match tenants by the same rule
+		// as the rest of the app (InstansiMatchSQL / operatorScopeMatches). The
+		// shared "personal"/"owner" buckets are not real schools (IsBucket) and
+		// fail closed.
+		opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+		if err != nil || opScope.IsBucket() {
 			errorResponse(c, http.StatusBadRequest, "Instansi tidak ditemukan")
 			return
 		}
@@ -2530,12 +2540,15 @@ func DelegateData() gin.HandlerFunc {
 			return
 		}
 
-		// Verify exam belongs to same instansi
-		var examInstansi string
+		// Verify exam belongs to the same tenant — canonical instansi_id with
+		// legacy name fallback (operatorScopeMatches), the same rule the
+		// single-exam management gate uses.
+		var examOwnerInstansi string
+		var examOwnerInstansiID *int
 		err = pool.QueryRow(ctx,
-			`SELECT COALESCE(u.instansi, '') FROM admin_users u WHERE u.id = $1`,
-			exam.CreatedBy).Scan(&examInstansi)
-		if err != nil || examInstansi != opInstansi {
+			`SELECT COALESCE(u.instansi, ''), u.instansi_id FROM admin_users u WHERE u.id = $1`,
+			exam.CreatedBy).Scan(&examOwnerInstansi, &examOwnerInstansiID)
+		if err != nil || !operatorScopeMatches(examOwnerInstansi, examOwnerInstansiID, opScope) {
 			errorResponse(c, http.StatusBadRequest, "Ujian tidak berada dalam instansi Anda")
 			return
 		}
@@ -2571,16 +2584,23 @@ func DelegateData() gin.HandlerFunc {
 			Username string `json:"username"`
 			Instansi string `json:"instansi"`
 		}
+		// Picker query matches the tenant canonically (instansi_id, legacy name
+		// fallback) so a sub-account whose name label drifted is still listed
+		// for its own school, while accounts from a same-NAMED other school are
+		// not. The extra exam-creator placeholder follows the fragment's args.
+		instansiFrag, instansiArgs := models.InstansiMatchSQL("", 1, opScope)
 		availableGurus := []guruItem{}
 		{
-			rows, err := pool.Query(ctx, `
+			guruQuery := `
 				SELECT id, username, COALESCE(instansi, '') as instansi
 				FROM admin_users
-				WHERE LOWER(instansi) = LOWER($1)
+				WHERE ` + instansiFrag + `
 				  AND status = 'active'
 				  AND (role = 'guru' OR role ILIKE '%"guru"%')
-				  AND id != $2
-				ORDER BY username`, opInstansi, exam.CreatedBy)
+				  AND id != $` + strconv.Itoa(len(instansiArgs)+1) + `
+				ORDER BY username`
+			guruArgs := append(append([]interface{}{}, instansiArgs...), exam.CreatedBy)
+			rows, err := pool.Query(ctx, guruQuery, guruArgs...)
 			if err == nil {
 				for rows.Next() {
 					var g guruItem
@@ -2603,13 +2623,14 @@ func DelegateData() gin.HandlerFunc {
 		}
 		availablePengawas := []pengawasItem{}
 		{
-			rows, err := pool.Query(ctx, `
+			pengawasQuery := `
 				SELECT id, username, COALESCE(instansi, '') as instansi
 				FROM admin_users
-				WHERE LOWER(instansi) = LOWER($1)
+				WHERE ` + instansiFrag + `
 				  AND status = 'active'
 				  AND (role = 'pengawas' OR role ILIKE '%"pengawas"%')
-				ORDER BY username`, opInstansi)
+				ORDER BY username`
+			rows, err := pool.Query(ctx, pengawasQuery, instansiArgs...)
 			if err == nil {
 				for rows.Next() {
 					var p pengawasItem
@@ -2677,10 +2698,13 @@ func PostDelegateExam() gin.HandlerFunc {
 		userID := getCurrentUserID(c)
 		ctx := c.Request.Context()
 
-		// Get operator's instansi
-		var opInstansi string
-		err = pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&opInstansi)
-		if err != nil || opInstansi == "" {
+		// Operator tenant scope: canonical instansi_id + display name, so the
+		// picker and the exam/target checks below match tenants by the same rule
+		// as the rest of the app (InstansiMatchSQL / operatorScopeMatches). The
+		// shared "personal"/"owner" buckets are not real schools (IsBucket) and
+		// fail closed.
+		opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+		if err != nil || opScope.IsBucket() {
 			errorResponse(c, http.StatusBadRequest, "Instansi tidak ditemukan")
 			return
 		}
@@ -2692,12 +2716,15 @@ func PostDelegateExam() gin.HandlerFunc {
 			return
 		}
 
-		// Verify exam belongs to same instansi
-		var examInstansi string
+		// Verify exam belongs to the same tenant — canonical instansi_id with
+		// legacy name fallback (operatorScopeMatches), the same rule the
+		// single-exam management gate uses.
+		var examOwnerInstansi string
+		var examOwnerInstansiID *int
 		err = pool.QueryRow(ctx,
-			`SELECT COALESCE(u.instansi, '') FROM admin_users u WHERE u.id = $1`,
-			exam.CreatedBy).Scan(&examInstansi)
-		if err != nil || examInstansi != opInstansi {
+			`SELECT COALESCE(u.instansi, ''), u.instansi_id FROM admin_users u WHERE u.id = $1`,
+			exam.CreatedBy).Scan(&examOwnerInstansi, &examOwnerInstansiID)
+		if err != nil || !operatorScopeMatches(examOwnerInstansi, examOwnerInstansiID, opScope) {
 			errorResponse(c, http.StatusBadRequest, "Ujian tidak berada dalam instansi Anda")
 			return
 		}
@@ -2708,16 +2735,17 @@ func PostDelegateExam() gin.HandlerFunc {
 			if newOwnerID > 0 {
 				// Validate that the target user exists, is active, has guru role, and is in same instansi
 				var targetInstansi string
+				var targetInstansiID *int
 				var targetRole string
 				var targetStatus string
 				err := pool.QueryRow(ctx,
-					`SELECT COALESCE(instansi, ''), role, status FROM admin_users WHERE id = $1`,
-					newOwnerID).Scan(&targetInstansi, &targetRole, &targetStatus)
+					`SELECT COALESCE(instansi, ''), instansi_id, role, status FROM admin_users WHERE id = $1`,
+					newOwnerID).Scan(&targetInstansi, &targetInstansiID, &targetRole, &targetStatus)
 				if err != nil {
 					errorResponse(c, http.StatusBadRequest, "User tujuan tidak ditemukan")
 					return
 				}
-				if targetInstansi != opInstansi {
+				if !operatorScopeMatches(targetInstansi, targetInstansiID, opScope) {
 					errorResponse(c, http.StatusBadRequest, "User tujuan tidak berada dalam instansi yang sama")
 					return
 				}
@@ -2750,16 +2778,17 @@ func PostDelegateExam() gin.HandlerFunc {
 			// Validate that all target users exist, are active, have pengawas role, and are in same instansi
 			for _, pid := range body.PengawasIDs {
 				var targetInstansi string
+				var targetInstansiID *int
 				var targetRole string
 				var targetStatus string
 				err := pool.QueryRow(ctx,
-					`SELECT COALESCE(instansi, ''), role, status FROM admin_users WHERE id = $1`,
-					pid).Scan(&targetInstansi, &targetRole, &targetStatus)
+					`SELECT COALESCE(instansi, ''), instansi_id, role, status FROM admin_users WHERE id = $1`,
+					pid).Scan(&targetInstansi, &targetInstansiID, &targetRole, &targetStatus)
 				if err != nil {
 					errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
 					return
 				}
-				if targetInstansi != opInstansi {
+				if !operatorScopeMatches(targetInstansi, targetInstansiID, opScope) {
 					errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
 					return
 				}

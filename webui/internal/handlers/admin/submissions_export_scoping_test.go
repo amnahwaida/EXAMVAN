@@ -314,3 +314,242 @@ func TestSubmissionsExportDeletedOperator(t *testing.T) {
 		t.Errorf("deleted operator export: status=%d, want 401 (session must die with the row)", status)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Specific-exam export access (regression: page-visible ⇒ export-allowed)
+// ---------------------------------------------------------------------------
+//
+// Before the fix, ExportSubmissions gated ?exam_id=<N> with checkExamOwnership,
+// whose operator branch compares the raw free-text instansi byte-for-byte
+// (case-sensitive, untrimmed, no instansi_id) and has no exam_pengawas clause.
+// Meanwhile the submissions page/list and the all-exams export use
+// UserCanAccessExam / LOWER(instansi) — so a legitimate same-tenant operator
+// (or an assigned pengawas) could see the exam yet get 403 downloading it.
+// These tests pin the corrected contract: the same predicate that authorises
+// viewing must authorise the specific-exam export, and cross-tenant is still
+// denied.
+
+// exportExam downloads the specific-exam export (exam_id=<N> →
+// exportSingleExamXLSX, summary sheet "Rekapitulasi") and returns the HTTP
+// status plus the raw response body.
+func (ec *exportScopeClient) exportExam(examID int) (int, []byte) {
+	ec.t.Helper()
+	req, err := http.NewRequest(http.MethodGet,
+		ec.base+"/admin/api/submissions/export?exam_id="+strconv.Itoa(examID), nil)
+	if err != nil {
+		ec.t.Fatalf("build specific-exam request: %v", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := ec.client.Do(req)
+	if err != nil {
+		ec.t.Fatalf("GET specific-exam export: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ec.t.Fatalf("read specific-exam body: %v", err)
+	}
+	return resp.StatusCode, body
+}
+
+// exportSheetContainsStudent reports whether the given sheet of an exported
+// workbook contains the student name in any cell. Non-200 bodies (a JSON
+// error) are not valid xlsx, so callers should only invoke it on 200.
+func exportSheetContainsStudent(t *testing.T, body []byte, sheet, studentName string) bool {
+	t.Helper()
+	f, err := excelize.OpenReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("open exported xlsx: %v", err)
+	}
+	defer f.Close()
+	rows, err := f.GetRows(sheet)
+	if err != nil {
+		t.Fatalf("read sheet %s: %v", sheet, err)
+	}
+	for _, row := range rows {
+		for _, cell := range row {
+			if strings.Contains(cell, studentName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// exportExamAccessFixture carries the actors for the specific-exam access
+// tests: an operator whose instansi differs only in CASE from the exam owner's
+// (same tenant, different casing), the guru owner, a pengawas assigned to the
+// exam, and an operator from a genuinely different tenant.
+type exportExamAccessFixture struct {
+	OperatorSameTenantID int
+	GuruOwnerID          int
+	PengawasID           int
+	OperatorOtherID      int
+	ExamID               int
+	StudentName          string
+}
+
+func createExportExamAccessFixture(t *testing.T, pool *pgxpool.Pool) exportExamAccessFixture {
+	t.Helper()
+	ctx := context.Background()
+
+	mk := func(username, name, instansi string, roles ...string) int {
+		u, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username:     username,
+			Name:         name,
+			Instansi:     instansi,
+			PasswordHash: "pass-" + username,
+			Status:       models.UserStatusActive,
+			Role:         models.SerializeRoles(roles),
+		})
+		if err != nil {
+			t.Fatalf("create user %s: %v", username, err)
+		}
+		return u.ID
+	}
+
+	// Same tenant expressed with different casing: the list/dropdown (LOWER)
+	// and UserCanAccessExam (case-insensitive name fallback) accept it, while
+	// the old checkExamOwnership byte compare rejected it.
+	operatorID := mk("xs3-op", "Operator Alpha", "SMA Alpha", models.RoleOperator)
+	guruID := mk("xs3-guru", "Guru Alpha", "sma alpha", models.RoleGuru)
+	pengawasID := mk("xs3-pengawas", "Pengawas Alpha", "sma alpha", models.RolePengawas)
+	otherID := mk("xs3-op-other", "Operator Beta", "SMK Beta", models.RoleOperator)
+
+	token := fmt.Sprintf("XC%06d", time.Now().UnixNano()%1000000)
+	var examID int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by)
+		VALUES ($1, 'xs3.pdf', 1024, $2, $2, 'active', 'medium', $3)
+		RETURNING id`, "Ujian Spesifik Alpha", token, guruID).Scan(&examID); err != nil {
+		t.Fatalf("seed exam: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO exam_pengawas (exam_id, user_id) VALUES ($1, $2)`, examID, pengawasID); err != nil {
+		t.Fatalf("assign pengawas: %v", err)
+	}
+
+	student := "Siswa Spesifik"
+	startedAt := time.Now().Format(time.RFC3339)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, answers_json, score, start_time, created_at)
+		VALUES ($1, 'AA:BB:CC:DD:EE:FF', $2, '01', 'XII A', $3, 80, $4, $5)`,
+		examID, student, `{"1":"A"}`, startedAt, time.Now()); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+
+	return exportExamAccessFixture{
+		OperatorSameTenantID: operatorID,
+		GuruOwnerID:          guruID,
+		PengawasID:           pengawasID,
+		OperatorOtherID:      otherID,
+		ExamID:               examID,
+		StudentName:          student,
+	}
+}
+
+// TestSubmissionsExportSpecificExamOperatorSameTenantDifferentCase pins the
+// reported bug: an operator in the exam owner's tenant (instansi matches
+// case-insensitively) must be able to download the specific-exam export, just
+// as the page lists the exam and "Semua Ujian" exports it.
+func TestSubmissionsExportSpecificExamOperatorSameTenantDifferentCase(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createExportExamAccessFixture(t, pool)
+
+	r := newSubmissionsExportRouter(pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	oc := newExportScopeClient(t, srv.URL)
+	oc.login(fix.OperatorSameTenantID)
+
+	status, body := oc.exportExam(fix.ExamID)
+	if status != http.StatusOK {
+		t.Fatalf("same-tenant operator specific-exam export: status=%d, want 200", status)
+	}
+	if !exportSheetContainsStudent(t, body, "Rekapitulasi", fix.StudentName) {
+		t.Errorf("specific-exam export missing the tenant's student (operator same tenant, different instansi case)")
+	}
+}
+
+// TestSubmissionsExportSpecificExamPengawas pins the secondary contract: a
+// pengawas assigned to the exam can view it in the list and export it —
+// checkExamOwnership (which lacks the exam_pengawas clause) wrongly denied it.
+func TestSubmissionsExportSpecificExamPengawas(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createExportExamAccessFixture(t, pool)
+
+	r := newSubmissionsExportRouter(pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	pc := newExportScopeClient(t, srv.URL)
+	pc.login(fix.PengawasID)
+
+	status, body := pc.exportExam(fix.ExamID)
+	if status != http.StatusOK {
+		t.Fatalf("assigned pengawas specific-exam export: status=%d, want 200", status)
+	}
+	if !exportSheetContainsStudent(t, body, "Rekapitulasi", fix.StudentName) {
+		t.Errorf("specific-exam export missing the student for an assigned pengawas")
+	}
+}
+
+// TestSubmissionsExportSpecificExamCrossTenantDenied guards against widening
+// the fix too far: an operator from a different tenant must still get 403 for
+// a specific exam they cannot access (no cross-tenant PII leak).
+func TestSubmissionsExportSpecificExamCrossTenantDenied(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createExportExamAccessFixture(t, pool)
+
+	r := newSubmissionsExportRouter(pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	xo := newExportScopeClient(t, srv.URL)
+	xo.login(fix.OperatorOtherID)
+
+	status, _ := xo.exportExam(fix.ExamID)
+	if status != http.StatusForbidden {
+		t.Errorf("cross-tenant operator specific-exam export: status=%d, want 403", status)
+	}
+}
+
+// TestCheckExamOwnershipUsesCanonicalInstansiMatch pins the alignment of
+// checkExamOwnership with models.UserCanControlExam: the operator branch now
+// matches tenants via InstansiMatchSelfSQL (canonical instansi_id +
+// case-insensitive name fallback) instead of a byte-exact free-text compare,
+// and a pengawas-only assignment still does NOT grant management rights.
+func TestCheckExamOwnershipUsesCanonicalInstansiMatch(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createExportExamAccessFixture(t, pool)
+
+	call := func(userID int, isSuper, isOp bool) bool {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Set("user_id", userID)
+		c.Set("is_super_admin", isSuper)
+		c.Set("is_operator", isOp)
+		return checkExamOwnership(c, pool, fix.ExamID)
+	}
+
+	// Owner (guru) may manage their own exam.
+	if !call(fix.GuruOwnerID, false, false) {
+		t.Errorf("owner should manage the exam")
+	}
+	// Operator in the owner's tenant with different instansi casing: allowed
+	// after the InstansiMatchSelfSQL alignment (was denied by the byte compare).
+	if !call(fix.OperatorSameTenantID, false, true) {
+		t.Errorf("same-tenant operator (different instansi case) should manage the exam")
+	}
+	// Pengawas-only assignment must NOT grant management rights.
+	if call(fix.PengawasID, false, false) {
+		t.Errorf("pengawas-only assignment must not grant exam management rights")
+	}
+	// Operator from a genuinely different tenant: denied.
+	if call(fix.OperatorOtherID, false, true) {
+		t.Errorf("cross-tenant operator must not manage the exam")
+	}
+}

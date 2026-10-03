@@ -275,48 +275,22 @@ func roundTo(val float64, decimals int) float64 {
 // Ownership check helpers
 // ---------------------------------------------------------------------------
 
-// checkExamOwnership returns true when the current user owns the exam or is
-// super admin / operator with the same instansi.
+// checkExamOwnership returns true when the current user may manage the exam:
+// SuperAdmin, the owner, a delegate, or an operator in the exam creator's
+// (non-empty) tenant. A pengawas-only assignment does NOT grant management
+// rights — the same contract as models.UserCanControlExam, which this helper
+// now delegates to so single-exam management authorization matches the batch
+// path (FilterAccessibleExamIDs) exactly.
+//
+// Previously this function re-implemented the operator branch with a raw
+// byte-for-byte `instansi` comparison (case-sensitive, untrimmed, no
+// instansi_id), which disagreed with the list/export/pengawas gates that
+// match tenants via InstansiMatchSelfSQL (canonical instansi_id +
+// case-insensitive name fallback). Delegating removes that divergence: an
+// operator is treated as same-tenant here by the same rule everywhere else.
 func checkExamOwnership(ctx *gin.Context, pool *pgxpool.Pool, examID int) bool {
-	userID := getCurrentUserID(ctx)
-	if isSuperAdmin(ctx) {
-		return true
-	}
-
-	var ownerID int
-	var ownerInstansi string
-	err := pool.QueryRow(ctx.Request.Context(),
-		`SELECT e.created_by, COALESCE(u.instansi, '') FROM exams e
-		 LEFT JOIN admin_users u ON e.created_by = u.id
-		 WHERE e.id = $1`, examID).Scan(&ownerID, &ownerInstansi)
-	if err != nil {
-		return false
-	}
-
-	if ownerID == userID {
-		return true
-	}
-
-	// Check delegated_to: delegated user controls the exam
-	var delegatedTo *int
-	_ = pool.QueryRow(ctx.Request.Context(),
-		`SELECT delegated_to FROM exams WHERE id = $1`, examID).Scan(&delegatedTo)
-	if delegatedTo != nil && *delegatedTo == userID {
-		return true
-	}
-
-	if isOperator(ctx) {
-		var userInstansi string
-		pool.QueryRow(ctx.Request.Context(),
-			`SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&userInstansi)
-		// An empty or "personal" (unset sentinel) instansi must never match
-		// (consistent with UserCanAccessExam / FilterAccessibleExamIDs):
-		// otherwise accounts in the shared default bucket would grant
-		// cross-tenant access.
-		return userInstansi != "" && userInstansi != "personal" && userInstansi == ownerInstansi
-	}
-
-	return false
+	return models.UserCanControlExam(
+		ctx.Request.Context(), pool, getCurrentUserID(ctx), isSuperAdmin(ctx), examID)
 }
 
 // checkSubmissionOwnership returns true when the current user has access to the
