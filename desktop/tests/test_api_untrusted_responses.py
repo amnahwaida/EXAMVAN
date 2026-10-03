@@ -241,8 +241,30 @@ class DownloadPdfValidatesContentTestCase(unittest.TestCase):
     def test_html_error_page_is_rejected_and_tmp_cleaned(self):
         with self.assertRaises(ValueError):
             self._download([b"<html>403 blocked by WAF</html>"])
-        self.assertFalse(Path(self.dest + ".tmp").exists())
+        # Nama temp harus diambil dari helper, BUKAN `dest + ".tmp"`:
+        # `_pdf_tmp_path()` menempelkan `.tmp.<pid>.<tid>`, jadi
+        # `dest + ".tmp"` tidak pernah dibuat dan assertion-nya hampa —
+        # ia tetap hijau bahkan ketika `os.unlink(tmp_path)` dihapus
+        # sepenuhnya, sehingga naskah ujian tertinggal di %TEMP% pada PC lab
+        # tanpa ada yang gagal. Temp PDF berisi naskah, jadi ini bukan
+        # housekeeping: file yatim itu bacaan bebas untuk siapa pun yang
+        # memakai PC berikutnya.
+        self.assertFalse(Path(api._pdf_tmp_path(self.dest)).exists())
         self.assertFalse(Path(self.dest).exists())
+
+    def test_no_temp_file_of_any_shape_survives_a_rejected_download(self):
+        """Pengaman lapis kedua: tidak ada file `.tmp*` yang tersisa.
+
+        Menutup celah "helper berubah lagi": assertion di atas hanya
+        memeriksa satu path, jadi kalau nama temp berubah lagi tanpa
+        assertion-nya ikut kedaluwarsa. Di sini yang diperiksa adalah
+        file APA SAJA di direktori tujuan.
+        """
+        with self.assertRaises(ValueError):
+            self._download([b"<html>403 blocked by WAF</html>"])
+        leftovers = sorted(p.name for p in Path(self.dest).parent.iterdir())
+        self.assertEqual(leftovers, [], "unduhan yang ditolak meninggalkan "
+                                        f"file di disk: {leftovers}")
 
     def test_empty_response_is_rejected(self):
         with self.assertRaises(ValueError):
