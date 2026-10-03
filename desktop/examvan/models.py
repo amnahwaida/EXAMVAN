@@ -38,6 +38,25 @@ class IdentityField:
     key: str
     label: str
     required: bool = False
+    # Apakah `key` di wire sebagai STRING? Ini satu-satunya fakta yang
+    # menentukan apakah server bisa membacanya, jadi harus dibawa, bukan
+    # ditebak ulang dari bentuk teks key-nya.
+    #
+    # Alasannya: `admin/exams.go:validateIdentityFields` hanya menuntut
+    # "key berupa teks yang tidak kosong" dan `api/exams.go:
+    # identityFieldValue` membacanya persis seperti yang tersimpan. Jadi
+    # key `2024_2025` (hasil normalisasi label "2024/2025" di
+    # `static/js/admin.js`) ATAU `9` BERJALAN; menolak key seperti itu
+    # hanya karena tidak punya huruf akan mengunci seluruh kelas.
+    #
+    # Sebaliknya nilai JSON non-teks (`{"key": 123}`) tidak bisa di-decode
+    # ke `Key string` di Go, UnmarshalTypeError-nya dibuang, dan field itu
+    # tersimpan dengan `Key:""` — tidak akan pernah cocok. Hanya itu
+    # yang tidak terbaca.
+    #
+    # Default `True`: `IdentityField` yang dibuat langsung di repo (default
+    # dialog, fixture test) selalu berupa string.
+    key_is_text: bool = True
 
 
 @dataclass
@@ -108,8 +127,17 @@ class Exam:
                 #
                 # Coercion TETAP dilakukan (server rusak tidak boleh
                 # menjatuhkan dialog join), tapi key yang salah bentuk
-                # sekarang DI-LOG dengan nama ujian supaya bisa didiagnosis.
+                # sekarang DI-LOG dengan nama ujian supaya bisa didiagnosis
+                # dan fakta "ini bukan string" DIBAWA ke `IdentityField`
+                # lewat `key_is_text`. `_plausible_key` di dialog memakai
+                # fakta itu, bukan tebakan bentuk teks: bentuk teks salah
+                # menolak key yang sah seperti `2024_2025`.
+                #
+                # Key yang tidak ada sama sekali (`None`/absent) dianggap
+                # terbaca: dialog memberi kunci sintetis `field_<index>`
+                # dan `identityFieldValue` membacanya POSISIONAL.
                 raw_key = f.get("key")
+                key_is_text = raw_key is None or isinstance(raw_key, str)
                 if raw_key is not None and not isinstance(raw_key, str):
                     _log.warning(
                         "key kolom identitas bukan teks (%r, tipe %s) pada "
@@ -124,6 +152,7 @@ class Exam:
                         key=str(f.get("key") or ""),
                         label=str(f.get("label") or f.get("key") or ""),
                         required=bool(f.get("required", False)),
+                        key_is_text=key_is_text,
                     )
                 )
         questions = data.get("questions")

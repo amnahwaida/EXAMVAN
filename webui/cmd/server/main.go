@@ -471,22 +471,50 @@ func main() {
 // 10/menit di /login dan /admin/login tetap 10/menit TOTAL untuk anti
 // brute-force, bukan 20/menit.
 //
-// Aritmetika per rute (satu ruangan = 500 perangkat):
+// Aritmetika per rute (satu ruangan = 500 perangkat).ANGKA-ANGKA INI
+// DIHITUNG DARI KODE CLIENT YANG SEBENARNYA, bukan dari pengali tebakan —
+// angka yang salah di sini membuat orang memotong angka yang justru longgar.
+// Angka kuncinya dikunci oleh TestRateLimitBudgetsCoverOneNATRoom
+// (ratelimit_nat_capacity_test.go); alasan dan angka hasil pengukurannya
+// dikunci TestRateLimitSizingCommentMatchesMeasuredClientLoad
+// (ratelimit_measured_load_test.go).
 //   - /api/exams: satu list per perangkat → 500×1 = 500, diberi 4× (2000)
 //     untuk refresh manual saat launch + kelonggaran;
-//   - join token / PDF / request-approval / result polling: polling hasil
-//     tiap ~2,5 dtk di semua perangkat = 500×24 = 12000, diberi 15000;
+//   - join token / unduhan PDF / request-approval: satu kali per perangkat,
+//     tapi SELURUH ruangan melakukannya bersamaan di awal ujian dari satu NAT
+//     sekolah, jadi yang dihitung lonjakan, bukan rate;
+//   - POLLING HASIL berbeda dari join/PDF: `poll_queued_result`
+//     (desktop/examvan/api.py) memakai `_sleep_or_give_up` yang jeda-nya
+//     MENUMPUH (2,5 → 3,75 → 5,6 → … , dibatasi total deadline) dan DITUTUP
+//     oleh deadline 77,5 detik. Disimulasikan terhadap kode itu sungguhan:
+//     SATU perangkat = 8 permintaan per bursts (1 + 7 retry) dalam 77,5
+//     detik, yaitu 6,2 req/menit/perangkat — bukan 24/menit seperti
+//     kelihatannya dari interval awal 2,5 dtk. Satu ruangan di deadline
+//     lockstep ≈ 500×8 = 4000/menit, diberi 15000 → headroom 3,8×. Angka
+//     15000 TIDAK boleh diperkecil ke 12000 dengan alasan "500×24": alasan
+//     itu salah, dan alasan yang salah membuat angka longgar terlihat
+//     pas-pasan.
 //   - submit: `submit_with_retry` mencoba 4 kali (percobaan + backoff
 //     1s/2s/4s) dan seluruh ruangan bisa gagal bareng saat Wi-Fi putus →
 //     500×4 = 2000, diberi 5× (2500) untuk percobaan kelima;
-//   - presence (access-log + complete): bucket KHAS, di atas 500×2: di t=0
-//     semua perangkat login + heartbeat pertama datang lockstep (1000), lalu
-//     500 `complete` lockstep di deadline — memakai plafon submit dulu
-//     membuat heartbeat dan submit saling memakan kuota yang sama;
+//   - presence (access-log + complete): plafon KHAS, dan dihitung sebagai
+//     DUA bucket 2000/menit yang TERPISAH — /access-log dan /complete dua
+//     rute berbeda dan dipasang lewat `RateLimitIPPerRoute`, jadi di
+//     belakang satu NAT sekolah keduanya punya counter sendiri. Beban nyata
+//     satu perangkat = 3 permintaan lockstep (login saat connect + heartbeat
+//     tiap 60 dtk + `complete` di deadline) = 1500/menit, jadi tiap bucket
+//     pun muat dengan kelonggaran. Angka 2000 TIDAK boleh dilipat menjadi
+//     satu bucket bersama lewat `RateLimitIP`: key route-less-nya
+//     `ratelimit:<ip>:<window>` sama persis dengan key bucket 10/menit di
+//     /login, sehingga presence akan mengambil alih plafon login dan
+//     sebaliknya. Bentuk bucket ini dikunci
+//     TestPresenceIsTwoSeparatePerRouteBuckets;
 //   - /ws/:room_id: 500 koneksi gelombang pertama + badai reconnect ruang
 //     (500) = 1000, diberi 3× (1500) supaya reconnect tidak menunggu backoff;
 //   - /hasil: satu tampilan hasil = 2 permintaan (halaman HTML + panggilan
-//     /api/hasil miliknya) → 500×2 = 1000, diberi 3× (1500).
+//     /api/hasil miliknya) → 500×2 = 1000, diberi 3× (1500). Di dalam handler
+//     ada dua bucket lagi yang lebih ketat: plafon anti-brute per-CLIENT dan
+//     backstop runaway per-token (internal/handlers/public/hasil_ratelimit.go).
 //
 // Throttle yang sebenarnya (per perangkat / per ujian) di-enforce di dalam
 // handler keyed exam+MAC / per-token / per-exam (internal/handlers/api).
@@ -498,7 +526,7 @@ const (
 	rateLimitBurstPerMinute    = natRoomSize * 5 // submit saja (deadline burst + retry)
 	rateLimitPresencePerMinute = natRoomSize * 4 // access-log + complete (login + heartbeat lockstep di t=0)
 	rateLimitWSPerMinute       = natRoomSize * 3 // GET /ws/:room_id — koneksi long-lived + badai reconnect
-	rateLimitHasilPerMinute    = natRoomSize * 3 // GET /hasil[/:token] + /api/hasil/:token — IP ceiling (satu NAT sekolah = satu ruangan, 500+ siswa berbagi satu IP, satu tampilan = 2 permintaan); anti-brute token yang sebenarnya di-enforce per-TOKEN di dalam handler (public.hasilTokenRateLimitMax, 60/menit per token per rute)
+	rateLimitHasilPerMinute    = natRoomSize * 3 // GET /hasil[/:token] + /api/hasil/:token — IP ceiling (satu NAT sekolah = satu ruangan, 500+ siswa berbagi satu IP, satu tampilan = 2 permintaan); anti-brute yang sebenarnya di-enforce per-CLIENT di dalam handler, dengan backstop per-token yang jauh lebih longgar (public.hasilClientRateLimitMax / hasilTokenRateLimitMax — lihat internal/handlers/public/hasil_ratelimit.go)
 )
 
 func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
@@ -535,12 +563,17 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/download/apk", middleware.RateLimitIPPerRoute(60, time.Minute), public.DownloadAPK())
 	r.GET("/download/app/:id", middleware.RateLimitPerRoute(60, time.Minute), public.DownloadSystemApp())
 	// M1: the HTML result pages carry the SAME IP ceiling as the API route
-	// below (lihat rateLimitHasilPerMinute): the token-brute-force throttle
-	// lives per-token inside the public handlers, the middleware is IP-only
-	// (middleware.RateLimitIP) so its budget must hold a whole room behind
-	// one school NAT instead of throttling classmates against each other.
-	// Satu tampilan hasil memakai DUA budget: halaman ini + panggilan
-	// /api/hasil miliknya, jadi plafonnya natRoomSize×2 (lihat konstanta).
+	// below (lihat rateLimitHasilPerMinute): the anti-brute throttle lives
+	// per-CLIENT inside the public handlers, the middleware is IP-only
+	// (RateLimitIPPerRoute) so its budget must hold a whole room behind one
+	// school NAT instead of throttling classmates against each other. At
+	// H7 the per-TOKEN 60/min bucket inside the handler was removed as the
+	// anti-brute ceiling (a guessed token got a fresh bucket every guess, and
+	// in static-token mode the 61st classmate got the 429 card); the token
+	// bucket survives only as a runaway backstop sized from the room.
+	// Satu tampilan hasil memakai DUA budget middleware: halaman ini +
+	// panggilan /api/hasil miliknya, jadi plafonnya natRoomSize×3 (lihat
+	// konstanta).
 	r.GET("/hasil", middleware.RateLimitIPPerRoute(rateLimitHasilPerMinute, time.Minute), public.CekHasilPage())
 	r.GET("/hasil/:token", middleware.RateLimitIPPerRoute(rateLimitHasilPerMinute, time.Minute), public.HasilPage())
 

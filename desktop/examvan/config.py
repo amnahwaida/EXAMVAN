@@ -47,7 +47,11 @@ _cache: Optional[Dict[str, Any]] = None
 # akhirnya. Karena `_save()` selalu menulis SELURUH cache (bukan hanya satu
 # kunci), satu lock global di sini cukup: penulisan menjadi serial dan
 # seluruh isi konsisten.
-_save_lock = threading.Lock()
+# RLock, bukan Lock: `set_identity_session` memegang `_save_lock` selama
+# mutate + satu `_save()`, jadi lock-nya masuk dua kali di thread yang sama
+# (lihat fungsi itu). `threading.Lock` tidak reentrant dan akan DEADLOCK di
+# sana. Scope pemakaiannya tetap satu blok kritis yang pendek.
+_save_lock = threading.RLock()
 
 # Lock untuk berkas jawaban (answers_<id>.dat + sidecar ownernya).
 _answers_lock = threading.Lock()
@@ -675,24 +679,60 @@ def clear_answers(exam_id: int) -> None:
     menghapus file yang sedang dibuka. OneDrive/Dropbox di lab sekolah juga
     routinely mengunci %USERPROFILE%\.config.
 
+    Sidecar `.owner` dihapus TERAKHIR dan HANYA kalau berkas jawabannya
+    benar-benar tidak ada lagi. Alasannya dua arah, dan tidak simetris
+    (audit M6):
+
+      * jawaban YATIM tanpa sidecar = tidak ada yang bisa di-restore dan
+        tidak ada recovery yang bisa dijalankan -- file sia-sia saja;
+      * jawaban TANPA sidecar = kedua gerbang konsumen gagal-TERBUKA (`owner
+        is None` artinya "milik siapa pun"), jadi jawaban siswa berikutnya
+        bisa di-restore ke layar dan dikirim atas namanya -- persis
+        kebocoran lintas siswa yang sidecar ini ada untuk mencegahnya.
+
+    Dulu ketiganya dihapus berurutan tanpa syarat, jadi `PermissionError`
+    pada `.dat` cukup untuk menghasilkan jawaban tanpa pemilik. Sidecar
+    yatim hanya dibersihkan pada pemanggilan berikutnya yang berhasil.
+
     Kalau file tidak terhapus, akibatnya file yatim -- tidak fatal, dan
     bisa dibersihkan nanti. Yang fatal adalah aplikasi mati tepat setelah
     jawaban sudah sampai server: siswa tidak melihat konfirmasi, dan tetap
     tampil ONLINE di dashboard pengawas.
     """
-    for path in (_CONFIG_DIR / f"answers_{exam_id}.dat",
-                 _CONFIG_DIR / f"answers_{exam_id}.json",
-                 # Sidecar pemilik ikut dihapus: membiarkannya membuat
-                 # re-entry berikutnya membaca owner untuk jawaban yang
-                 # sudah tidak ada (lihat save_answers_owner).
-                 _CONFIG_DIR / f"answers_{exam_id}.owner"):
+    answers_paths = [
+        _CONFIG_DIR / f"answers_{exam_id}.dat",
+        # Warisan plaintext sebelum obfuscation; `load_answers` masih memakainya
+        # kalau `.dat` tidak ada, jadi ikut jadi syarat "jawaban benar-benar
+        # hilang".
+        _CONFIG_DIR / f"answers_{exam_id}.json",
+    ]
+    for path in answers_paths:
         try:
             if path.exists():
                 path.unlink()
         except OSError:
-        # Sengaja ditelan, tapi harus meninggalkan jejak di log.
+            # Sengaja ditelan, tapi harus meninggalkan jejak di log.
             _log.warning("could not remove saved answers: %s", path,
                          exc_info=True)
+
+    # GATED: sidecar hanya boleh ikut hilang kalau tidak ada satu pun berkas
+    # jawaban yang tersisa. `exists()` yang tersisa artinya unlink di atas
+    # gagal (PermissionError) -- `.owner` lalu WAJIB bertahan.
+    leftovers = [p.name for p in answers_paths if p.exists()]
+    if leftovers:
+        _log.warning(
+            "sidecar pemilik jawaban exam %s DIPERTAHANKAN: %s",
+            exam_id, ", ".join(leftovers),
+        )
+        return
+
+    owner = _CONFIG_DIR / f"answers_{exam_id}.owner"
+    try:
+        if owner.exists():
+            owner.unlink()
+    except OSError:
+        _log.warning("could not remove answers owner marker: %s", owner,
+                     exc_info=True)
 
 
 def _submitted_raw(exam_id: int) -> dict:
@@ -896,6 +936,17 @@ def set_identity_session(
     `__main__.py`, yang tidak boleh disentuh di ronde ini — membaca data
     yang sama persis.
 
+    M7: `_save_lock` kini dipegang selama mutate DAN save. `_load()`
+    mengembalikan dict `_cache` yang HIDUP (bukan salinan), jadi tiga
+    mutasi yang terjadi di luar lock menyisakan jeda di mana penulis lain
+    (`config.set("exam_token", ...)` dari `_connect_thread`) bisa menjalankan
+    `_save()`-nya sendiri dan mem-persist `identity_session` BARU berdampingan
+    dengan cermin `identity_data`/`identity_context` LAMA. State setengah
+    seperti itu persis yang tidak boleh terlihat: `ServerConfigDialog`
+    membacanya untuk prefill, dan konteksnya adalah penjaga anti-prefill-
+    silang (H8) — siswa berikutnya bisa mendapat form terisi identitas
+    orang lain.
+
     Tidak pernah melempar: pemanggilnya adalah slot Qt di tengah alur
     join, dan config yang gagal ditulis berarti prefill dilewati (bisa
     diamati), bukan crash.
@@ -903,15 +954,19 @@ def set_identity_session(
     try:
         payload_identity = dict(identity or {})
         payload_context = dict(context or {})
-        store = _load()
-        store["identity_session"] = {
-            "identity_data": payload_identity,
-            "context": payload_context,
-        }
-        # Cermin bentuk lama, satu `_save()` di bawah.
-        store["identity_data"] = payload_identity
-        store["identity_context"] = payload_context
-        _save()
+        with _save_lock:
+            store = _load()
+            store["identity_session"] = {
+                "identity_data": payload_identity,
+                "context": payload_context,
+            }
+            # Cermin bentuk lama, satu dump di bawah dan di bawah lock yang
+            # sama — tidak pernah boleh terlihat setengah tertulis.
+            store["identity_data"] = payload_identity
+            store["identity_context"] = payload_context
+            # RLock (bukan Lock) supaya pemanggilan `_save()` di sini
+            # reentrant aman: kontraknya tetap "satu penulisan penuh".
+            _save()
     except Exception:
         _log.warning("could not persist identity session",
                      exc_info=True)

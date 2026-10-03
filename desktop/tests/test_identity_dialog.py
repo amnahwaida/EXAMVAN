@@ -294,7 +294,14 @@ class DefaultFieldsMatchServerTest(unittest.TestCase):
 
 
 class ValidationUXTest(unittest.TestCase):
-    """L4: error diringkas (~5 + sisa) dan fokus ke pelanggar pertama."""
+    """L4 (direvisi): pesan error INLINE per field, fokus ke field pertama.
+
+    Sebelumnya semua pesan dikirim ke QMessageBox yang meringkas lima
+    pertama. Sekarang setiap field yang kosong menandai dirinya sendiri,
+    jadi yang diuji di sini: tidak ada dialog, pesan muncul di field
+    yang tepat, field kosong TIDAK dipotong diam-diam, dan fokus
+    mendarat di field pertama yang masih kosong.
+    """
 
     def _dialog(self, n_required=8):
         fields = [
@@ -303,34 +310,97 @@ class ValidationUXTest(unittest.TestCase):
         ]
         return IdentityDialog(_make_exam(fields))
 
-    def test_many_errors_are_summarized(self):
-        dialog = self._dialog(n_required=8)
-        with mock.patch(
-            "examvan.ui.identity_dialog.QMessageBox.warning"
-        ) as warn, mock.patch.object(dialog, "accept"):
-            dialog._on_submit()
-        warn.assert_called_once()
-        text = warn.call_args.args[2]
-        self.assertIn("…dan 3 field lain", text)
+    def _visible(self, dialog):
+        # `not isHidden()`, bukan `isVisible()`: label yang sengaja
+        # ditampilkan di dalam dialog yang belum di-`show()` tetap
+        # `isHidden() == False` -- itulah yang kita maksud dengan
+        # "pesan ini sedang aktif".
+        return {k: e.text() for k, e in dialog._error_labels.items()
+                if not e.isHidden()}
 
-    def test_few_errors_are_shown_in_full(self):
+    def test_validation_shows_no_modal_dialog(self):
         dialog = self._dialog(n_required=3)
         with mock.patch(
             "examvan.ui.identity_dialog.QMessageBox.warning"
-        ) as warn, mock.patch.object(dialog, "accept"):
+        ) as warn, mock.patch.object(dialog, "accept") as accept:
             dialog._on_submit()
-        text = warn.call_args.args[2]
-        self.assertNotIn("field lain", text)
-        self.assertIn("Kolom 0", text)
+        warn.assert_not_called()
+        accept.assert_not_called()
 
-    def test_first_offender_gets_focus(self):
+    def test_every_empty_required_field_is_marked(self):
+        # Form panjang: dulu dipotong jadi lima + "dan 3 field lain",
+        # jadi tujuh field salah tidak pernah disebut. Sekarang tidak
+        # ada lagi yang dipotong -- yang tampil = yang kosong.
+        dialog = self._dialog(n_required=8)
+        with mock.patch.object(dialog, "accept"):
+            dialog._on_submit()
+        shown = self._visible(dialog)
+        self.assertEqual(len(shown), 8, shown)
+        self.assertEqual(shown["k0"], "Kolom 0 wajib diisi")
+        self.assertIn("k7", shown)
+
+    def test_only_empty_fields_are_marked(self):
+        dialog = self._dialog(n_required=3)
+        dialog._inputs["k1"].setText("terisi")
+        with mock.patch.object(dialog, "accept"):
+            dialog._on_submit()
+        shown = self._visible(dialog)
+        self.assertEqual(set(shown), {"k0", "k2"})
+
+    def test_typing_clears_that_field_error_only(self):
+        dialog = self._dialog(n_required=3)
+        with mock.patch.object(dialog, "accept"):
+            dialog._on_submit()
+        dialog._inputs["k0"].setText("Budi")
+        self.assertNotIn("k0", self._visible(dialog))
+        # Sisanya masih kosong dan pesannya masih benar -- tidak ikut
+        # hilang hanya karena satu field diperbaiki.
+        self.assertEqual(set(self._visible(dialog)), {"k1", "k2"})
+
+    def test_second_submit_revalidates_from_scratch(self):
+        # Error yang sudah beres TIDAK boleh tetap menempel setelah
+        # validasi ulang -- dari sanalah regressions-nya kelihatan.
+        dialog = self._dialog(n_required=2)
+        dialog._inputs["k0"].setText("Budi")
+        with mock.patch.object(dialog, "accept"):
+            dialog._on_submit()
+            self.assertNotIn("k0", self._visible(dialog))
+            dialog._inputs["k1"].setText("12A")
+            dialog._on_submit()
+        self.assertEqual(self._visible(dialog), {})
+
+    def test_first_offender_gets_focus_and_its_text_selected(self):
         dialog = self._dialog(n_required=3)
         dialog._inputs["k1"].setText("terisi")
         dialog._inputs["k2"].setText("terisi")
+        dialog.show()
+        APP.processEvents()
         seen = []
-        dialog._inputs["k0"].setFocus = lambda: seen.append("k0")  # noqa: E731
-        with mock.patch(
-            "examvan.ui.identity_dialog.QMessageBox.warning"
-        ), mock.patch.object(dialog, "accept"):
+        dialog._inputs["k0"].setFocus = lambda *a: seen.append("k0")
+        dialog._inputs["k0"].selectAll = lambda: seen.append("select")
+        with mock.patch.object(dialog, "accept"):
             dialog._on_submit()
-        self.assertEqual(seen, ["k0"])
+        self.assertEqual(seen, ["k0", "select"])
+
+    def test_focus_lands_on_first_empty_not_first_field(self):
+        dialog = self._dialog(n_required=3)
+        dialog._inputs["k0"].setText("Budi")
+        dialog.show()
+        APP.processEvents()
+        with mock.patch.object(dialog, "accept"):
+            dialog._on_submit()
+        self.assertIs(APP.focusWidget(), dialog._inputs["k1"])
+
+    def test_saved_prefill_does_not_get_truncated_by_focus(self):
+        # Fokus awal menaruh kursor di akhir teks, bukan selectAll:
+        # isian dari pemakaian sebelumnya dibiarkan utuh. Kalau tidak,
+        # ketikan pertama siswa menggantikan identitasnya sendiri.
+        dialog = IdentityDialog(
+            _make_exam(),
+            saved_data={"student_name": "Budi Santoso"},
+        )
+        dialog.show()
+        APP.processEvents()
+        first = dialog._inputs["student_name"]
+        self.assertEqual(first.text(), "Budi Santoso")
+        self.assertEqual(first.cursorPosition(), len("Budi Santoso"))

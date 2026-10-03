@@ -348,7 +348,7 @@ Klien Android tidak terpengaruh — `ExamModePolicy` sudah memakai
 ### 1b. Keyboard atau mouse tidak bisa dipakai (Linux/X11 saja)
 
 Gejalanya: setelah menjalankan app atau test suite, sebagian tombol tidak
-m撼er jadi, kursor tidak bergerak, atau sama sekali tidak ada respon.
+meger jadi, kursor tidak bergerak, atau sama sekali tidak ada respon.
 
 Penyebabnya **bukan Windows**. Di Linux mode `strict` memanggil
 `x11.grab_keyboard()` dan `grab_pointer()`, dan `XGrabKeyboard`

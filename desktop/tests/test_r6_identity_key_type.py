@@ -164,10 +164,20 @@ class NumericKeyDialogTest(unittest.TestCase):
             dlg.close()
 
     def test_optional_numeric_key_drops_when_an_alternative_exists(self):
-        """Key rusak yang OPSIONAL boleh dibuang bila ada alternatif."""
+        """Key rusak yang OPSIONAL boleh dibuang bila ada alternatif.
+
+        Ronde 7 (M2): yang menentukan "tidak terbaca" BUKAN bentuk teks
+        key, melainkan nilai JSON-nya bukan string — itu satu-satunya
+        syarat yang-dihasilkan server (`validateIdentityFields` +
+        `identityFieldValue`). `key_is_text=False` meniru `{"key": 123}`
+        yang tiba dari `Exam.from_json`; string `"123.0"` yang diketik
+        tangan adalah key SAH yang dibaca server persis seperti tersimpan,
+        jadi tidak boleh di-drop lagi.
+        """
         fields = [
             IdentityField(key="nama", label="Nama", required=True),
-            IdentityField(key="123.0", label="Absen", required=False),
+            IdentityField(key="123.0", label="Absen", required=False,
+                          key_is_text=False),
         ]
         dlg = self._make_dialog(fields)
         try:
@@ -185,13 +195,29 @@ class NumericKeyDialogTest(unittest.TestCase):
         """
         fields = [
             IdentityField(key="nama", label="Nama", required=True),
-            IdentityField(key="123.0", label="Absen", required=False),
+            IdentityField(key="123.0", label="Absen", required=False,
+                          key_is_text=False),
             IdentityField(key="kode_pos", label="Kode Pos", required=False),
         ]
         dlg = self._make_dialog(fields)
         try:
             keys = [f.key for f in dlg._fields]
             self.assertIn("kode_pos", keys)
+        finally:
+            dlg.close()
+
+    def test_a_digit_only_string_key_is_never_dropped(self):
+        """`2024_2025` adalah string SAH — hasil normalisasi label
+        "2024/2025" di admin UI. Menolaknya pernah mengunci seluruh kelas
+        yang memakai ujian dengan field wajib tersebut."""
+        fields = [
+            IdentityField(key="nama", label="Nama", required=True),
+            IdentityField(key="2024_2025", label="2024/2025",
+                          required=False),
+        ]
+        dlg = self._make_dialog(fields)
+        try:
+            self.assertIn("2024_2025", [f.key for f in dlg._fields])
         finally:
             dlg.close()
 

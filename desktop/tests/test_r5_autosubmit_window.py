@@ -525,7 +525,16 @@ class AutoSubmitKeepsAppAliveTest(_FlowBase):
 
 
 class AutoSubmitProgressWindowTest(_FlowBase):
-    """Jendela "Mengumpulkan jawaban…" harus ada, terlihat, dan terlindungi."""
+    """Jendela "Mengumpulkan jawaban…" harus ada, terlihat, dan terlindungi.
+
+    CATATAN (ronde 7): proteksi capture layar pengumpulan sekarang dipasang
+    lewat helper modul-level `security.enforcer.protect_window_capture`
+    (sebelumnya viewer memanggil `get_backend()` sendiri), dan helper itu
+    me-resolve backend lewat global modulnya — jadi `get_backend` juga
+    dipatch di `examvan.security.enforcer`, bukan hanya di paket
+    `examvan.security`. Assertion test tidak berubah sama sekali; hanya
+    titik injeksi backend-nya yang menyesuaikan lokasi lookup.
+    """
 
     def _make_viewer(self):
         exam = Exam.from_json({
@@ -556,6 +565,8 @@ class AutoSubmitProgressWindowTest(_FlowBase):
         backend = _FakeBackend()
         resp = SubmitResponse(success=False, message="jaringan mati")
         with mock.patch("examvan.security.get_backend", return_value=backend), \
+             mock.patch("examvan.security.enforcer.get_backend",
+                        return_value=backend), \
              mock.patch.object(api, "submit_with_retry", return_value=resp):
             win = self._make_viewer()
             win._auto_submit_and_exit()
@@ -586,6 +597,8 @@ class AutoSubmitProgressWindowTest(_FlowBase):
         backend = _FakeBackend()
         resp = SubmitResponse(success=False, message="jaringan mati")
         with mock.patch("examvan.security.get_backend", return_value=backend), \
+             mock.patch("examvan.security.enforcer.get_backend",
+                        return_value=backend), \
              mock.patch.object(api, "submit_with_retry", return_value=resp):
             win = self._make_viewer()
             win._auto_submit_and_exit()
@@ -622,6 +635,8 @@ class AutoSubmitProgressWindowTest(_FlowBase):
         backend = _FakeBackend()
         resp = SubmitResponse(success=False, message="jaringan mati")
         with mock.patch("examvan.security.get_backend", return_value=backend), \
+             mock.patch("examvan.security.enforcer.get_backend",
+                        return_value=backend), \
              mock.patch.object(api, "submit_with_retry", return_value=resp):
             win = self._make_viewer()
             win._auto_submit_and_exit()
@@ -646,6 +661,8 @@ class AutoSubmitProgressWindowTest(_FlowBase):
         backend = _FakeBackend()
         resp = SubmitResponse(success=False, message="jaringan mati")
         with mock.patch("examvan.security.get_backend", return_value=backend), \
+             mock.patch("examvan.security.enforcer.get_backend",
+                        return_value=backend), \
              mock.patch.object(api, "submit_with_retry", return_value=resp):
             win = self._make_viewer()
             win._auto_submit_and_exit()
@@ -669,6 +686,8 @@ class AutoSubmitProgressWindowTest(_FlowBase):
         resp = SubmitResponse(success=True, status="done", message="ok",
                               congrats_message="Selamat!")
         with mock.patch("examvan.security.get_backend", return_value=backend), \
+             mock.patch("examvan.security.enforcer.get_backend",
+                        return_value=backend), \
              mock.patch.object(api, "submit_with_retry", return_value=resp):
             win = self._make_viewer()
             enforcer = win._security
@@ -690,6 +709,8 @@ class AutoSubmitProgressWindowTest(_FlowBase):
         backend = _FakeBackend()
         resp = SubmitResponse(success=False, message="jaringan mati")
         with mock.patch("examvan.security.get_backend", return_value=backend), \
+             mock.patch("examvan.security.enforcer.get_backend",
+                        return_value=backend), \
              mock.patch.object(api, "submit_with_retry", return_value=resp):
             win = self._make_viewer()
             fired = []

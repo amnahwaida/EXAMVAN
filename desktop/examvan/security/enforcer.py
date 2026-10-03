@@ -131,6 +131,11 @@ class SecurityEnforcer(QObject):
         self._focus_guard_paused = False
         self._focus_guard_depth = 0
         self._focus_guard_resume = False
+        # True setelah `deactivate()` dijalankan DI DALAM guard yang masih
+        # terbuka. Guard yang keluar belakangan tidak boleh menghidupkan
+        # apa pun: lockdown sudah dilepas, jadi countdown yang dibekukan
+        # tidak lagi punya arti dan tidak boleh dilanjutkan.
+        self._focus_guard_abandoned = False
 
         # Episode focus-loss STRICT (audit 2 Okt 2026, HIGH H5). Nilai True
         # berarti "countdown sedang berjalan KARENA focus loss yang nyata",
@@ -155,6 +160,11 @@ class SecurityEnforcer(QObject):
         # aplikasi masih terbuka. Dibatasi (cap 3): tanpa batas, popup yang
         # tidak pernah ditutup menunda auto-submit selamanya.
         self._focus_defer_count = 0
+        # True selama viewer menunggu hasil submit background-nya (layar
+        # "Mengumpulkan jawaban…" yang jadi satu-satunya window terlihat,
+        # sedangkan window ujian sudah `hide()`-kan). Lihat
+        # `set_waiting_for_submit_result`.
+        self._waiting_for_submit = False
 
     # ------------------------------------------------------------------
     # Modal-dialog suspension
@@ -208,7 +218,12 @@ class SecurityEnforcer(QObject):
             yield
             return
 
-        self._focus_guard_depth += 1
+        # Guard baru = state baru: penanda "abandoned" dari guard sebelumnya
+        # dibuang di sini, dan depth dijepit di 0 supaya `deactivate()` yang
+        # mengubah depth di tengah jalan tidak pernah menghasilkan guard
+        # yang langsung dianggap "masuk kedua" (atau kedalaman negatif).
+        self._focus_guard_abandoned = False
+        self._focus_guard_depth = max(0, self._focus_guard_depth) + 1
         if self._focus_guard_depth == 1:
             self._focus_guard_resume = self._focus_timer.isActive()
             self._focus_timer.stop()
@@ -216,31 +231,49 @@ class SecurityEnforcer(QObject):
         try:
             yield
         finally:
-            self._focus_guard_depth -= 1
-            if self._focus_guard_depth == 0:
-                self._focus_guard_paused = False
-                if self._focus_guard_resume:
-                    # Countdown hanya boleh dilanjutkan kalau episode
-                    # focus-loss yang menjadi alasan mulainya MASIH ADA.
-                    # `eventFilter` mengakhiri episode setiap ada interaksi
-                    # nyata (klik/ketik) di window ujian — termasuk yang
-                    # terjadi selama dialog terbuka — dan tanpa cek ini
-                    # countdown 3 detik berjalan tanpa `_focus_episode_start`
-                    # di belakangnya: tidak ada yang bisa meng-cap-nya, dan
-                    # `_poll_focus` bisa membatalkannya karena tidak melihat
-                    # episode. Tidak ada yang bisa menjelaskannya dari log.
-                    #
-                    # Arahnya aman: episode yang sudah berakhir tidak perlu
-                    # auto-submit, dan polling (<=500 ms) sudah membatalkan
-                    # countdown yatim itu kalau somehow tetap berjalan.
-                    if self._strict_focus_episode:
-                        self._focus_timer.start()
-                    else:
-                        log.info(
-                            "episode focus-loss selesai selama dialog — "
-                            "countdown tidak dilanjutkan"
-                        )
+            # DIJEPIT di 0. `deactivate()` menulis ulang depth ke 0
+            # sementara guard ini masih terbuka, jadi decrement yang telat
+            # bisa membuat depth turun ke -1 — dan setelah itu `depth == 1`
+            # maupun `depth == 0` tidak pernah terjadi lagi: SETIAP dialog
+            # modal berikutnya berjalan tanpa penangguhan, countdown 3 detik
+            # berjalan di belakangnya, dan auto-submit bisa menembak
+            # sementara siswa masih membaca (M1).
+            self._focus_guard_depth = max(0, self._focus_guard_depth - 1)
+            if self._focus_guard_depth != 0:
+                return
+            self._focus_guard_paused = False
+            if self._focus_guard_abandoned:
+                # Lockdown sudah dilepas di tengah dialog ini — countdown
+                # yang dibekukan tidak boleh dihidupkan kembali.
+                self._focus_guard_abandoned = False
                 self._focus_guard_resume = False
+                log.info(
+                    "focus guard dibuang oleh deactivate di tengah dialog — "
+                    "countdown tidak dilanjutkan",
+                )
+                return
+            if self._focus_guard_resume:
+                # Countdown hanya boleh dilanjutkan kalau episode
+                # focus-loss yang menjadi alasan mulainya MASIH ADA.
+                # `eventFilter` mengakhiri episode setiap ada interaksi
+                # nyata (klik/ketik) di window ujian — termasuk yang
+                # terjadi selama dialog terbuka — dan tanpa cek ini
+                # countdown 3 detik berjalan tanpa `_focus_episode_start`
+                # di belakangnya: tidak ada yang bisa meng-cap-nya, dan
+                # `_poll_focus` bisa membatalkannya karena tidak melihat
+                # episode. Tidak ada yang bisa menjelaskannya dari log.
+                #
+                # Arahnya aman: episode yang sudah berakhir tidak perlu
+                # auto-submit, dan polling (<=500 ms) sudah membatalkan
+                # countdown yatim itu kalau somehow tetap berjalan.
+                if self._strict_focus_episode:
+                    self._focus_timer.start()
+                else:
+                    log.info(
+                        "episode focus-loss selesai selama dialog — "
+                        "countdown tidak dilanjutkan"
+                    )
+            self._focus_guard_resume = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -255,6 +288,32 @@ class SecurityEnforcer(QObject):
     def strict(self) -> bool:
         """True when the strictest lockdown is engaged."""
         return self._strict
+
+    def set_waiting_for_submit_result(self, waiting: bool) -> None:
+        """Beri tahu enforcer bahwa viewer sedang menunggu hasil submit.
+
+        Selama menunggu, window ujian sudah `hide()`-kan dan yang terlihat
+        adalah layar "Mengumpulkan jawaban…". Tanpa penanda ini,
+        `_poll_focus` (kaden 500 ms) melakukan dua hal yang salah:
+
+          * `raise_()` + `activateWindow()` pada HWND yang tidak terlihat —
+            hasilnya layar pengumpulan tidak pernah menjadi window aktif,
+            focus-loss selalu terbaca, dan tiap `_on_focus_timeout`
+            mengosongkan episode. Akibatnya cap 60 detik yang seharusnya
+            memaksa auto-submit tidak PERNAH bisa aktif;
+          * `confine_pointer` — ClipCursor dikunci ke kotak yang tidak
+            kelihatan, jadi kursor siswa terkunci tanpa ada yang bisa
+            menjelaskannya.
+
+        Dan countdown 3 detik dinyalakan untuk window yang tidak seorang
+        pun lihat: auto-submit bisa menembak di belakang layar
+        pengumpulan. Yang perlu dijaga di titik ini tinggal answers-nya,
+        dan `_submitted` sudah menjadi gate-nya.
+
+        Dipanggil viewer di dua tempat: sebelum layar pengumpulan tampil,
+        dan setelah hasil tiba (di `_on_auto_submit_done`).
+        """
+        self._waiting_for_submit = bool(waiting)
 
     def activate(self) -> None:
         """Activate security enforcement based on mode.
@@ -307,10 +366,33 @@ class SecurityEnforcer(QObject):
 
     def deactivate(self) -> None:
         """Deactivate all security enforcement."""
+        # M1: `deactivate()` boleh dipanggil DI DALAM guard yang masih
+        # terbuka — `_on_auto_submit_done` melepas lockdown dari slot
+        # sinyal, dan slot itu bisa jalan sementara dialog modal masih
+        # tersimpan di nested event loop (mis. `exam_terminated` tiba saat
+        # siswa membaca "Yakin ingin mengumpulkan?"). Dua akibatnya:
+        #
+        #   * `__exit__` yang telat akan mengurangi dari 0 dan membuat
+        #     depth = -1 — setelah itu `depth == 1` dan `depth == 0`
+        #     tidak pernah terjadi lagi, jadi SETIAP dialog modal
+        #     berikutnya berjalan tanpa penangguhan dan countdown 3 detik
+        #     bisa menembak auto-submit di belakang dialog yang sedang
+        #     dibaca siswa;
+        #   * `__exit__` yang telat juga akan me-resume countdown yang
+        #     dibekukan — padahal lockdown-nya sudah dilepas di sini.
+        #
+        # Jadi guard yang masih terbuka ditandai abandoned (dihitung dari
+        # state SEBELUM di-nolkan di bawah), dan flag "lanjutkan countdown"
+        # dibuang. `pause_focus_guard` menjepit decrement-nya di 0 sebagai
+        # pengaman kedua.
+        self._focus_guard_abandoned = bool(
+            self._focus_guard_depth or self._focus_guard_paused
+        )
+        self._focus_guard_resume = False
         # Guard fokus tidak boleh tertinggal dalam keadaan tertangguh:
         # tanpa reset ini, enforcer berikutnya (atau dialog yang dibuka
         # setelah ujian) mewarisi penangguhan dan focus-loss tidak
-        # terdeteksi. Reset di paling atas supaya berlaku juga bila
+        # terdeteksi. Reset paling atas supaya berlaku juga bila
         # deactivate dipanggil saat tidak aktif.
         self._focus_guard_paused = False
         self._focus_guard_depth = 0
@@ -828,6 +910,17 @@ class SecurityEnforcer(QObject):
             # low tetap dikecualikan di sini: tier paling terbuka tidak
             # boleh mendapat WDA_MONITOR hanya karena polling.
             self.reassert_capture_protection()
+
+        if self._waiting_for_submit:
+            # Window ujian sudah `hide()`-kan dan yang tampil adalah layar
+            # "Mengumpulkan jawaban…". Menaiikkan HWND yang tidak terlihat
+            # tidak berguna — hanya membuat layar pengumpulan itu tidak
+            # pernah jadi window aktif, focus-loss selalu terbaca, dan tiap
+            # `_on_focus_timeout` mengosongkan episode sehingga cap 60 detik
+            # tidak pernah bisa aktif. ClipCursor juga tidak boleh dikunci
+            # ke kotak yang tidak kelihatan. Lihat
+            # `set_waiting_for_submit_result`.
+            return
 
         if self._strict:
             self._window.raise_()

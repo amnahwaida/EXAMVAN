@@ -808,3 +808,82 @@ INSERT INTO exam_token_history (exam_id, token)
 SELECT id, previous_active_token FROM exams
 WHERE previous_active_token IS NOT NULL AND previous_active_token <> ''
 ON CONFLICT (exam_id, token) DO NOTHING;
+
+-- ============================================================
+-- Migration: exams.identity_fields dibersihkan ke bentuk kanonik
+-- ============================================================
+-- H5: config yang sudah TERSIMPAN tidak pernah dinormalkan. Dua aturan
+-- validateIdentityFields (internal/handlers/admin) hanya berlaku saat MENYIMPAN,
+-- dan tidak ada migrasi untuk baris yang sudah ada di database:
+--
+--   * key berspasi -> client (identity_dialog.py) selalu mengirim key yang
+--       sudah di-strip, jadi identity_data[" nama "] tidak akan pernah cocok dan
+--       SETIAP submit di kelas itu 400 "Identitas 'Nama' wajib diisi" permanen.
+--   * key duplikat case -> client menggabungkan duplikat case-insensitive lalu
+--       mengirim satu saja, sedangkan server masih punya dua field wajib yang
+--       cuma bisa cocok satu.
+--
+-- Jalur baca submit sudah menutup keduanya (identityFieldValue mencoba key
+-- persis -> trimmed -> case-folded). Migrasi ini menutup sisi DATANYA: supaya
+-- config yang tampil di UI pengawas sama dengan yang dibaca server, dan supaya
+-- baris yang sudah dinormalkan tidak lagi bergantung pada fallback.
+--
+-- Yang dinormalkan HANYA `key`: di-trim, dan duplikat case-insensitive
+-- (pertama yang menang) dibuang. `label` dan `required` tidak disentuh.
+--
+-- Idempoten: array dibangun ulang dari nol tiap boot dan hanya ditulis bila
+-- bentuknya benar-benar berubah -- pola yang sama seperti backfill
+-- exam_token_history di atas, jadi aman dijalankan ulang setiap start.
+--
+-- Baris dengan JSON rusak TIDAK boleh menggagalkan boot server: eksepsi
+-- ditangkap per-baris dan hanya jadi WARNING, karena jalur baca submit sudah
+-- gagal-terbuka untuknya (lihat handlers/api).
+DO $$
+DECLARE
+    r       RECORD;
+    cleaned TEXT;
+BEGIN
+    FOR r IN
+        SELECT id, identity_fields FROM exams
+        WHERE identity_fields IS NOT NULL
+          AND btrim(identity_fields) NOT IN ('', '[]')
+    LOOP
+        BEGIN
+            cleaned := (
+                SELECT COALESCE(jsonb_agg(c.elem ORDER BY c.ord), '[]'::jsonb)::text
+                FROM (
+                    -- Bangun ulang tiap elemen dengan key yang SUDAH di-trim;
+                    -- label & required di-copy apa adanya.
+                    SELECT
+                        jsonb_build_object(
+                            'key',
+                            CASE
+                                WHEN jsonb_typeof(k.elem -> 'key') <> 'string'
+                                    THEN ''
+                                ELSE btrim(k.elem ->> 'key')
+                            END
+                        ) || (k.elem - 'key') AS elem,
+                        k.ord
+                    FROM jsonb_array_elements(r.identity_fields::jsonb)
+                             WITH ORDINALITY AS k(elem, ord)
+                ) c
+                -- Duplikat case-insensitive: yang pertama menang (perilaku yang
+                -- sama dengan client).
+                WHERE c.ord = 1
+                   OR COALESCE(lower(btrim(c.elem ->> 'key')), '') NOT IN (
+                          SELECT COALESCE(lower(btrim(p.elem ->> 'key')), '')
+                          FROM jsonb_array_elements(r.identity_fields::jsonb)
+                                   WITH ORDINALITY AS p(elem, ord)
+                          WHERE p.ord < c.ord
+                      )
+            );
+            IF cleaned IS DISTINCT FROM r.identity_fields THEN
+                UPDATE exams SET identity_fields = cleaned WHERE id = r.id;
+            END IF;
+        EXCEPTION WHEN others THEN
+            RAISE WARNING
+                'examvan: identity_fields exam % tidak bisa dinormalkan (%), dibiarkan apa adanya',
+                r.id, SQLERRM;
+        END;
+    END LOOP;
+END $$;

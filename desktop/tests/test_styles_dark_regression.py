@@ -20,6 +20,7 @@ yang memiliki stylesheet:
 
 from __future__ import annotations
 
+import pathlib
 import subprocess
 import unittest
 from unittest import mock
@@ -85,6 +86,83 @@ class DarkStylesheetRegressionTest(unittest.TestCase):
             return None
         end = sheet.find("}", start)
         return sheet[start:end]
+
+
+class ThemeIsForcedDarkTest(unittest.TestCase):
+    """Tema aplikasi dikunci gelap, bukan mengikuti Pengaturan Windows.
+
+    Sebelumnya `apply_theme(dark=is_system_dark())`: di PC yang
+    Appearance-nya light, seluruh aplikasi tampil terang. Ruang kelas
+    sering punya PC dengan tema sistem berbeda-beda dalam satu
+    ruangan, jadi temanya dipaksa gelap di `styles._APP_THEME_DARK`.
+
+    Yang dijaga di sini bukan "nilainya True" saja -- itu trivially
+    lulus begitu variabelnya dibalik. Yang dijaga adalah KONSISTENSI:
+    tidak boleh ada tempat yang masih menanyakan tema sistem, karena
+    itulah yang membuat kartu terang muncul di jendela gelap.
+    """
+
+    def test_app_theme_is_dark(self):
+        self.assertTrue(styles.app_theme_dark())
+
+    def test_app_theme_does_not_consult_the_system(self):
+        # Kalau `app_theme_dark()` ikut membaca registry/gsettings,
+        # keputusan "abaikan tema sistem" hanya berlaku di sebagian
+        # tempat. Dipaksa lewat mock yang MELEDAK kalau dipanggil.
+        with mock.patch.object(
+            styles, "_is_system_dark_uncached",
+            side_effect=AssertionError("tema sistem tidak boleh dikonsultasikan"),
+        ):
+            self.assertTrue(styles.app_theme_dark())
+
+    # Empat modul ini dibaca dari FILE, bukan di-import: meng-import
+    # `server_config`/`congratulations` menarik `examvan.ws` yang butuh
+    # PyQt5.QtWebSockets, dan test stylesheet tidak boleh ikut gagal
+    # hanya karena modul opsional tidak terpasang.
+    _UI_DIR = pathlib.Path(__file__).resolve().parents[1] / "examvan" / "ui"
+
+    def _ui_source(self, module: str) -> str:
+        return (self._UI_DIR / f"{module}.py").read_text(encoding="utf-8")
+
+    def test_no_ui_module_asks_the_system_theme_anymore(self):
+        # Empat modul dulu memilih warna kartunya sendiri lewat
+        # `is_system_dark()`. Modul yang terlewat = kartu terang di
+        # jendela gelap, persis regresi butir 1.
+        offenders = [
+            module
+            for module in ("identity_dialog", "server_config",
+                           "waiting_approval", "congratulations")
+            if "is_system_dark" in self._ui_source(module)
+        ]
+        self.assertEqual(
+            offenders, [],
+            f"modul ini masih menanyakan tema sistem: {offenders}",
+        )
+
+    def test_inline_cards_use_the_dark_palette(self):
+        # Kartu-kartu itu punya warna sendiri (inline stylesheet), jadi
+        # tidak ikut QSS global. Kalau warna gelapnya hilang, kartu
+        # transparan di atas jendela gelap = teks hilang.
+        for module, object_name in (
+            ("identity_dialog", "identityCard"),
+            ("server_config", "loginCard"),
+            ("waiting_approval", "waitingCard"),
+            ("congratulations", "congratsCard"),
+        ):
+            with self.subTest(module=module):
+                self.assertIn(
+                    f"QWidget#{object_name} {{ background-color: #313244;",
+                    self._ui_source(module),
+                    f"kartu {object_name} tidak lagi memakai warna gelap",
+                )
+
+    def test_light_palette_is_still_available_but_unused(self):
+        # `_LIGHT_STYLESHEET` sengaja TIDAK dihapus: ia rujukan palet dan
+        # masih diuji aturan-aturatnya. Yang dikunci di sini hanya bahwa
+        # tidak ada jalur di aplikasi yang memakainya.
+        self.assertIn("QDialog", styles._LIGHT_STYLESHEET)
+        self.assertFalse(styles._LIGHT_STYLESHEET in [
+            styles._DARK_STYLESHEET])
 
 
 class IsSystemDarkRobustnessTest(unittest.TestCase):

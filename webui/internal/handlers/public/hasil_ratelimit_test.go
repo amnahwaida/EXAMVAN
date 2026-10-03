@@ -9,9 +9,14 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// checkHasilTokenRateLimit tanpa DB: 60 request pertama untuk satu token
-// lolos, request ke-61 ditolak, token lain tidak terpengaruh (satu ruangan
-// di belakang NAT tidak saling memblokir), dan tanpa Redis fail-open.
+// checkHasilTokenRateLimit tanpa DB: backstop per-token melepas request
+// pertama..backstop, menolak yang berikutnya, token lain tidak terpengaruh,
+// dan tanpa Redis fail-open.
+//
+// CATATAN H7: ini BACKSTOP runaway, bukan lagi limit anti-brute utama.
+// Plafon yang menahan penyerang yang menebak-nebak token lives di
+// checkHasilClientRateLimit dan di-key pada client-nya (lihat
+// hasil_client_rate_limit_test.go).
 func TestCheckHasilTokenRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mr := miniredis.RunT(t)
@@ -32,7 +37,8 @@ func TestCheckHasilTokenRateLimit(t *testing.T) {
 		}
 	}
 	if checkHasilTokenRateLimit(newCtx(), "TOK12345") {
-		t.Fatalf("request 61 unexpectedly allowed (per-token bucket must be %d/min)", hasilTokenRateLimitMax)
+		t.Fatalf("request %d unexpectedly allowed (per-token backstop must be %d/min)",
+			hasilTokenRateLimitMax+1, hasilTokenRateLimitMax)
 	}
 	// Token lain dari IP/ruangan yang sama tidak ikut terblokir.
 	if !checkHasilTokenRateLimit(newCtx(), "TOK67890") {

@@ -44,6 +44,19 @@ _machine_id_cache: Optional[str] = None
 # (`exam` tier-2, `number` tier-1) dan `studentClass` akan mencatat
 # kelas sebagai nama.
 #
+# `no` TIDAK lagi ada di sini tanpa syarat. Dia hanya berarti "nomor"
+# kalau seluruh kuncinya `no`, atau kata berikutnya benar-benar menyebut
+# identitas (lihat `_NO_FOLLOWERS`). Alasannya,Tier-1 bisa berada di
+# posisi 0 dan perebutnya diputuskan lexicografis: `'_' (0x5F) < 'm'`,
+# jadi `no_hp` SELALU mengalahkan `nomor_ujian`. Terbukti:
+#
+#     {'nama','nomor_ujian':'01','kelas','no_hp':'0812'} -> exam_number='0812'
+#
+# Nomor telepon siswa menjadi nomor ujiannya — kolom yang dibaca PERTAWA
+# `repeat_grant.go`, dicetak di halaman selamat, dan ditampilkan di
+# tabel hasil publik — dan `build_student_key` ikut menjadi 0812.
+# `no_telp`, `no_telpon`, `no_wa`, dan `no_hp_siswa` behaves identically.
+#
 # Konsekuensi yang DOKUMENTASIKAN (bukan tebakan): tidak ada perubahan
 # server yang dibutuhkan untuk kunci yang sekarang terpetakan. `api.py`
 # sudah meneruskan `identity_data` apa adanya, dan `api/exams.go` membacanya
@@ -55,7 +68,7 @@ _machine_id_cache: Optional[str] = None
 #
 # camelCase ikut terpetakan hanya karena batas `namaSiswa` dipecah lebih dulu
 # di _key_words; tanpa itu kata tier-1 di dalamnya tidak pernah terlihat.
-_NUMBER_TIER1 = frozenset({"nomor", "number", "no", "nis", "nisn", "nip", "nim"})
+_NUMBER_TIER1 = frozenset({"nomor", "number", "nis", "nisn", "nip", "nim"})
 _NAME_TIER1 = frozenset({"nama", "name"})
 _CLASS_TIER1 = frozenset({"kelas", "class", "rombel", "kelompok"})
 # Tier-2: menyebut SLOT ATAU entitas saja. `ujian`/`exam` benar-benar
@@ -78,6 +91,28 @@ _NON_IDENTITY_WORDS = frozenset({
     "tanggal", "date", "lahir", "birth", "birthday",
     "waktu", "jam", "time", "mulai", "start", "selesai", "end",
 })
+
+# Kata yang membuat `no` tetap berarti "nomor" (lihat catatan `_NUMBER_TIER1`).
+# Kalau kata berikutnya TIDAK ada di sini, `no` bukan kata nomor: `no_hp`,
+# `no_telp`, `no_telpon`, `no_wa`, `no_hp_siswa`, `no_hp_ortu` semuanya
+# berarti nomor kontak, bukan nomor ujian. Daftar ini berisi kata yang
+# benar-benar menyebut identitas — `no_induk`, `no_nis`, `no_absen`,
+# `no_ujian`, `no_peserta`, `no_siswa`, `no_kelas` — sehingga tidak ada
+# nomor ujian yang ikut kehilangan slotnya.
+_NO_FOLLOWERS = frozenset({
+    "absen", "exam", "induk", "kelas", "kelompok", "murid", "name",
+    "nama", "nim", "nip", "nis", "nisn", "nomor", "number", "peserta",
+    "rombel", "siswa", "student", "ujian",
+})
+
+# Kata tier-1 yang hanya SINGKATAN dan menempel pada kata apa saja, jadi
+# bisa berada di depan kata yang sama sekali tidak menyebut identitas.
+# Di posisi dan tier yang sama, `nomor_ujian` (kata yang menyebut slot)
+# harus mengalahkan `no_ujian` (singkatan umum) — bukan sebaliknya.
+# Ditentukan lewat `len(key)` sebagai pemutus berikutnya supaya dua kunci
+# yang sama spesifiknya tetap punya pemenang yang total dan tidak pernah
+# bergantung urutan dict.
+_GENERIC_TIER1_WORDS = frozenset({"no"})
 
 # Tier-1 -> slot, untuk pencarian cepat.
 _TIER1_SLOT = {}
@@ -121,27 +156,53 @@ def _first_word(key: object) -> str:
     return ""
 
 
-def _dispatch(key: object):
-    """`(slot, tier, posisi_kata)` penentu slot untuk satu kunci, atau None.
+def _slot_candidates(key: object) -> Dict[str, tuple]:
+    """`{slot: (tier, posisi_kata, generik)}` kandidat slot dari satu kunci.
 
-    None = kunci tidak identidad (kata tanggal/jam, atau tidak ada kata
-    slot sama sekali). Kunci seperti itu TIDAK PERNAH diisi ke kolom
-    standar -- menebak lebih buruk daripada satu error yang jelas.
+    Dict kosong = kunci ini tidak identitas (kata tanggal/jam, atau tidak
+    ada kata slot sama sekali). Kunci seperti itu TIDAK PERNAH diisi ke
+    kolom standar -- menebak lebih buruk daripada satu error yang jelas.
+
+    Satu kunci boleh menjadi kandidat LEBIH dari satu slot, tapi HANYA di
+    antara kata tier-1. Dulu `_dispatch` mengembalikan hit PERTAMA lalu
+    berhenti, jadi `nama_kelas` (kata tier-1 `nama` di posisi 0 dan
+    `kelas` di posisi 1) hanya bisa mengisi kolom nama: '9A' dibuang,
+    `submissions.student_class` kosong, halaman selamat dan tabel hasil
+    publik tidak menampilkan kelas, dan `build_attempt_key` kehilangan
+    komponen kelasnya — dua siswa nama sama di kelas berbeda lalu memakai
+    satu perangkat yang sama pada percobaan yang sama.
+
+    Tier-2 tetap diabaikan begitu kunci punya hit tier-1, persis seperti
+    `_dispatch` lama: `nama_ujian` adalah NAMA (bukan nomor ujian),
+    `kelas_siswa` adalah KELAS (bukan nama), `studentClass` adalah kelas.
+    `no_hp` tidak mengklaim apa pun sama sekali.
     """
     words = _key_words(key)
-    tier1_at = tier2_at = None
+    if any(w in _NON_IDENTITY_WORDS for w in words):
+        return {}
+    tier1: Dict[str, tuple] = {}
+    tier2: Dict[str, tuple] = {}
+
+    def _offer(bucket: Dict[str, tuple], slot: str, pos: int,
+               word: str) -> None:
+        rank = (pos, 1 if word in _GENERIC_TIER1_WORDS else 0)
+        current = bucket.get(slot)
+        if current is None or rank < current:
+            bucket[slot] = rank
+
     for idx, w in enumerate(words):
-        if w in _NON_IDENTITY_WORDS:
-            return None
-        if tier1_at is None and w in _TIER1_SLOT:
-            tier1_at = idx
-        elif tier2_at is None and w in _TIER2_SLOT:
-            tier2_at = idx
-    if tier1_at is not None:
-        return (_TIER1_SLOT[words[tier1_at]], 0, tier1_at)
-    if tier2_at is not None:
-        return (_TIER2_SLOT[words[tier2_at]], 1, tier2_at)
-    return None
+        if w == "no":
+            # `no` hanya sah sebagai kata nomor di awal kunci, dan hanya
+            # kalau kata berikutnya (kalau ada) menyebut identitas.
+            if idx == 0 and (len(words) == 1 or words[1] in _NO_FOLLOWERS):
+                _offer(tier1, "exam_number", idx, w)
+        elif w in _TIER1_SLOT:
+            _offer(tier1, _TIER1_SLOT[w], idx, w)
+        elif w in _TIER2_SLOT:
+            _offer(tier2, _TIER2_SLOT[w], idx, w)
+    if tier1:
+        return {slot: (0,) + rank for slot, rank in tier1.items()}
+    return {slot: (1,) + rank for slot, rank in tier2.items()}
 
 
 _CANONICAL_SLOTS = ("student_name", "exam_number", "student_class")
@@ -177,8 +238,9 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
         kalau lebih dari satu key hanya berbeda huruf besar/kecil, tabrakan
         diselesaikan lewat `_canonical_rank` dan ambiguity-nya di-log
         (lihat catatan panjang di bawah);
-    (b) kata penentu slot di SELURUH kunci (lihat _dispatch/_TIER*):
-        batas kata, bukan substring; tier-1 mengalahkan tier-2;
+    (b) kata penentu slot di SELURUH kunci (_slot_candidates/_TIER*):
+        batas kata, bukan substring; satu kunci boleh jadi kandidat untuk
+        lebih dari satu slot; tier-1 mengalahkan tier-2;
         kata tanggal/jam/waktu tidak pernah mengklaim slot;
     (c) nilai yang sudah terpakai tidak dipakai ulang untuk slot lain.
 
@@ -221,11 +283,20 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
     # Menyisir `items` sambil langsung mengisi `result` (perilaku lama)
     # membuat pemenang slot hanya bergantung urutan sisipan — lihat catatan
     # determinisme di docstring.
+    #
+    # Nilai BLANK tidak pernah menjadi kandidat (M5). Go melompatinya di
+    # lapisan kanonik maupun di lapisan dispatch
+    # (`student_key.go`), sedangkan Python dulu membiarkan `student_name: ''`
+    # memblokir slot nama supaya kunci students jatuh ke KELAS:
+    # {'student_name':'','nama':'Andi','kelas':'9A'} -> py '9a', go 'andi'.
     canonical_candidates: Dict[str, list] = {}
     for key, val in items:
         kl = str(key or "").lower()
-        if kl in _CANONICAL_SLOTS:
-            canonical_candidates.setdefault(kl, []).append((key, val))
+        if kl not in _CANONICAL_SLOTS:
+            continue
+        if not str(val if val is not None else "").strip():
+            continue
+        canonical_candidates.setdefault(kl, []).append((key, val))
     for std_key in _CANONICAL_SLOTS:
         candidates = canonical_candidates.get(std_key)
         if not candidates:
@@ -244,24 +315,39 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
         result[std_key] = chosen[1]
 
     # (b) Dispatch kata. Kandidat per slot dikumpulkan lalu dipilih dalam
-    # urutan (tier, posisi_kata, nama_kunci) supaya hasilnya TIDAK
+    # urutan (tier, posisi_kata, generik, nama_kunci) supaya hasilnya TIDAK
     # bergantung urutan dict — setiap kunci memetakan deterministik dan
     # kunci yang paling spesifik selalu menang.
+    #
+    # `claimed` dipakai DUA hal sekaligus: mencatat nilai yang sudah
+    # dipakai slot lain (c), dan mencatat kunci mana yang benar-benar
+    # mengisi sebuah slot supaya sisa nilainya bisa di-log.
     assigned = set(result.values())  # track assigned values to avoid duplicates
+    claimed = {
+        str(k) for k, v in canonical_candidates.items() for _key, _v in v
+    }
     for std_key, _tiers in _SLOT_TIERS:
         if std_key in result:
             continue
         candidates = []
         for key, val in items:
-            hit = _dispatch(key)
-            if hit is not None and hit[0] == std_key:
-                candidates.append((hit[1], hit[2], str(key), val))
-        for _tier, _pos, _key, val in sorted(candidates):
+            if not str(val if val is not None else "").strip():
+                # M5: nilai kosong bukan nilai. Go melompatinya, jadi kalau
+                # tidak dilompat di sini kunci dan server berbeda.
+                continue
+            rank = _slot_candidates(key).get(std_key)
+            if rank is None:
+                continue
+            candidates.append((rank[0], rank[1], rank[2], str(key), val))
+        for _tier, _pos, _gen, key_str, val in sorted(
+            candidates, key=lambda c: c[:4]
+        ):
             # (c) Nilai yang sudah diklaim slot lain tidak dipakai ulang.
             if val in assigned:
                 continue
             result[std_key] = val
             assigned.add(val)
+            claimed.add(key_str)
             break
 
     # 2. Sisa field yang TIDAK terpetakan TIDAK boleh dipaksakan ke slot
@@ -283,9 +369,23 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
     #    server — kolomnya akan kosong. undetected itu yang ditutup
     #    `identity_data_with_canonical` di bawah: payload selalu membawa
     #    kunci kanonik hasil pemetaan ini.
+    #
+    #    Yang bisa dilakukan client adalah tidak menghilangkan apa pun
+    #    tanpa jejak: setiap kunci yang tidak mengisi slot mana pun
+    #    dicatat sekali per pemanggilan, supaya `no_hp` yang tidak lagi
+    #    jadi nomor ujian (dan `kode_siswa` yang kalah dari `nama`) bisa
+    #    ditelusuri dari log alih-alih hilang. Level INFO, bukan WARNING:
+    #    `alamat`/`agama`/`tanggal_lahir` memang tidak pernah mengisi
+    #    slot dan itu perilaku yang benar, jadi WARNING akan
+    #    menjatuhkan ketiadaan yang bukan salah.
+    unclaimed = sorted(str(k) for k, _v in items if str(k) not in claimed)
+    if unclaimed:
+        _log.info(
+            "kunci identitas tanpa slot standar: %s", unclaimed,
+        )
 
     # Remove empty values — Go backend rejects empty student_name/number/class
-    return {k: v for k, v in result.items() if v}
+    return {k: v for k, v in result.items() if str(v or "").strip()}
 
 
 def identity_data_with_canonical(identity_data: Optional[Dict[str, str]]) -> Dict[str, str]:
@@ -303,14 +403,18 @@ def identity_data_with_canonical(identity_data: Optional[Dict[str, str]]) -> Dic
     (`body.IdentityData[field.Key]`), jadi kunci kanonik hanya tambahan.
     Nilai kanonik yang sudah ada tidak ditimpa, dan input tidak dimutasi.
 
-    Call site (satu baris masing-masing; tidak diterapkan di ronde ini
-    karena file-nya di luar daftar edit — catat untuk Penerapan):
+    Call site: SATU, di `ui/identity_dialog.py`
+    (`IdentityDialog.get_identity_data`) — tempat identitas siswa pertama
+    kali jadi payload. Dari sana satu dict yang sama dipakai submit,
+    dialog persetujuan, penyimpanannya ke config, dan recovery, jadi
+    menyambungkannya di titik lain justru membuat dua sumber kebenaran.
 
-        # ui/identity_dialog.py — IdentityDialog.get_identity_data()
-        return identity_data_with_canonical(data)
-
-        # atau di __main__.py / exam_viewer.py sebelum(api submit):
-        identity_data = identity_data_with_canonical(identity_data)
+    Ini bukan detail kecil: kunci kanonik juga yang menyamakan kembali
+    kunci yang dihitung client dengan yang dihitung
+    `webui/internal/helpers/student_key.go`. Go membaca `identity_data`
+    MULAI DARI kunci kanonik sebelum ia menebak kata, jadi payload yang
+    membawa `exam_number` hasil pemetaan client membuat kedua sisi
+    berpakat walau Go masih menebak `no_hp` sebagai nomor ujian.
     """
     data = dict(identity_data or {})
     for key, val in map_identity_to_standard(data).items():
@@ -419,7 +523,7 @@ def build_student_key(
     """Kunci "percobaan" berbasis SISWA, dipakai untuk marker submit.
 
     Label perangkat (lihat `get_device_label`) sengaja per-kursi supaya
-    lab bisa dipakai. Marker "sudah dikumpulkan" perlu Treatment yang
+    lab bisa dipakai. Marker "sudah dikumpulkan" perlu treatment yang
     BERBEDA: dia harus memblokir percobaan ULANG oleh siswa yang sama,
     tapi TIDAK boleh memblokir siswa berikutnya di PC yang sama.
 
@@ -430,19 +534,34 @@ def build_student_key(
 
     Sengaja TIDAK memakai label perangkat: itu per-kursi, jadi seluruh
     kelas yang berbagi satu token akan saling memblokir.
+
+    CATATAN: kunci ini bisa MENURUN ke nama atau kelas (lihat
+    `build_student_key_source`). Dua siswa bernama sama di kelas berbeda
+    lalu berbagi satu kunci, jadi jangan pernah jadikan dasar keputusan
+    yang dilihat siswa — pakai `build_attempt_key` untuk keputusan
+    per-perangkat.
     """
-    value, _ = _student_key_and_source(identity_data, token)
+    value, _ = build_student_key_source(identity_data, token)
     return value
 
 
-def _student_key_and_source(
+def build_student_key_source(
     identity_data: Optional[Dict[str, str]], token: str = ""
 ):
-    """`(kunci, asal)` — asal dipakai untuk pesan diagnostik gerbang submit.
+    """`(kunci, asal)` kunci siswa + slot yang menghasilkannya.
 
-    "token" di sini berarti identitas TIDAK terbaca dan kunci jatuh ke
-    token. Kalau itu yang terjadi, seluruh kelas yang berbagi token akan
-    saling memblokir -- jadi harus terlihat di pesan, bukan tersembunyi.
+    `asal` adalah `"exam_number"`, `"student_name"`, `"student_class"`, atau
+    `"token"` — dan itulah informasi yang tidak bisa ditebak dari
+    kuncinya sendiri: nomor ujian unik per siswa, sedangkan nama, kelas,
+    dan token BERBAGI. Config madrasah yang paling biasa
+    (`nama`, `kelas`, `agama`, `jenis_kelamin`, tanpa kolom nomor)
+    menghasilkan kunci `'ahmad'` untuk siapa pun bernama Ahmad, sehingga
+    dua teman sekelas di kelas berbeda bertabrakan.
+
+    Karena itu pemanggil yang menampilkan dialog ke siswa WAJIB memeriksa
+    `asal` dulu. Melewatkannya berarti bertanya "kamu sudah mengumpulkan?"
+    kepada orang yang salah (lihat
+    `ServerConfigDialog._offer_resubmit_choice`).
     """
     std = map_identity_to_standard(identity_data or {})
     for key in ("exam_number", "student_name", "student_class"):
@@ -450,6 +569,13 @@ def _student_key_and_source(
         if value:
             return value.lower(), key
     return (token or "").strip(), "token"
+
+
+def _student_key_and_source(
+    identity_data: Optional[Dict[str, str]], token: str = ""
+):
+    """Alias lama untuk `build_student_key_source` (dipakai internal/test)."""
+    return build_student_key_source(identity_data, token)
 
 
 def student_label(

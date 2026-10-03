@@ -9,20 +9,20 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// Halaman HTML hasil dan API JSON-nya harus punya bucket per-token yang
-// TERPISAH.
+// Halaman HTML hasil dan API JSON-nya harus punya bucket yang TERPISAH,
+// di kedua dimensi limiter (client dan token).
 //
 // Kenapa: satu tampilan hasil = DUA permintaan untuk token yang SAMA —
 // GET /hasil/<token> (halaman) lalu GET /api/hasil/<token> yang dipanggil
-// halaman itu sendiri untuk mengisi tabelnya. Dengan satu key per token
-// yang dipakai kedua rute, satu tampilan memakan DUA unit dari kuota
-// 60/menit: hanya 30 tampilan yang boleh terjadi per menit untuk satu token —
-// padahal kuota itu justru ada untuk menahan brute-force token, bukan
-// untuk membatasi berapa kali pengawas membuka halaman hasil.
+// halaman itu sendiri untuk mengisi tabelnya. Dengan satu key per scope saja,
+// satu tampilan memakan DUA unit dari kuota yang sama; pada mode
+// static-token seluruh satu ruangan BERBAGI token yang sama, jadi memakai
+// satu bucket bersama membuat siswa-siswa pertama yang membuka link membuat
+// yang lain dapat 429 pada halaman yang sama.
 //
-// Pada mode static-token seluruh satu ruangan bahkan BERBAGI token yang
-// sama, jadi memakai satu bucket bersama membuat 30 siswa pertama yang
-// membuka link membuat 470 siswa lain dapat 429 pada halaman yang sama.
+// Bucket client diuji terpisah di hasil_client_rate_limit_test.go
+// (TestHasilPageAndAPIClientBudgetsAreSeparate); tes ini mengunci bucket
+// token/backstop.
 //
 // Tes ini menjalankan kedua rute lewat engine sungguhan (bukan context
 // buatan), supaya `c.FullPath()` yang dipakai untuk memilih bucket
@@ -67,11 +67,11 @@ func TestHasilPageAndAPIIsSeparateTokenBudgets(t *testing.T) {
 	}
 
 	// API JSON: bucket sendiri, jadi MASIH fresh — inilah yang rusak
-	// sebelumnya (satu bucket per token dipakai kedua rute).
+	// sebelumnya (satu bucket dipakai kedua rute).
 	if code := call("/api/hasil/", token); code != 204 {
 		t.Fatalf("API = %d setelah bucket halaman habis — kedua rute masih "+
-			"berbagi satu bucket per token, sehingga satu tampilan hasil "+
-			"memakan dua unit dari kuota yang sama", code)
+			"berbagi satu bucket, sehingga satu tampilan hasil memakan dua "+
+			"unit dari kuota yang sama", code)
 	}
 	// Sisa kuota bucket API (request pertama sudah dipakai di atas).
 	for n := 2; n <= hasilTokenRateLimitMax; n++ {

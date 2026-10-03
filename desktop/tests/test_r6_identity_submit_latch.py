@@ -45,6 +45,12 @@ FIELDS = [
 ]
 
 
+
+def _shown_errors(dlg):
+    """Key field yang pesannya sedang aktif (label error inline)."""
+    return [k for k, e in dlg._error_labels.items() if not e.isHidden()]
+
+
 def _dialog(fields=None):
     exam = Exam(
         id=EXAM.id,
@@ -75,7 +81,8 @@ class SubmitLatchTest(unittest.TestCase):
                 dlg._on_submit()
                 dlg._on_submit()
             accept.assert_called_once()
-            self.assertFalse(warn.called)
+            warn.assert_not_called()
+            self.assertEqual(_shown_errors(dlg), [])
         finally:
             dlg.close()
 
@@ -104,7 +111,11 @@ class SubmitLatchTest(unittest.TestCase):
                     ) as warn:
                 dlg._on_submit()
             accept.assert_not_called()
-            self.assertTrue(warn.called)
+            # Field kosong kini menandai dirinya sendiri, bukan lewat
+            # dialog modal (lihat ValidationUXTest). Yang dijaga di sini
+            # tetap: isian ditolak, dan tidak ada dialog yang muncul.
+            warn.assert_not_called()
+            self.assertEqual(_shown_errors(dlg), ["nama", "nomor_ujian"])
             self.assertFalse(getattr(dlg, "_submitting", False))
 
             # Murahan: perbaiki isiannya, coba lagi — harus bisa masuk.
@@ -115,7 +126,8 @@ class SubmitLatchTest(unittest.TestCase):
                     ) as warn:
                 dlg._on_submit()
             accept.assert_called_once()
-            self.assertFalse(warn.called)
+            warn.assert_not_called()
+            self.assertEqual(_shown_errors(dlg), [])
         finally:
             dlg.close()
 
@@ -130,7 +142,12 @@ class SubmitLatchTest(unittest.TestCase):
                 for _ in range(3):
                     dlg._on_submit()
             accept.assert_not_called()
-            self.assertEqual(warn.call_count, 3)
+            # Tiga percobaan, tiga kali ditolak karena isian kosong --
+            # dan latch tetap BERSIH, jadi siswa masih bisa memperbaiki
+            # isian lalu menekan lagi.
+            warn.assert_not_called()
+            self.assertEqual(_shown_errors(dlg), ["nama", "nomor_ujian"])
+            self.assertFalse(getattr(dlg, "_submitting", False))
         finally:
             dlg.close()
 
@@ -154,9 +171,16 @@ class SubmitLatchTest(unittest.TestCase):
             dlg.close()
 
     def test_broken_config_refusal_also_leaves_the_latch_clear(self):
-        """Penolakan konfigurasi (key tidak valid) bukan alasan mengunci."""
+        """Penolakan konfigurasi (key tidak terbaca) bukan alasan mengunci.
+
+        `key_is_text=False` meniru `{"key": 123}` dari API: angka JSON
+        tidak bisa di-decode ke `Key string` di Go. Ronde 7 (M2) mengganti
+        tebakan "key harus punya huruf" dengan fakta itu, jadi string
+        `"123.0"` yang diketik tangan kini key SAH dan tidak lagi ditolak.
+        """
         dlg = _dialog([
-            IdentityField(key="123.0", label="Absen", required=True),
+            IdentityField(key="123.0", label="Absen", required=True,
+                          key_is_text=False),
         ])
         try:
             _fill(dlg, **{"123.0": "42"})

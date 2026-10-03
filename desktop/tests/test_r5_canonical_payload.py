@@ -11,13 +11,13 @@ Sisi server sudah membaca `identity_data` lebih dulu sebelum kolom top-level
 (api/exams.go), jadi menyisipkan ketiga kunci kanonik ke payload membuat kolom
 DB otoritatif untuk SETIAP konfigurasi tanpa perubahan server sama sekali.
 
-CATATAN call site (tidak diubah di ronde ini — satu baris per call site):
-
-    # desktop/examvan/ui/identity_dialog.py — IdentityDialog.get_identity_data()
-    return identity_data_with_canonical(data)
-
-    # atau di call site submit, sebelum api.submit_exam(...):
-    identity_data = identity_data_with_canonical(identity_data)
+Call site-nya sudah terhubung ( ronde 7 / H4): `IdentityDialog
+.get_identity_data()` memanggil `identity_data_with_canonical`, dan itu satu-
+satunya tempat identitas siswa jadi payload — dipakai submit, dialog
+persetujuan, penyimpanan config, dan recovery. Test di bawah menguji fungsi
+tularnya; `tests/test_r7_canonical_payload.py` menguji jalur yang benar-benar
+melewati `api.submit_exam`, karena suite ini pernah hijau sementara payload di
+kabel tidak punya satu pun kunci kanonik.
 """
 
 from __future__ import annotations

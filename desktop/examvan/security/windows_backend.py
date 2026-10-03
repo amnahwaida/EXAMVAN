@@ -526,7 +526,7 @@ def should_block_key(
     #
     # F-key BARE (F1, F5, F12, ...) SENGAJA tidak diblokir: aplikasi ini
     # native Qt, bukan tampilan browser — tidak ada DevTools di F12, jadi
-    # memblokirnya menambah satu kunci mati tanpa关闭窗口 tambahan
+    # memblokirnya menambah satu kunci mati tanpa tambahan apa pun
     # sekaligus memutus jaminan lama bahwa F-key biasa tetap sampai ke app.
     if ctrl_down and vk in (0x53, 0x50):  # S, P
         return True

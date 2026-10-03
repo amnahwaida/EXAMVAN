@@ -235,7 +235,7 @@ class BlockedKeyTestCase(unittest.TestCase):
         # Aplikasi ini native Qt, bukan tampilan browser: tidak ada
         # DevTools di F12. F-key BARE wajib tetap sampai ke app (PDF
         # viewer memakai F-key biasa), dan blokir F12 tidak menambah
-        #关闭窗口 tambahan -- hanya memutus jaminan lama itu.
+        # tambahan apa pun -- hanya memutus jaminan lama itu.
         for vk in (0x70, 0x75, 0x7B):  # F1, F6, F12
             self.assertFalse(self.blocked(vk), hex(vk))
 

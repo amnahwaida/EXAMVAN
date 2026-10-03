@@ -3,7 +3,6 @@
 package public
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -61,75 +60,6 @@ func getRedis(c *gin.Context) *redis.Client {
 		}
 	}
 	return nil
-}
-
-const (
-	// hasilTokenRateLimitMax adalah throttle anti-brute-force per-TOKEN untuk
-	// halaman/API hasil (60/menit per token PER RUTE). Middleware per-IP di
-	// rute ini sengaja longgar (lihat rateLimitHasilPerMinute di
-	// cmd/server/main.go — satu NAT sekolah = satu ruangan 500 perangkat,
-	// dan satu tampilan hasil memakai dua permintaan), sehingga throttle
-	// yang sebenarnya harus keyed per token per rute di sini, mengikuti
-	// pola checkRateLimit per-token/per-exam di internal/handlers/api
-	// (INCR + EXPIRE, fail-open tanpa Redis).
-	hasilTokenRateLimitMax    = 60
-	hasilTokenRateLimitWindow = 60 * time.Second
-	hasilTokenRateKeyPrefix   = "ratelimit:hasil-token:"
-)
-
-// hasilTokenScope membedakan bucket per-token yang dipakai halaman HTML
-// dari bucket yang dipakai API JSON-nya.
-//
-// Kenapa harus dua: satu tampilan hasil = DUA permintaan untuk token yang
-// sama (halaman /hasil/<token>, lalu /api/hasil/<token> yang dipanggil
-// halaman itu sendiri). Dengan satu key per token saja, satu tampilan memakan
-// dua unit dari kuota yang sama — artinya kuota efektifnya jadi 30
-// tampilan/menit, bukan 60, dan pada mode static-token (satu token dipakai
-// SELURUH ruangan) 30 siswa pertama yang membuka link membuat 470 siswa lain
-// dapat 429 pada halaman yang sama. Throttle anti-brute token tetap bekerja:
-// penyerang yang menebak-nebak token tetap harus lewat salah satu dari kedua
-// bucket ini.
-type hasilTokenScope string
-
-const (
-	hasilTokenScopePage hasilTokenScope = "page"
-	hasilTokenScopeAPI  hasilTokenScope = "api"
-)
-
-// hasilTokenScopeFor memilih scope dari rute yang sedang berjalan
-// (`c.FullPath()` — pola rute yang terdaftar, bukan URL mentah).
-// Default-nya `page`: request yang tidak berjalan di bawah rute terdaftar
-// (mis. context test) tidak boleh mendapat bucket API hanya karena tidak
-// ada pola `/api/` untuk dibaca.
-func hasilTokenScopeFor(c *gin.Context) hasilTokenScope {
-	if strings.HasPrefix(c.FullPath(), "/api/") {
-		return hasilTokenScopeAPI
-	}
-	return hasilTokenScopePage
-}
-
-// checkHasilTokenRateLimit enforces the per-token bucket for /hasil routes.
-// Returns false when the token exhausted its budget (caller must 429).
-func checkHasilTokenRateLimit(c *gin.Context, token string) bool {
-	rdb := getRedis(c)
-	if rdb == nil {
-		return true
-	}
-	token = strings.ToUpper(strings.TrimSpace(token))
-	if token == "" {
-		return true
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 500*time.Millisecond)
-	defer cancel()
-	key := hasilTokenRateKeyPrefix + string(hasilTokenScopeFor(c)) + ":" + token
-	count, err := rdb.Incr(ctx, key).Result()
-	if err != nil {
-		return true
-	}
-	if count == 1 {
-		rdb.Expire(ctx, key, hasilTokenRateLimitWindow)
-	}
-	return count <= hasilTokenRateLimitMax
 }
 
 // ---------------------------------------------------------------------------
@@ -196,13 +126,16 @@ func HasilPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
 
-		// Throttle per-token (anti-brute-force), bucket "page": middleware
-		// per-IP di rute ini hanya ceiling longgar untuk satu NAT sekolah —
-		// tanpa bucket per-token, satu penyerang bisa menebak token tanpa
-		// batas selama di bawah ceiling IP. Bucket halaman dipisah dari
-		// bucket API (hasilTokenScopeFor) supaya panggilan /api/hasil milik
-		// halaman ini sendiri tidak ikut menghabiskan kuota.
-		if !checkHasilTokenRateLimit(c, token) {
+		// Plafon anti-brute di-key pada CLIENT (IP/fingerprint), BUKAN
+		// pada token yang ditebak — jadi token yang ditebak tidak pernah bisa
+		// membelanjakan jatah penonton yang sah, dan satu penyerang hanya
+		// mendapat satu bucket apa pun token yang ia coba
+		// (checkHasilClientRateLimit). Backstop per-token yang menyusul hanya
+		// menahan lalu lintas yang benar-benar liar (checkHasilTokenRateLimit).
+		// Bucket halaman dipisah dari bucket API (hasilScopeFor) supaya
+		// panggilan /api/hasil milik halaman ini sendiri tidak ikut
+		// menghabiskan kuota.
+		if !checkHasilRateLimit(c, token) {
 			c.Header("X-Robots-Tag", "noindex, nofollow")
 			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 			c.HTML(http.StatusTooManyRequests, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
@@ -311,10 +244,10 @@ func HasilAPI() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
 
-		// Throttle per-token, bucket "api" — bucket terpisah dari halaman
-		// HTML-nya (lihat hasilTokenScopeFor), jadi satu tampilan hasil
-		// tidak memakai dua unit dari kuota yang sama.
-		if !checkHasilTokenRateLimit(c, token) {
+		// Plafon anti-brute per-client + backstop per-token, bucket "api" —
+		// bucket terpisah dari halaman HTML-nya (lihat hasilScopeFor), jadi
+		// satu tampilan hasil tidak memakai dua unit dari kuota yang sama.
+		if !checkHasilRateLimit(c, token) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"message": "Terlalu banyak permintaan. Silakan coba lagi nanti.",

@@ -78,10 +78,14 @@ _IS_DARK_CACHE: object = None
 
 
 def is_system_dark() -> bool:
-    """Deteksi tema gelap sistem; dihitung sekali lalu di-cache.
+    """Deteksi tema gelap SISTEM; dihitung sekali lalu di-cache.
 
     Tidak pernah melempar: kegagalan apa pun (registry, gsettings,
     Qt palette) jatuh ke default gelap (True).
+
+    PENTING: fungsi ini BUKAN penentu tema aplikasi lagi -- lihat
+    `app_theme_dark()`. Dipakai hanya sebagai probe sistem; warna
+    yang benar-benar dipakai aplikasi selalu gelap.
     """
     global _IS_DARK_CACHE
     if _IS_DARK_CACHE is None:
@@ -90,6 +94,40 @@ def is_system_dark() -> bool:
         except Exception:
             _IS_DARK_CACHE = True
     return bool(_IS_DARK_CACHE)
+
+
+# Tema aplikasi dikunci GELAP -- bukan "mengikuti sistem".
+#
+# Sebelumnya `apply_theme(dark=is_system_dark())`, jadi di PC yang
+# pengaturan Windows-nya light, seluruh aplikasi tampil terang. Itu
+# tidak konsisten untuk ruang kelas: satu kelas bisa punya beberapa
+# Pengaturan Windows berbeda dalam satu ruangan, dan gambar terang di
+# proyektor membuat teks putih jadi tidak terbaca.
+#
+# Konsekuensi yang harus dijaga kalau keputusan ini dibalik someday:
+# SEMUA tempat yang memilih warna sendiri -- kartu inline di
+# `identity_dialog`, `server_config`, `waiting_approval`, dan
+# `congratulations` -- harus ikut berubah. Kalau hanya `apply_theme`
+# yang berubah, kartu-kartu itu kembali terang di atas jendela gelap:
+# persis regresi butir 1 di `tests/test_styles_dark_regression.py`.
+# Karena itu semua pemanggil memakai `app_theme_dark()`, bukan
+# `is_system_dark()`.
+_APP_THEME_DARK = True
+
+
+def app_theme_dark() -> bool:
+    """True kalau aplikasi harus pakai tema gelap.
+
+    Satu-satunya sumber kebenaran tema APLIKASI. Sengaja tidak
+    membaca registry Windows, `gsettings`, atau palet Qt: tema sudah
+    dikunci gelap lewat `_APP_THEME_DARK`.
+
+    `is_system_dark()` tetap ada sebagai probe apa adanya tentang
+    sistem, tapi tidak lagi dipakai untuk menentukan tampilan -- kalau
+    suatu saat tema sistem dipulihkan, yang perlu diubah adalah nilai
+    `_APP_THEME_DARK` di sini, bukan tiap pemanggil.
+    """
+    return _APP_THEME_DARK
 
 
 def _is_windows_dark() -> bool:
@@ -203,6 +241,24 @@ QLineEdit:focus {
 QLineEdit:disabled {
     background-color: #282838;
     color: #6c7086;
+}
+
+/* Pesan validasi inline di bawah field yang salah (dialog identitas).
+   QSS, bukan setStyleSheet per-widget: warna harus ikut tema dan
+   objectName supaya tidak menimpa styling QLabel lain. */
+QLabel#identityFieldError {
+    color: #f38ba8;
+    background-color: transparent;
+    font-size: 12px;
+}
+
+/* Keterangan tanda bintang di bawah judul ujian. Sengaja redup: ini
+   petunjuk, bukan pesan error -- tidak boleh bersaing dengan judul
+   18px bold maupun dengan `identityFieldError` di bawah field. */
+QLabel#identityLegend {
+    color: #a6adc8;
+    background-color: transparent;
+    font-size: 12px;
 }
 
 QTextEdit {
@@ -568,6 +624,18 @@ QLineEdit:focus {
 QLineEdit:disabled {
     background-color: #e6e9ef;
     color: #8c8fa1;
+}
+
+QLabel#identityFieldError {
+    color: #d20f39;
+    background-color: transparent;
+    font-size: 12px;
+}
+
+QLabel#identityLegend {
+    color: #8c8fa1;
+    background-color: transparent;
+    font-size: 12px;
 }
 
 QTextEdit {

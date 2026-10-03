@@ -184,18 +184,14 @@ class CongratulationsWindow(QMainWindow):
         card.setObjectName("congratsCard")
         card.setMaximumWidth(560)
         card.setMinimumWidth(420)
-        from .styles import is_system_dark
-
-        if is_system_dark():
-            card.setStyleSheet(
-                "QWidget#congratsCard { background-color: #313244; "
-                "border: 1px solid #45475a; border-radius: 12px; }"
-            )
-        else:
-            card.setStyleSheet(
-                "QWidget#congratsCard { background-color: #ffffff; "
-                "border: 1px solid #ccd0da; border-radius: 12px; }"
-            )
+        # Warna kartu mengikuti `styles.app_theme_dark()`, bukan
+        # tema sistem: kartu gelap di dalam jendela terang (atau
+        # sebaliknya) adalah regresi butir 1 di
+        # `tests/test_styles_dark_regression.py`.
+        card.setStyleSheet(
+            "QWidget#congratsCard { background-color: #313244; "
+            "border: 1px solid #45475a; border-radius: 12px; }"
+        )
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(40, 36, 40, 28)
         card_layout.setSpacing(12)

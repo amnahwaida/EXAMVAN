@@ -99,11 +99,11 @@ class WaitingApprovalDialog(QDialog):
         card = QWidget()
         card.setFixedWidth(440)
         card.setObjectName("waitingCard")
-        from .styles import is_system_dark
-        if is_system_dark():
-            card.setStyleSheet("QWidget#waitingCard { background-color: #313244; border: 1px solid #45475a; border-radius: 12px; }")
-        else:
-            card.setStyleSheet("QWidget#waitingCard { background-color: #ffffff; border: 1px solid #ccd0da; border-radius: 12px; }")
+        # Warna kartu mengikuti `styles.app_theme_dark()`, bukan
+        # tema sistem: kartu gelap di dalam jendela terang (atau
+        # sebaliknya) adalah regresi butir 1 di
+        # `tests/test_styles_dark_regression.py`.
+        card.setStyleSheet("QWidget#waitingCard { background-color: #313244; border: 1px solid #45475a; border-radius: 12px; }")
 
         card_layout = QVBoxLayout(card)
         card_layout.setSpacing(10)

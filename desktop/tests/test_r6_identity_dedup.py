@@ -110,8 +110,11 @@ class CaseInsensitiveDedupTest(unittest.TestCase):
                 "examvan.ui.identity_dialog.QMessageBox.warning"
             ) as warn, mock.patch.object(dlg, "accept") as accept:
                 dlg._on_submit()
+            # Field wajib yang kosong ditolak lewat pesan INLINE di bawah
+            # kotaknya, bukan lewat dialog modal.
             accept.assert_not_called()
-            self.assertTrue(warn.called)
+            warn.assert_not_called()
+            self.assertFalse(dlg._error_labels["Nama"].isHidden())
         finally:
             dlg.close()
 

@@ -32,7 +32,10 @@ import unittest
 
 from PyQt5.QtWidgets import QApplication
 
+from PyQt5.QtWidgets import QLabel
+
 from examvan.models import Exam, IdentityField
+from examvan.ui import identity_dialog
 from examvan.ui.identity_dialog import IdentityDialog
 
 APP = QApplication.instance() or QApplication([])
@@ -136,12 +139,263 @@ class IdentityDialogFitsTest(unittest.TestCase):
         finally:
             dlg.close()
 
-    def test_card_width_stays_fixed_while_scrolling(self):
-        # Lebar kartu tetap 440px; yang berubah hanya tinggi. Kalau ini
-        # ikut berubah, form jadi lebar penuh dan tidak terbaca.
+    def test_card_never_stretches_to_the_full_window_width(self):
+        # Kartu boleh mengikuti jendela, tapi TIDAK boleh jadi selebar
+        # jendela: isian yang melebar penuh tidak enak dibaca, dan di
+        # layar 4K form 3840px hanya jadi satu baris di tengah.
         dlg = _shown(_exam(n_fields=12))
         try:
-            self.assertEqual(dlg._scroll.widget().width(), 440)
+            card = dlg._scroll.widget()
+            self.assertLess(card.width(), dlg._scroll.viewport().width())
+            self.assertLessEqual(card.width(), identity_dialog._CARD_MAX_WIDTH)
+        finally:
+            dlg.close()
+
+    def test_card_width_follows_the_window_and_stays_within_bounds(self):
+        # Lebar lama dikunci 440px: di jendela 1920px itu kolom kurus
+        # dengan 740px ruang kosong di tiap sisi. Sekarang proporsional,
+        # dengan batas atas (jangan jadi spanduk) dan batas bawah (jangan
+        # jadi kolom kurus di jendela kecil).
+        wide = _shown(_exam(), width=1920, height=1000)
+        try:
+            wide_width = wide._scroll.widget().width()
+        finally:
+            wide.close()
+        narrow = _shown(_exam(), width=900, height=1000)
+        try:
+            narrow_width = narrow._scroll.widget().width()
+        finally:
+            narrow.close()
+        self.assertLess(
+            narrow_width, wide_width,
+            "lebar kartu tidak mengikuti jendela",
+        )
+        self.assertGreaterEqual(
+            narrow_width, identity_dialog._CARD_MIN_WIDTH,
+            "di jendela sempit kartu ikut menyusut tanpa batas bawah",
+        )
+        self.assertLessEqual(
+            wide_width, identity_dialog._CARD_MAX_WIDTH,
+            "di jendela lebar kartu ikut melebar tanpa batas atas",
+        )
+
+    def test_card_height_hugs_its_content(self):
+        # Di 1080p kartu pernah setinggi 910px sementara isinya
+        # 467px: 478px panel kosong di dalam kartu. Tinggi kartu kini
+        # melekat pada isinya, di jendela berapa pun.
+        for height in (700, 1000, 1400):
+            dlg = _shown(_exam(), height=height)
+            try:
+                card = dlg._scroll.widget()
+                self.assertLessEqual(
+                    card.height(), card.sizeHint().height() + 2,
+                    f"kartu setinggi {card.height()}px untuk isinya "
+                    f"{card.sizeHint().height()}px di jendela {height}px: "
+                    f"panelnya jadi kolom kosong",
+                )
+            finally:
+                dlg.close()
+
+    def test_required_asterisk_is_explained(self):
+        # Label field memakai " *", jadi tanda itu harus dijelaskan di
+        # layar -- kalau tidak, siswa baru tahu artinya setelah menekan
+        # tombol.
+        dlg = _shown(_exam())
+        try:
+            legends = [w.text() for w in dlg._scroll.widget().findChildren(QLabel)
+                       if w.objectName() == "identityLegend"]
+            self.assertEqual(len(legends), 1, legends)
+            self.assertIn("*", legends[0])
+            self.assertIn("wajib diisi", legends[0])
+        finally:
+            dlg.close()
+
+    def test_submit_button_has_no_manual_space_padding(self):
+        # Lebar tombol dulu dipalsukan dengan dua spasi di sekeliling
+        # teks. Teksnya sendiri harus apa adanya.
+        dlg = _shown(_exam())
+        try:
+            text = dlg._submit_btn.text()
+            self.assertEqual(text, "Masuk Ujian")
+            self.assertEqual(text, text.strip())
+            self.assertGreater(dlg._submit_btn.minimumWidth(), 0)
+        finally:
+            dlg.close()
+
+
+class LabelSlackTest(unittest.TestCase):
+    """Slack tinggi viewport TIDAK boleh mendarat di label.
+
+    Test di atas mengunci hal yang dilihat siswa: "form muat tanpa scroll".
+    Yang tidak diUJI sana adalah jarak antar label dan kotak isinya --
+    dan justru itulah yang rusak.
+
+    Gejalanya: QScrollArea dengan `widgetResizable(True)` meregangkan
+    kartu sampai setinggi viewport (di 1080p: 910px, sementara isinya
+    432px). Tanpa stretch di `card_layout`, sisa 478px itu dibagikan
+    QBoxLayout ke widget yang boleh melar, yaitu QLabel yang
+    `setWordWrap(True)`: tiap label jadi 102px padahal teksnya 18px.
+    Scrollbar tetap tidak muncul, jadi semua test "form muat" tetap
+    hijau -- padahal jarak label ke input membesar jadi ~88px dan
+    jarak antar field jadi ~164px.
+
+    Yang dikunci di sini adalah sifat yang salahnya terlihat, bukan
+    angka hasil tuning: tinggi label harus sama dengan tinggi yang
+    dia benar-benar butuhkan pada lebar yang sedang dipakai
+    (`heightForWidth`), dan harus TIDAK berubah ketika tinggi jendela
+    berubah.
+    """
+
+    # Tinggi jendela dipisah jauh supaya test ini menangkap "slack
+    # dibagi ke label": beda tinggi = beda slack = beda tinggi label
+    # kalau bug-nya kembali.
+    SHORT_H = 700
+    TALL_H = 1400
+
+    def _field_labels(self, dlg):
+        """Label field (bukan judul, bukan pesan error inline)."""
+        from PyQt5.QtWidgets import QLabel
+
+        card = dlg._scroll.widget()
+        out = []
+        for lbl in card.findChildren(QLabel):
+            if lbl.objectName() == "identityFieldError":
+                continue
+            if lbl.font().bold() and lbl.text().endswith(" *"):
+                out.append(lbl)
+        return out
+
+    def _label_heights(self, dlg):
+        return [lbl.height() for lbl in self._field_labels(dlg)]
+
+    def test_label_height_matches_the_text_it_wraps(self):
+        dlg = _shown(_exam(), height=self.TALL_H)
+        try:
+            for lbl in self._field_labels(dlg):
+                needed = lbl.heightForWidth(lbl.width())
+                self.assertLessEqual(
+                    lbl.height(), needed,
+                    f"label {lbl.text()!r} setinggi {lbl.height()}px "
+                    f"padahal teksnya cuma perlu {needed}px; slack "
+                    f"tinggi viewport bocor ke label",
+                )
+        finally:
+            dlg.close()
+
+    def test_label_height_does_not_depend_on_window_height(self):
+        # Inkarnasi langsung dari bug-nya: jendela makin tinggi berarti
+        # viewport makin tinggi. Yang boleh berubah adalah viewport --
+        # tinggi KARTU dan tinggi label harus tetap, karena slack-nya
+        # tidak boleh sampai ke isi form.
+        short = _shown(_exam(), height=self.SHORT_H)
+        try:
+            short_viewport = short._scroll.viewport().height()
+            short_heights = self._label_heights(short)
+            short_card = short._scroll.widget().height()
+        finally:
+            short.close()
+        tall = _shown(_exam(), height=self.TALL_H)
+        try:
+            tall_viewport = tall._scroll.viewport().height()
+            tall_heights = self._label_heights(tall)
+            tall_card = tall._scroll.widget().height()
+        finally:
+            tall.close()
+        self.assertGreater(
+            tall_viewport, short_viewport,
+            "test ini tidak menguji apa-apa kalau viewportnya sama",
+        )
+        self.assertEqual(
+            tall_heights, short_heights,
+            "tinggi label ikut berubah mengikuti tinggi jendela: sisa "
+            "ruang dibagikan ke label, bukan diserap di luar kartu",
+        )
+        self.assertEqual(
+            tall_card, short_card,
+            "kartu ikut menjulang bersama jendela, jadi jadi kolom kosong",
+        )
+
+    def test_each_label_text_sits_right_above_its_input(self):
+        # Yang dilihat mata bukan jarak dari BAWAH label, melainkan jarak
+        # dari teks label ke kotak isinya. Dan teksnya menempel di ATAS
+        # kotak labelnya sendiri, jadi yang diukur harus jarak dari
+        # tepi ATAS label ke tepi atas input.
+        #
+        # Penting: mengukur `input.y - (label.y + label.height)` TIDAK
+        # akan menangkap apa pun. Label yang melar tetap berakhir 4px di
+        # atas input -- ruang kosongnya ada di BAWAH teks, di dalam kotak
+        # label itu sendiri. Bug-nya justru ada di sana.
+        dlg = _shown(_exam(), height=1000)
+        try:
+            card = dlg._scroll.widget()
+            labels = self._field_labels(dlg)
+            for key, inp in dlg._inputs.items():
+                match = None
+                for lbl in labels:
+                    wanted = inp.placeholderText().replace("Masukkan ", "")
+                    if lbl.text().rstrip(" *").lower() == wanted.lower():
+                        match = lbl
+                        break
+                self.assertIsNotNone(match, f"label untuk {key}")
+                natural = match.heightForWidth(match.width())
+                gap = (inp.mapTo(card, inp.rect().topLeft()).y()
+                       - match.mapTo(card, match.rect().topLeft()).y())
+                self.assertLessEqual(
+                    gap, natural + 12,
+                    f"teks label {match.text()!r} berdiri {gap}px di atas "
+                    f"kotaknya padahal labelnya cuma perlu {natural}px; "
+                    f"ruang kosong menggeser isi kotak label",
+                )
+        finally:
+            dlg.close()
+
+    def test_error_label_gives_its_space_back_when_hidden(self):
+        # Label error disembunyikan sampai field benar-benar salah, dan
+        # saat disembunyikan ia TIDAK boleh menyisakan ruang: dengan
+        # tinggi/minimum-height yang tetap, form yang tadinya rapat
+        # akan punya celah di bawah setiap kotak sebelum ada error pun.
+        dlg = _shown(_exam(), height=1000)
+        try:
+            card = dlg._scroll.widget()
+
+            def positions():
+                return {k: w.mapTo(card, w.rect().topLeft()).y()
+                        for k, w in dlg._inputs.items()}
+
+            for key, err in dlg._error_labels.items():
+                self.assertTrue(
+                    err.isHidden(),
+                    f"pesan error untuk {key} tampil sebelum ada error",
+                )
+            before = positions()
+
+            # Munculkan satu pesan: layout boleh bergeser ke bawah.
+            err = dlg._error_labels["student_name"]
+            err.setText("Nama wajib diisi")
+            err.show()
+            card.layout().activate()
+            APP.processEvents()
+            during = positions()
+            # Yang bertambah adalah jarak ke field BERIKUTNYA: pesan di
+            # bawah kotak pertama mendorong semua yang ada di bawahnya.
+            # (Kotaknya sendiri justru naik sedikit, karena stretch
+            # pemutar ikut menyusut -- itu konsekuensi wajar, bukan bug.)
+            gap_before = (before["exam_number"] - before["student_name"])
+            gap_during = (during["exam_number"] - during["student_name"])
+            self.assertGreater(
+                gap_during, gap_before,
+                "label error yang tampil tidak menambah ruang di bawahnya",
+            )
+
+            # Sembunyikan lagi: jarak antar field harus pulih persis.
+            err.hide()
+            card.layout().activate()
+            APP.processEvents()
+            self.assertEqual(
+                positions(), before,
+                "label error yang disembunyikan menyisakan ruang kosong "
+                "di bawah kotaknya",
+            )
         finally:
             dlg.close()
 

@@ -128,14 +128,22 @@ def _exam_needs_monitor_notice(exam) -> bool:
     Dibaca lewat `security_levels.LEVEL_MEDIUM`, bukan literal `"medium"`:
     `Exam.level` sudah kanonik (`normalize_level`), dan konstanta itu yang
     membuat kata server "high" tidak pernah ikut dibandingkan sebagai
-    "medium" di tempat yang tidak melakukan normalisasi. Strict tidak ikut
-    masuk ke sini: ia punya gerbang sendiri yang menolak mulai, dan
-    pencampuran dua perilaku berbeda dalam satu cabang akan menutupi
-    bug gate strict di kemudian hari.
+    "medium" di tempat yang tidak melakukan normalisasi.
+
+    Strict TIDAK ikut masuk ke sini — dicek lewat `Exam.is_strict`, bukan
+    `level`: `is_strict` juga true untuk ujian medium yang diberi flag strict
+    oleh server, dan itulah yang sebenarnya ditolak oleh gate strict
+    (`on_exam_selected` → blok multi-monitor fail-closed). Tanpa cek ini,
+    ujian itu mendapat dialog informasi non-blocking "ujian tetap bisa
+    dimulai" — dan DIKAWALIKI, kontras dengan dua dialog penolakan tepat
+    di bawahnya: siswa diberi peringatan optimistic yang pasti tidak
+    berlaku, lalu ditolak.
     """
     from .security_levels import LEVEL_MEDIUM, normalize_level
 
     try:
+        if bool(getattr(exam, "is_strict", False)):
+            return False
         return normalize_level(getattr(exam, "level", None)) == LEVEL_MEDIUM
     except Exception:
         log.warning("tidak bisa membaca level ujian", exc_info=True)
@@ -306,10 +314,11 @@ def main() -> None:
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName("EXAMVAN")
 
-    # Apply theme (auto-detect system dark/light mode)
-    from . import config
-    from .ui.styles import is_system_dark, apply_theme
-    apply_theme(dark=is_system_dark())
+    # Apply theme. Tema aplikasi dikunci gelap (lihat `styles.app_theme_dark`),
+    # bukan mengikuti Pengaturan Windows: ruang kelas sering punya PC dengan
+    # tema sistem berbeda-beda, dan tampilan harus sama di semua layar.
+    from .ui.styles import app_theme_dark, apply_theme
+    apply_theme(dark=app_theme_dark())
 
     # Launch server config dialog
     from .ui.server_config import ServerConfigDialog

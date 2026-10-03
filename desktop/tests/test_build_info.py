@@ -305,7 +305,7 @@ class CliStampTest(unittest.TestCase):
 class BuildScriptsUseTheStamperTest(unittest.TestCase):
     """Semua jalur build harus lewat fungsi yang sama.
 
-    Sebelumnya CI men-*patch* dengan regex PowerShell，sedangkan build lokal tidak
+    Sebelumnya CI men-*patch* dengan regex PowerShell, sedangkan build lokal tidak
     men-*patch* sama sekali — dua implementasi dari aturan yang sama, dan
     yang lokal diam-diam salah.
     """

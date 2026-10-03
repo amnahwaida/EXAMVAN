@@ -25,8 +25,10 @@ from ..models import Exam, SubmitResponse
 from ..utils import (
     build_attempt_key,
     build_student_key,
+    build_student_key_source,
     get_device_label,
     map_identity_to_standard,
+    student_label,
 )
 from .exam_viewer import answers_match_disk
 
@@ -39,6 +41,99 @@ log = logging.getLogger(__name__)
 # Bentuk KANONIK (https://, tanpa trailing slash) karena `_on_connect`
 # menormalkan input dengan asumsi itu.
 DEFAULT_SERVER_URL = "https://examvan.my.id"
+
+
+def _present_result_page(
+    *,
+    server_url: str,
+    exam_token: str,
+    exam_name: str,
+    identity: Dict[str, str],
+    message: str,
+    public_results: bool,
+    on_page_closed,
+):
+    """Bangun + perlakukan halaman hasil, lalu PASANG pembersihannya.
+
+    Ronde 7 (H1). Halaman hasil dibangun di beberapa tempat:
+
+    * `ui/exam_viewer.py:_show_congratulations` — dipakai
+      `_cleanup_after_submit` dan `_on_auto_submit_done`;
+    * `_recovery_done_slot` di file ini.
+
+    Site kedua sebelumnya punya `page_closed` WARNA, dan itu bukan
+    detail: di jalur recovery tidak pernah ada `ExamViewerWindow`, jadi
+    rantai `page_closed` → viewer menutup diri → `closed` →
+    `__main__._after_viewer_gone` yang biasanya menjalankan
+    `config.clear_identity()` dan menghidupkan lagi UI koneksi tidak
+    pernah jalan. Akibatnya identitas siswa yang baru saja selesai tetap
+    di config, dipakai mengisi form siswa berikutnya, dan karena
+    `last_input.returnPressed` terikat ke submit, SATU Enter sudah cukup
+    menjawab atas nama orang sebelumnya. `mark_submitted` juga tidak
+    pernah dipanggil di sana.
+
+    Karena itu "bangun halaman" dan "pasang apa yang terjadi setelah
+    ditutup" harus SATU tempat. Site baru yang hanya memanggil
+    `CongratulationsWindow(...)` akan gagal di test
+    `tests/test_r7_recovery_page_cleanup.py` (yang menghitung site
+    pembuatan halaman di file ini).
+
+    CATATAN jujur soal cakupan: site-site di `exam_viewer.py` tidak bisa
+    ikut memakai helper ini ronde ini — file itu di luar daftar edit, dan
+    `server_config.py` meng-import `exam_viewer` di level modul, jadi
+    mengimpor balik akan menjadi import melingkar. Yang bisa dilakukan
+    sekarang: semua site di file ini lewat helper, dan kedua site
+    `exam_viewer` memang sudah menyambungkan `page_closed` sendiri
+    (`_cleanup_after_submit`). Menggabungkan semuanya perlu satu file
+    bersama (mis. `ui/result_page.py`) — pekerjaan lanjutan.
+
+    `on_page_closed` adalah callback yang dijalankan sekali saat siswa
+    menutup halaman; ia harus melakukan pembersihan sesi (identitas,
+    marker submit, UI koneksi). `identity` yang dipakai untuk itu adalah
+    identitas yang benar-benar diproses, bukan apa pun yang kebetulan
+    ada di config.
+    """
+    from .congratulations import CongratulationsWindow
+
+    std = map_identity_to_standard(identity or {})
+    congrats = CongratulationsWindow(
+        server_url=server_url,
+        exam_token=exam_token,
+        exam_name=exam_name,
+        student_name=str(std.get("student_name", "")),
+        student_number=str(std.get("exam_number", "")),
+        student_class=str(std.get("student_class", "")),
+        congrats_message=message,
+        public_results=public_results,
+    )
+    # WA_DeleteOnClose: Qt menghapus sendiri saat siswa menekan
+    # "Selesai", dan referensinya ditahan oleh pemanggil supaya tidak
+    # ter-GC saat slot ini kembali.
+    congrats.setAttribute(Qt.WA_DeleteOnClose)
+    congrats.show_fullscreen()
+    # Dipasang begitu halaman ada, SEBELUM siswa sempat menekan
+    # "Selesai": `closeEvent` tetap berjalan pada halaman yang sedang
+    # shown, dan `page_closed` hanya dipancarkan sekali pada penutupan
+    # pertama.
+    if on_page_closed is not None:
+        congrats.page_closed.connect(on_page_closed)
+
+    # H2: halaman ini menaruh token ujian — di mode static-token itu
+    # kredensial hasil SELURUH KELAS — SETELAH `deactivate()` sudah
+    # melepas WDA_MONITOR, keyboard hook, ClipCursor, dan sweeper
+    # clipboard. Tanpa baris ini, jalur recovery (justru yang dipakai
+    # saat auto-submit background gagal) adalah satu-satunya halaman
+    # hasil yang bisa difoto bebas. Helper modul-level dipakai karena
+    # di titik ini tidak ada enforcer yang hidup: `_active`-nya sudah
+    # False, jadi `protect_window` versi enforcer akan jadi no-op.
+    from ..security.enforcer import protect_window_capture
+
+    if not protect_window_capture(congrats):
+        log.warning(
+            "proteksi capture halaman hasil gagal — token ujian bisa "
+            "terekam lewat PrintScreen"
+        )
+    return congrats
 
 
 class ServerConfigDialog(QDialog):
@@ -101,11 +196,11 @@ class ServerConfigDialog(QDialog):
         card = QWidget()
         card.setFixedWidth(440)
         card.setObjectName("loginCard")
-        from .styles import is_system_dark
-        if is_system_dark():
-            card.setStyleSheet("QWidget#loginCard { background-color: #313244; border: 1px solid #45475a; border-radius: 12px; }")
-        else:
-            card.setStyleSheet("QWidget#loginCard { background-color: #ffffff; border: 1px solid #ccd0da; border-radius: 12px; }")
+        # Warna kartu mengikuti `styles.app_theme_dark()`, bukan
+        # tema sistem: kartu gelap di dalam jendela terang (atau
+        # sebaliknya) adalah regresi butir 1 di
+        # `tests/test_styles_dark_regression.py`.
+        card.setStyleSheet("QWidget#loginCard { background-color: #313244; border: 1px solid #45475a; border-radius: 12px; }")
         card_layout = QVBoxLayout(card)
         card_layout.setSpacing(10)
         card_layout.setContentsMargins(40, 40, 40, 40)
@@ -573,49 +668,43 @@ class ServerConfigDialog(QDialog):
         # konfigurasi. Referensinya ditahan di `self._congrats_ref` supaya
         # tidak ter-GC saat slot ini kembali, dan WA_DeleteOnClose membuat
         # Qt menghapusnya ketika siswa menekan "Selesai".
-        from .congratulations import CongratulationsWindow
-
+        #
         # Identitas yang DIPAKAI worker recovery (audit HIGH H13) — bukan
-        # apa pun yang kebetulan ada di config saat halaman ini tampil.
-        identity = self._recovery_identity or config.get_identity_data()
-        # H2: identitas via pemetaan kanonik yang sama dengan submit dan
-        # approval — bukan lookup mentah "nama"/"nomor_ujian".
-        std = map_identity_to_standard(identity)
+        # apa pun yang kebetulan ada di config saat halaman ini tampil, dan
+        # dipakai juga untuk penandaan submit saat halaman ditutup.
+        identity = dict(
+            self._recovery_identity or config.get_identity_data() or {}
+        )
         # Token yang tervalidasi, BUKAN `config.get("exam_token")`: config
         # masih menyimpan token dari percobaan sebelumnya kalau siswa
         # mengetik ulang token di kotak yang sama (recovery dibaca ulang
         # pada connect berikutnya), dan link yang ditampilkan harus milik
         # ujian yang benar-benar dikerjakan — bukan milik token basi.
         exam_token = self.validated_token
-        congrats = CongratulationsWindow(
+        # Ronde 7 (H1): bangun + pasang pembersihannya lewat SATU helper.
+        # Site ini sebelumnya tidak punya `page_closed`, dan di jalur
+        # recovery tidak pernah ada ExamViewerWindow — jadi rantai
+        # `page_closed` -> `closed` -> `_after_viewer_gone` yang biasanya
+        # memanggil `config.clear_identity()` tidak pernah jalan.
+        # Konsekuensinya berurutan: identitas siswa yang baru selesai tetap
+        # tinggal di config dan dipakai mengisi form siswa berikutnya
+        # (`last_input.returnPressed` terikat ke submit, jadi SATU Enter
+        # cukup menjawab atas namanya), dan `mark_submitted` tidak pernah
+        # dipanggil sehingga `_offer_resubmit_choice` selalu keluar lebih
+        # awal tanpa memberi tahu apa pun.
+        self._congrats_ref = _present_result_page(
             server_url=self._server_url,
             exam_token=exam_token,
             exam_name=getattr(self._exam, "name", ""),
-            student_name=str(std.get("student_name", "")),
-            student_number=str(std.get("exam_number", "")),
-            student_class=str(std.get("student_class", "")),
-            congrats_message=msg,
-            public_results=bool(getattr(self._exam, "public_results", True)),
+            identity=identity,
+            message=msg,
+            public_results=bool(
+                getattr(self._exam, "public_results", True)
+            ),
+            on_page_closed=lambda: self._on_result_page_closed(
+                identity, exam_token
+            ),
         )
-        congrats.setAttribute(Qt.WA_DeleteOnClose)
-        congrats.show_fullscreen()
-        self._congrats_ref = congrats
-
-        # H2: halaman ini menaruh token ujian — di mode static-token itu
-        # kredensial hasil SELURUH KELAS — SETELAH `deactivate()` sudah
-        # melepas WDA_MONITOR, keyboard hook, ClipCursor, dan sweeper
-        # clipboard. Tanpa baris ini, jalur recovery (justru yang dipakai
-        # saat auto-submit background gagal) adalah satu-satunya halaman
-        # hasil yang bisa difoto bebas. Helper modul-level dipakai karena
-        # di titik ini tidak ada enforcer yang hidup: `_active`-nya sudah
-        # False, jadi `protect_window` versi enforcer akan jadi no-op.
-        from ..security.enforcer import protect_window_capture
-
-        if not protect_window_capture(congrats):
-            log.warning(
-                "proteksi capture halaman hasil recovery gagal — token "
-                "ujian bisa terekam lewat PrintScreen"
-            )
 
         # M-token-leak: kotak token dikosongkan begitu ujian benar-benar
         # selesai. Pada jalur ini tidak pernah ada ExamViewerWindow yang
@@ -630,6 +719,48 @@ class ServerConfigDialog(QDialog):
             self.input_token.clear()
         except Exception:
             log.debug("could not clear token input", exc_info=True)
+
+    def _on_result_page_closed(
+        self, identity: Dict[str, str], exam_token: str
+    ) -> None:
+        """Kontrak setelah halaman hasil DITUTUP — sama seperti jalur ujian.
+
+        Ronde 7 (H1). Jalur recovery tidak pernah membuat
+        `ExamViewerWindow`, jadi tidak ada rantai pembersih
+        `page_closed` -> viewer menutup diri -> `closed` ->
+        `__main__._after_viewer_gone` TIDAK ADA di sini. Yang di-copy adalah
+        kontrak yang di sana: identitas dibersihkan, marker submit ditulis,
+        dan UI koneksi dikembalikan.
+
+        * identitas: tanpa ini `_prefill_identity_if_same_exam` mengisi
+          form siswa berikutnya dengan nama/nomor/kelas siswa sebelumnya,
+          dan `last_input.returnPressed` yang terikat ke `_on_submit`
+          membuat SATU Enter cukup menjawab atas namanya;
+        * marker submit: pasangan `build_student_key`/`student_label` yang
+          SAMA dengan `_cleanup_after_submit` di `exam_viewer`, supaya
+          penandaan dari kedua jalur saling mengenal. Tanpa ini
+          `_offer_resubmit_choice` selalu `return True` di baris pertama
+          dan siswa berikutnya tidak diberi tahu bahwa percobaan itu ada;
+        * UI koneksi: tombol + kedua input + guard in-flight. Tanpa ini
+          PC lab terkunci setelah satu recovery.
+
+        Idempoten: `page_closed` hanya dipancarkan sekali, tapi
+        `CongratulationsWindow` bisa `close()` dua kali, jadi tetap aman
+        untuk dipanggil berulang.
+        """
+        try:
+            config.mark_submitted(
+                self._exam.id if self._exam is not None else 0,
+                build_student_key(identity, exam_token),
+                student_label(identity, exam_token),
+            )
+        except Exception:
+            log.warning("gagal menulis marker submit", exc_info=True)
+        # `clear_identity()` membersihkan identitas DAN konteksnya sekaligus
+        # (lihat config.clear_identity), jadi tidak perlu `set
+        # ("identity_context", {})` terpisah di sini.
+        config.clear_identity()
+        self._enable_connect_ui()
 
     def _offer_pending_recovery(self, identity: Dict[str, str]) -> bool:
         """True bila siswa boleh lanjut. Tidak pernah menolak.
@@ -815,19 +946,53 @@ class ServerConfigDialog(QDialog):
 
         Kenapa hanya marker, bukan "ada jawaban di disk": file jawaban adalah
         fallback yang dipakai identitas LAIN bila autosave/autosubmit-nya
-        gagal, dan pengaman kepemiliknya sudah ada di
+        gagal, dan pengaman kepemilikannya sudah ada di
         `_offer_pending_recovery`. Menoffer "kirim ulang" berdasarkan file
         akan membuka overwrite terhadap baris yang sudah benar.
 
-        Battasi ke identitas + ujian yang sama: `is_submitted` sudah ber-key
-        `build_student_key`, jadi marker siswa lain di PC yang sama tidak
-        tersentuh. Kegagalan membaca marker TIDAK boleh menutup jalan: bersihkan
-        identitas dan membiarkan siswa masuk — client bukan tempat aturan
-        yang tidak bisa diaudit.
+        Ronde 7 (H3) — modal HANYA untuk kunci yang benar-benar satu siswa
+        ------------------------------------------------------------------
+        `build_student_key` bisa MENURUN ke nama lalu ke kelas lalu ke
+        token. Config madrasah yang paling biasa — `nama`, `kelas`,
+        `agama`, `jenis_kelamin`, tanpa kolom nomor ujian — menghasilkan
+        kunci `'ahmad'` untuk siapa pun bernama Ahmad, jadi siswa 7 dan
+        siswa 19 memakai satu kunci yang sama. Tanpa pemeriksaan sumber,
+        modal ini dipertanyakan ke orang yang salah: "Jawaban untuk
+        identitas ini sudah tercatat di perangkat ini" adalah tuduhan
+        salah orang, dan `_cleanup_after_submit` juga menulis marker di
+        bawah kunci yang sama.
+
+        Jadi sumber kunci diperiksa lebih dulu (`build_student_key_source`):
+        hanya `exam_number` yang unik per siswa, jadi hanya itu yang boleh
+        jadi dasar modal. Fallback lain di-`log` dan dilewati — lebih baik
+        tidak memberi tahu daripada memberi tahu orang yang salah, dan ini
+        tetap BUKAN pemblokiran: siswa tetap boleh masuk.
+
+        Kalau ujiannya memang tidak punya kolom nomor maupun nama, level log
+        diturunkan ke INFO: tidak ada yang hilang, konfigurasinya memang
+        begitu sejak awal. Kalau ada kolom yang SEHARUSNYA jadi nomor tapi
+        tidak termapping, itu WARNING-worthy — itulah konfigurasi yang
+        membuat kunci degrade di tempat yang tidak diharapkan.
         """
         assert self._exam is not None
         try:
-            attempt = build_student_key(identity, self.validated_token)
+            attempt, source = build_student_key_source(
+                identity, self.validated_token
+            )
+            if source != "exam_number":
+                collects = self._exam_collects_student_identifier()
+                log.log(
+                    logging.WARNING if collects else logging.INFO,
+                    "kunci marker submit untuk exam %s turun ke %s "
+                    "(kunci=%r) — modal 'sudah terkumpul' tidak "
+                    "dipertanyakan karena kunci itu bukan satu siswa: "
+                    "%s",
+                    self._exam.id, source, attempt,
+                    "ujian punya kolom nomor/nama yang bisa dipakai"
+                    if collects else
+                    "ujian memang tidak punya kolom nomor/nama",
+                )
+                return True
             if not config.is_submitted(self._exam.id, attempt):
                 return True
         except Exception:
@@ -868,6 +1033,24 @@ class ServerConfigDialog(QDialog):
         config.clear_identity()
         self._enable_connect_ui()
         return False
+
+    def _exam_collects_student_identifier(self) -> bool:
+        """True bila ujian punya kolom nomor ujian ATAU nama yang terpetakan.
+
+        Hanya untuk memilih level log di `_offer_resubmit_choice`: kalau
+        config-nya memang tidak punya salah satu, kunci yang degrade bukan
+        kesalahan pemetaan dan INFO sudah cukup. Kalau config-nya ADA kolom
+        identitas tapi kunci tetap turun ke nama/kelas, itu WARNING-worthy.
+
+        Dihitung dengan `map_identity_to_standard` yang sama — nilainya
+        dibuat non-blank semua supaya hanya NAMA KUNCI yang berperan.
+        """
+        fields = getattr(self._exam, "identity_fields", None) or []
+        probe = {f.key: "1" for f in fields if getattr(f, "key", "")}
+        if not probe:
+            return False
+        std = map_identity_to_standard(probe)
+        return bool(std.get("exam_number") or std.get("student_name"))
 
     def _prefill_identity_if_same_exam(self) -> Dict[str, str]:
         """Identitas tersimpan HANYA bila konteksnya cocok (H8).

@@ -1194,18 +1194,11 @@ func SubmitExam() gin.HandlerFunc {
 		}
 
 		// Validate that all identity fields in the exam's config are filled.
-		// If identity_fields config is empty, default to student_name, exam_number, student_class.
-		var expectedFields []identityField
-
-		if exam.IdentityFields != nil && *exam.IdentityFields != "" && *exam.IdentityFields != "[]" {
-			_ = json.Unmarshal([]byte(*exam.IdentityFields), &expectedFields)
-		} else {
-			expectedFields = []identityField{
-				{Key: "student_name", Label: "Nama Siswa", Required: true},
-				{Key: "exam_number", Label: "Nomor Ujian", Required: true},
-				{Key: "student_class", Label: "Kelas", Required: true},
-			}
-		}
+		// If identity_fields config is absent OR malformed, default to the
+		// same three canonical columns the LIST path uses
+		// (helpers.ParseIdentityFields + defaultIdentityFields) so client and
+		// server agree on which fields exist.
+		expectedFields := expectedIdentityFields(exam.IdentityFields)
 
 		// Kolom kanonik hasil fallback body di atas — dipakai hanya untuk
 		// field bertipe key kanonik, supaya jalur ini tidak berubah.
@@ -1344,7 +1337,93 @@ type identityField struct {
 	Required bool   `json:"required"`
 }
 
+// canonicalDefaultIdentityFields returns the three identity columns used when
+// exams.identity_fields is absent or unusable.
+//
+// Bentuknya SAMA dengan `defaultIdentityFields` (lihat init di atas) yang
+// dipakai jalur LIST lewat helpers.ParseIdentityFields.-Line-by-line: kolom
+// NULL, kosong, `"[]"`, atau JSON rusak memakai daftar yang sama persis dengan
+// yang dilihat client, jadi client dan server tidak pernah berbeda pendapat
+// tentang kolom mana yang wajib.
+//
+// Label ikut mengikuti defaultIdentityFields ("Nama", bukan "Nama Siswa") supaya
+// pesan 400 yang dibaca siswa sama dengan nama kolom yang tampil di formnya.
+func canonicalDefaultIdentityFields() []identityField {
+	out := make([]identityField, 0, len(defaultIdentityFields))
+	for _, f := range defaultIdentityFields {
+		key, _ := f["key"].(string)
+		label, _ := f["label"].(string)
+		required, _ := f["required"].(bool)
+		out = append(out, identityField{Key: key, Label: label, Required: required})
+	}
+	return out
+}
+
+// expectedIdentityFields parses exams.identity_fields for the submit path and
+// falls back to the canonical defaults whenever the column cannot be trusted.
+//
+// M8: dulu jalur submit menelan error parse (`_ = json.Unmarshal(...)`), jadi
+// kolom yang ADA tapi tidak bisa di-parse — `"{"`, `null`, angka, bentuk lain —
+// meninggalkan daftar field KOSONG. firstMissingRequiredIdentity lalu
+// mengiterasi tidak ada apa pun dan submit DITERIMA tanpa satu pun syarat
+// identitas: satu kolom rusak mematikan seluruh wajib-isi identitas secara
+// diam-diam. Padahal jalur LIST (helpers.ParseIdentityFields) sudah gagal-TERBUKA
+// ke tiga default, jadi client masih mewajibkan tiga kolom sementara server
+// tidak mewajibkan apa pun.
+//
+// Yang dianggap tidak bisa dipercaya:
+//   - kolom NULL / kosong / spasi / `"[]"` (perilaku lama, dipertahankan);
+//   - JSON yang gagal di-parse;
+//   - hasil parse yang tidak menghasilkan satu pun field yang PAKAI — tanpa
+//     key DAN tanpa label (`[{}]`, `[{},{}]`). Config sah yang field-nya
+//     kosong-key tapi BER-label (jalur positional H4) tetap dihormati.
+func expectedIdentityFields(raw *string) []identityField {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return canonicalDefaultIdentityFields()
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "[]" {
+		return canonicalDefaultIdentityFields()
+	}
+	var parsed []identityField
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		log.Printf("identity_fields kolom rusak, pakai default kanonik: %v", err)
+		return canonicalDefaultIdentityFields()
+	}
+	usable := false
+	for _, f := range parsed {
+		if strings.TrimSpace(f.Key) != "" || strings.TrimSpace(f.Label) != "" {
+			usable = true
+			break
+		}
+	}
+	if !usable {
+		log.Printf("identity_fields tidak punya kolom yang bisa dipakai, pakai default kanonik")
+		return canonicalDefaultIdentityFields()
+	}
+	return parsed
+}
+
 // identityFieldValue resolves the student's answer for ONE expected field.
+//
+// Urutan percobaan key: (1) `field.Key` PERSIS seperti tersimpan, (2) bentuk
+// TRIMMED-nya, (3) bentuk CASE-FOLDED-nya. Bentuk persis selalu menang, jadi
+// config yang sudah kanonik tidak tersentuh sama sekali.
+//
+// Kenapa perlu (2) dan (3) — H5: `validateIdentityFields` menolak key berspasi
+// dan key duplikat case-insensitive, tapi HANYA saat MENYIMPAN, dan tidak ada
+// migrasi untuk baris yang sudah ada di database. Client menormalkan key
+// (`identity_dialog.py`: `norm_key = str(f.key or "").strip()`, lalu
+// case-folded-dedupe) SEBELUM mengirim, jadi config warisan tidak akan pernah
+// cocok:
+//
+//	stored " nama "  → wire "nama"  → lookup identity_data[" nama "] → miss
+//	stored "Nama" + "nama" (duplikat warisan) → client kirim "nama" saja
+//	                                       → field "Nama" cocok, "nama" tidak
+//
+// Tanpa dua fallback itu satu baris config warisan membuat SETIAP siswa di
+// kelas itu 400 permanen ("Identitas '%s' wajib diisi") dan tidak ada apa pun
+// yang bisa diperbaiki dari sisi siswa.
 //
 // Key KOSONG dibaca POSISIONAL lewat `field_<index>` (index = posisi field di
 // config), bukan lewat `identity_data[""]`. Alasannya `field_<n>` bukan
@@ -1355,11 +1434,17 @@ type identityField struct {
 // config dengan TEPAT SATU field tanpa key; dua atau lebih key kosong = 400
 // "Identitas 'Kelas' wajib diisi" selamanya meski `field_0`/`field_1` sudah
 // terisi. Satu perubahan ini menutup 1 maupun N key kosong.
-//
-// Key yang tidak kosong TIDAK tersentuh: dibaca persis seperti sebelumnya,
-// dengan alias `""` client tetap diterima sebagai bonus kompatibilitas.
 func identityFieldValue(data map[string]interface{}, field identityField, index int) string {
 	keys := []string{field.Key}
+	if trimmed := strings.TrimSpace(field.Key); trimmed != field.Key {
+		// Config warisan dengan spasi: client sudah strip sebelum mengirim.
+		keys = append(keys, trimmed)
+	}
+	if folded := strings.ToLower(strings.TrimSpace(field.Key)); folded != field.Key {
+		// Config warisan beda huruf besar-kecil: client menggabungkan
+		// duplikat case-insensitive lalu mengirim satu saja.
+		keys = append(keys, folded)
+	}
 	if field.Key == "" {
 		keys = append(keys, fmt.Sprintf("field_%d", index), "")
 	}

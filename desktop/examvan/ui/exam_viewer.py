@@ -253,7 +253,7 @@ from PyQt5.QtWidgets import (
 
 from .. import APP_VERSION, api, config, notify
 from ..models import Exam, SubmitResponse
-from ..security.enforcer import SecurityEnforcer
+from ..security.enforcer import SecurityEnforcer, protect_window_capture
 from ..utils import (
     build_attempt_key,
     student_label,
@@ -278,6 +278,17 @@ log = logging.getLogger(__name__)
 _ADMIN_EXIT_MODIFIERS = (
     Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier
 )
+
+# Batas keras menunggu hasil submit background (H6).
+#
+# Anggaran terpanjang di `_background_submit_thread`: retry submit ~7 detik
+# + polling /result 202 ~77 detik, dan paling lambat setelah itu notifikasi
+# desktop. Dipilih 110 detik — di atas anggaran itu, `_on_auto_submit_done`
+# TIDAK akan pernah datang (thread mati, signal hilang, atau prosesnya
+# sedang disuspensi), dan tanpa batas itu layar "Mengumpulkan jawaban…"
+# menggantung selamanya: tidak ada dialog, tidak ada halaman, tidak ada
+# tombol, satu-satunya jalan keluar Task Manager.
+_AUTOSUBMIT_WATCHDOG_MS = 110_000
 
 
 def answers_match_disk(exam_id, answers) -> bool:
@@ -310,6 +321,86 @@ def answers_match_disk(exam_id, answers) -> bool:
         )
         return False
     return current == answers
+
+
+class _ProgressWindow(QWidget):
+    """Layar "Mengumpulkan jawaban…" — top-level yang tidak bisa ditutup.
+
+    C1 (KRITIS). Jendela ini adalah SATU-SATUNYA top-level yang terlihat
+    selama budget submit (±84 detik: retry ~7 dtk + polling 202 ~77 dtk):
+    dialog konfigurasi sudah `hide()`-kan, viewer di-`hide()`-kan. Jadi
+    `QWidget(None)` polos di sini berarti satu Alt+F4 dari siswa menutup
+    SELURUH aplikasi:
+
+        Alt+F4 (atau klik X, atau Esc)
+          -> close() menutup top-level terakhir
+          -> lastWindowClosed  (setQuitOnLastWindowClosed default True)
+          -> app.quit()
+          -> app.exec_() kembali
+          -> thread submit yang baru saja dimulai MATI di tengah HTTP
+
+    Jawaban tidak pernah sampai server, tidak ada halaman selamat, tidak
+    ada notifikasi — siswa menganggur di depan layar mati dan menyimpulkan
+    aplikasinya sudah tertutup. Di tier low dan medium ini sama sekali
+    gratis: `_start_keyboard_hook` hanya dipanggil dari `set_strict_mode`,
+    dan tabel blok tombol tingkat-Qt ada di `ExamViewerWindow`, bukan di
+    jendela ini. Strict pun tetap terbuka karena
+    `windows_backend.py:834` dengan sengaja MENERIMA kegagalan pasang
+    hook.
+
+    Tiga lapis, semuanya wajib (satu lapisan saja bisa dilewati per
+    platform):
+
+      * `FramelessWindowHint` — tidak ada tombol X di title bar untuk
+        diklik. Lapisan ini yang paling sering terlewat, karena yang
+        dipakai siswa bukan Alt+F4 melainkan klik mouse;
+      * `closeEvent` menolak selama submit masih berjalan;
+      * `keyPressEvent` menelan Alt+F4 / Esc / tombol Menu, apa pun
+        tier-nya (modifier Alt tidak dicek: F4 yang sudah sampai di
+        aplikasi terlambat untuk dicek di lapisan lain).
+
+    `WA_DeleteOnClose` tetap dipakai: begitu alur selesai, jendela dibuang
+    sendiri oleh Qt.
+    """
+
+    # Tombol yang menutup jendela / membuka menu sistem. Ditelan di SEMUA
+    # tier, karena tier low justru yang paling tidak terlindungi: di sana
+    # tidak ada keyboard hook sama sekali.
+    _BLOCKED_KEYS = (
+        Qt.Key_F4,     # Alt+F4 (tutup), F4 polos (menu window)
+        Qt.Key_Escape,  # Esc
+        Qt.Key_Menu,    # tombol Menu / Shift+F10 (menu konteks sistem)
+    )
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # False selama submit berjalan. Di-set True HANYA oleh jalur internal
+        # (`ExamViewerWindow._close_progress_window`), dan hanya setelah
+        # langkah berikutnya menghasilkan window yang terlihat — kalau tidak,
+        # `closeEvent` menolak sampai-saat penutupannya sendiri, dan layar
+        # pengumpulan menutupi layar berikutnya selamanya.
+        self.allow_close = False
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if not self.allow_close:
+            log.warning(
+                "siswa mencoba menutup layar pengumpulan jawaban — "
+                "ditolak (submit masih berjalan)",
+            )
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in self._BLOCKED_KEYS:
+            log.warning(
+                "tombol penutup (key=%d) ditelan di layar pengumpulan — "
+                "submit masih berjalan",
+                int(event.key()),
+            )
+            event.ignore()
+            return
+        super().keyPressEvent(event)
 
 
 class ExamViewerWindow(QMainWindow):
@@ -352,6 +443,12 @@ class ExamViewerWindow(QMainWindow):
         self._submitted = False
         self._submitting = False
         self._close_in_progress = False  # prevent spam close events
+        # Payload jawaban yang SEDANG dikirim viewer ini (C2). Disimpan di
+        # viewer — bukan dibaca ulang dari disk — supaya jelas-jelas
+        # membandingkan "yang saya kirim" dengan "yang ada di disk", termasuk
+        # di jalur submit manual yang clear_answers-nya berjalan di thread
+        # GUI. `None` = belum ada yang dikirim.
+        self._submitted_payload = None
 
         self._security: Optional[SecurityEnforcer] = None
         self._pdf_path: Optional[str] = None
@@ -379,6 +476,13 @@ class ExamViewerWindow(QMainWindow):
         # akhir alur (halaman selamat belum tampil), jadi __main__
         # menahannya.
         self._auto_submit_pending = False
+        # Latch "alur auto-submit sudah diselesaikan" (H6). Tanpa ini,
+        # hasil yang telat (atau watchdog yang sudah menyelesaikan alur)
+        # bisa memproses langkah akhir untuk kedua kalinya — memunculkan
+        # halaman selamat di atas layar siswa berikutnya setelah alur
+        # sebenarnya sudah selesai.
+        self._auto_submit_finished = False
+        self._autosubmit_watchdog = None
 
         self._setup_ui()
         # Persist start_time sejak awal (mirror Android loadExamContent) —
@@ -572,7 +676,20 @@ class ExamViewerWindow(QMainWindow):
         self._save_timer.start()
 
     def _flush_answers(self) -> None:
-        if self._answers_dirty and not self._submitted:
+        """Tulis jawaban yang masih "kotor" ke disk (flush paksa).
+
+        Dipanggil timer 2 detik DAN sebagai flush terakhir di kedua jalur
+        keluar tanpa submit (low-tier + admin exit) — di sana autosave
+        langsung dimatikan, jadi tanpa flush ini ketikan terakhir siswa
+        (yang masih di dalam debounce 500 ms) tidak pernah menyentuh disk.
+
+        Baca state lewat `__dict__` supaya aman untuk instance yang dibuat
+        tanpa `__init__` (double di test): pada objek PyQt yang belum
+        diinisialisasi, akses atribut yang tidak ada melempar RuntimeError.
+        """
+        if self.__dict__.get("_answers_dirty") and not self.__dict__.get(
+            "_submitted", False
+        ):
             self._save_answers()
 
     def _init_security(self) -> None:
@@ -828,9 +945,69 @@ class ExamViewerWindow(QMainWindow):
                             exc_info=True)
         return congrats
 
+    def _disk_answers_replaced(self) -> bool:
+        """True kalau isi disk sudah bukan milik payload yang dikirim ini.
+
+        Dipakai dua tempat di viewer, dan keduanya mengarah ke arah yang
+        SAMA: kalau isinya bukan milik percobaan ini, maka (1) jangan
+        menghapus apa pun dari disk, dan (2) jangan tampilkan halaman yang
+        akan menutupi layar percobaan berikutnya.
+
+        Beda dari `answers_match_disk` (yang membandingkan PERSIS): di jalur
+        auto-submit, thread background sudah menghapus jawabannya sendiri
+        sebelum hasil sampai ke `_on_auto_submit_done`, jadi disk yang
+        kosong tetap berarti "milik kita, sudah beres" — bukan "percobaan
+        lain". Isi yang BERBEDA dan tidak kosong itulah yang menandakan
+        attempt lain sudah menimpanya.
+
+        Payload `None` berarti "belum ada yang terkirim" — dalam produksi itu
+        tidak mungkin terjadi di jalur submit (semua jalur submit mengisi
+        `_submitted_payload` sebelum menjalankan thread), jadi perlakukan
+        sebagai "tidak ada bukti attempt lain" dan jangan mengubah
+        perilakunya. `{}` (jawaban kosong yang sah) BUKAN `None`: itu
+        payload sungguhan, dan disk yang isinya berbeda berarti attempt lain
+        yang menimpanya.
+
+        `__dict__.get` (bukan `getattr`) karena test membuat viewer lewat
+        `ExamViewerWindow.__new__` tanpa `__init__` — pada objek PyQt yang
+        belum di-inisialisasi, `getattr` untuk atribut yang tidak ada
+        melempar RuntimeError ("super-class __init__ was never called"),
+        bukan mengembalikan default.
+        """
+        payload = self.__dict__.get("_submitted_payload")
+        if payload is None:
+            return False
+        try:
+            current = config.load_answers(self._exam.id)
+        except Exception:
+            log.warning(
+                "tidak bisa memastikan isi disk untuk exam %s — jawaban "
+                "dibiarkan (tidak dihapus) dan halaman hasil tidak "
+                "ditampilkan", self._exam.id, exc_info=True,
+            )
+            return True
+        if not current:
+            return False       # sudah dikosongkan oleh jalur sukses kita
+        return current != payload
+
     def _cleanup_after_submit(self, message: str) -> None:
         """Clean up after successful submit."""
-        config.clear_answers(self._exam.id)
+        # C2: call site KETIGA dari `clear_answers` setelah submit sukses.
+        # Dua call site sebelumnya (`_background_submit_thread` dan
+        # `server_config._recovery_submit_thread`) sudah memakai
+        # `answers_match_disk`; yang ini terlewat, dan akibatnya submit
+        # yang sukses — bisa saja yang TERLAMBAT, setelah siswa menutup
+        # jendela lalu siswa berikutnya masuk dan autosave — menghapus
+        # jawaban percobaan yang lebih baru dan memunculkan halaman selamat
+        # basi di atas dialog konfigurasi yang sedang dipakai orang lain.
+        replaced = self._disk_answers_replaced()
+        if replaced:
+            log.info(
+                "skip clear_answers: disk berisi jawaban percobaan lain untuk "
+                "exam %s (payload yang dikirim sudah durable)", self._exam.id,
+            )
+        else:
+            config.clear_answers(self._exam.id)
         # Sticky marker (F2, mirror Android): ujian ini sudah SELESAI di
         # perangkat ini. Re-entry berikutnya MewANAKKAN pilihan eksplisit
         # ("Kerjakan Ulang" / "Kembali") lewat
@@ -876,6 +1053,16 @@ class ExamViewerWindow(QMainWindow):
         # dibaca. Sebagai gantinya viewer hanya `hide()` (tetap direferensi
         # `windows` + `_congrats_ref` supaya tidak ter-GC), dan menutup
         # dirinya sendiri saat halaman ditutup siswa (`page_closed`).
+        #
+        # C2: halaman selamat HANYA untuk jawaban yang benar-benar milik
+        # attempt ini. Kalau isinya sudah diganti attempt lain, halaman ini
+        # akan muncul fullscreen di atas dialog konfigurasi / jendela ujian
+        # yang sedang dipakai siswa berikutnya — jadi yang dilakukan hanya
+        # menyelesaikan alur (`all_done`), tanpa menumpuk halaman baru.
+        if replaced:
+            self.hide()
+            self.all_done.emit()
+            return
         congrats = self._show_congratulations(message)
         congrats.page_closed.connect(self.close)
         self.hide()
@@ -1133,7 +1320,7 @@ class ExamViewerWindow(QMainWindow):
         self._on_status("Auto-submit: jawaban dikumpulkan otomatis...")
         self._auto_submit_and_exit()
 
-    def _build_progress_window(self) -> "QWidget":
+    def _build_progress_window(self) -> "_ProgressWindow":
         """Layar "Mengumpulkan jawaban…" — topologi yang MENJAGA event loop.
 
         Kenapa jendela kecil ini harus ada (C1, ronde 5):
@@ -1148,25 +1335,40 @@ class ExamViewerWindow(QMainWindow):
         halaman selamat, tidak ada notifikasi: siswa menganggur di depan
         layar mati dan menyimpulkan aplikasinya sudah tertutup.
 
-        Satu jendela non-modal yang tetap terlihat mengembalikan
-        invarian "selalu ada satu top-level yang terlihat" tanpa menahan
-        siswa di jendela terkunci (alur lama) dan tanpa membiarkan
-        `lastWindowClosed` menutup proses (alur C1 yang rusak).
+        Satu jendela yang tetap terlihat mengembalikan invarian "selalu ada
+        satu top-level yang terlihat" tanpa menahan siswa di jendela
+        terkunci (alur lama) dan tanpa membiarkan `lastWindowClosed`
+        menutup proses (alur C1 yang rusak).
 
         Sifatnya:
+          * `_ProgressWindow`, bukan `QWidget` polos — jendela ini adalah
+            top-level TERAKHIR yang terlihat, jadi Alt+F4 / klik X / Esc
+            dari siswa akan menutup SELURUH aplikasi di tengah submit.
+            Lihat kelasnya untuk ketiga lapis penahannya (C1, ronde 7);
           * `parent=None` — kalau jadi anak viewer, `hide()`/tutup viewer
             akan ikut menyeretnya;
-          * `WindowStaysOnTopHint` — tombol/tabel di bawahnya tidak boleh
-            bisa difokuskan;
+          * `Qt.ApplicationModal` — tidak ada window lain yang boleh
+            menerima klik selama jawaban dikirim;
           * `WA_DeleteOnClose` — dibuang sendiri saat ditutup, dan
             `_progress_ref` dilepas supaya tidak menggantung;
           * bar tak tertutup (0..0) — tidak ada persentase yang bohong,
             yang terjadi di belakang memang "tunggu konfirmasi server".
+
+        CATATAN URUTAN: proteksi capture TIDAK dipasang di sini, tapi
+        SETELAH `apply_fullscreen()` di `_auto_submit_and_exit`.
+        Afinitas display disimpan per-HWND, jadi memasang proteksi sebelum
+        state akhir terbentuk berarti proteksi hilang tanpa jejak — urutan
+        yang sama dengan peringatan di `_enforce_fullscreen`.
         """
-        win = QWidget(None)
+        win = _ProgressWindow(None)
         win.setWindowTitle("EXAMVAN")
-        win.setWindowFlags(win.windowFlags() | Qt.WindowStaysOnTopHint)
+        win.setWindowFlags(
+            win.windowFlags()
+            | Qt.WindowStaysOnTopHint
+            | Qt.FramelessWindowHint
+        )
         win.setAttribute(Qt.WA_DeleteOnClose)
+        win.setWindowModality(Qt.ApplicationModal)
 
         layout = QVBoxLayout(win)
         layout.setContentsMargins(48, 48, 48, 48)
@@ -1189,21 +1391,25 @@ class ExamViewerWindow(QMainWindow):
         bar.setRange(0, 0)          # indeterminate
         bar.setTextVisible(False)
         layout.addWidget(bar)
-
-        # Halaman "selamat" menaruh identitas + token di layar (dan memakai
-        # proteksi capture yang sama lewat `_show_congratulations`), tapi ia
-        # baru muncul SETELAH hasil tiba. Selama menunggu, layar yang tampil
-        # adalah jendela ini — jadi M1: jendela pengumpulan wajib dilindungi
-        # juga, mesin tidak boleh terbuka tanpa pengawasan selama proses ini.
-        try:
-            from ..security import get_backend
-
-            get_backend().set_capture_protection(win)
-        except Exception:
-            log.warning(
-                "could not protect auto-submit progress window", exc_info=True
-            )
         return win
+
+    def _protect_progress_window(self) -> None:
+        """Pasang proteksi capture layar pengumpulan (best-effort).
+
+        Halaman "selamat" menaruh identitas + token di layar, dan selama
+        menunggu hasil itulah satu-satunya layar yang tampil — jadi proteksi
+        capture yang sama wajib dipakai di sini juga (lihat
+        `security.enforcer.protect_window_capture`: helper modul-level yang
+        justru dibuat untuk halaman yang hidup tanpa enforcer aktif).
+
+        Dipanggil SESUDAH `apply_fullscreen()`: `SetWindowDisplayAffinity`
+        disimpan per-HWND, jadi pasang sebelum state akhir terbentuk
+        berarti proteksi hilang tanpa satu baris log pun.
+        """
+        if not protect_window_capture(getattr(self, "_progress_ref", None)):
+            log.warning(
+                "proteksi capture layar pengumpulan gagal", exc_info=True,
+            )
 
     def _close_progress_window(self) -> None:
         """Tutup + lepas layar pengumpulan (WA_DeleteOnClose ikut menghapus).
@@ -1213,15 +1419,36 @@ class ExamViewerWindow(QMainWindow):
         top-level yang sedang terlihat menembakkan `lastWindowClosed`, dan
         kalau tidak ada window lain yang terlihat, Qt menutup aplikasi —
         persis bug C1 yang sedang diperbaiki, hanya sekarang di ujung alur.
+
+        Jalur INTERNAL: `_ProgressWindow.closeEvent` menolak selama submit
+        berjalan (C1), dan yang menutupnya di sini adalah alur yang sudah
+        selesai — jadi flag yang mengatur penolakan harus dibuka lebih dulu.
+        Kalau tidak, layar pengumpulan menutupi layar berikutnya selamanya
+        (zombie yang justru tidak bisa ditutup siswa).
+
+        Referensi dilepas SESUDAH `close()`: kalau `close()` melempar,
+        drop-dulu membuat jendela tetap terlihat tanpa siapa pun yang
+        masih memegangnya — layar mati yang tidak bisa ditutup.
         """
         win = getattr(self, "_progress_ref", None)
         if win is None:
             return
-        self._progress_ref = None
+        try:
+            win.allow_close = True
+        except Exception:
+            log.warning("could not allow progress window close", exc_info=True)
         try:
             win.close()
         except Exception:
             log.warning("could not close progress window", exc_info=True)
+            # Jendela sudah tidak bisa ditutup normal (backend window sudah
+            # hancur, exception dari closeEvent, dst). Setidaknya jangan
+            # tinggalkan layar pengumpulan menutupi semua yang lain.
+            try:
+                win.hide()
+            except Exception:
+                log.warning("could not hide progress window", exc_info=True)
+        self._progress_ref = None
 
     def _auto_submit_and_exit(self) -> None:
         """Mirror Android autoSubmitAndExit: layar pengumpulan, submit di background.
@@ -1265,6 +1492,11 @@ class ExamViewerWindow(QMainWindow):
             build_student_key(self._identity_data, self._token),
         )
         config.save_answers(self._exam.id, answers)
+        # C2: simpan payload yang SEDANG dikirim. `_cleanup_after_submit`
+        # membandingkannya dengan isi disk sebelum menghapus apa pun dan
+        # sebelum menampilkan halaman selamat — hanya viewer yang tahu
+        # payload ini, disk tidak.
+        self._submitted_payload = answers
         # Sidecar pemilik: jawaban di disk milik percobaan ini, supaya
         # recovery re-entry tidak mengirimnya atas nama siswa lain.
         self._write_answers_owner("_auto_submit")
@@ -1297,11 +1529,23 @@ class ExamViewerWindow(QMainWindow):
         # tidak ada satu pun top-level yang terlihat → `lastWindowClosed` →
         # `app.quit()` → thread submit di bawah mati sebelum jalan.
         self._auto_submit_pending = True
+        # Jendela ujian disembunyikan di bawah → berhenti menaiakkannya
+        # (dan mengunci pointer ke kotak yang tidak kelihatan) sampai hasil
+        # tiba. Lihat `SecurityEnforcer.set_waiting_for_submit_result`.
+        self._mark_waiting_for_submit(True)
+        # H6: watchdog — kalau hasil background tidak pernah datang
+        # (thread mati diam-diam, signal hilang), alur diselesaikan sendiri
+        # alih-alih meninggalkan layar pengumpulan menggantung selamanya.
+        self._start_autosubmit_watchdog()
         self._progress_ref = self._build_progress_window()
         # Helper fullscreen yang sama dengan jendela ujian dan halaman
         # selamat: `show()` → `showFullScreen()` → `setGeometry()`, supaya
         # layar pengumpulan benar-benar menutup taskbar.
         apply_fullscreen(self._progress_ref)
+        # Proteksi capture SESUDAH fullscreen (bukan di `_build_progress_window`):
+        # `SetWindowDisplayAffinity` disimpan per-HWND, jadi memasang sebelum
+        # state akhir terbentuk hilang tanpa jejak.
+        self._protect_progress_window()
         self.hide()
 
         # 4. Submit di background — thread MURNI: setelah viewer disembunyikan
@@ -1432,7 +1676,7 @@ class ExamViewerWindow(QMainWindow):
 
     @pyqtSlot(bool, str)
     def _on_auto_submit_done(self, ok: bool, msg: str) -> None:
-        """Slot GUI untuk hasil submit background (C1).
+        """Slot GUI untuk hasil submit background (C1/H6).
 
         `closed` yang menembak saat viewer disembunyikan auto-submit DITAHAN
         __main__ selama `_auto_submit_pending`; flag dilepas di sini dan
@@ -1445,8 +1689,35 @@ class ExamViewerWindow(QMainWindow):
         BELAKANGAN. `close()` pada top-level yang sedang terlihat menembak
         `lastWindowClosed`, dan kalau tidak ada window lain yang terlihat
         (Qt) menutup aplikasinya — bug C1 yang sama, dipindah ke ujung alur.
+
+        H6: SELURUH badan dibungkus try/except + `finally`. Dulu
+        `_close_progress_window()` adalah statement terakhir tanpa
+        penjaga sama sekali, jadi satu exception dari langkah berikutnya
+        (halaman selamat gagal dibangun, `all_done` → dialog gagal tampil)
+        meninggalkan "Mengumpulkan jawaban…" di layar SELAMANYA: PyQt5
+        melanjutkan setelah traceback, jadi itu zombie, bukan crash —
+        `_auto_submit_pending` sudah False, tidak ada dialog, tidak ada
+        tombol, satu-satunya jalan keluar Task Manager.
+
+        Kalau langkah berikutnya ITSELF yang gagal, `all_done` (yang
+        menampilkan dialog konfigurasi) tetap ditembakkan di handlers
+        `except`: pilihan "tidak ada satu pun window terlihat" lebih buruk
+        lagi, karena itu berarti aplikasi menutup dirinya sendiri tepat
+        setelah jawaban sudah terkirim.
         """
+        if self.__dict__.get("_auto_submit_finished"):
+            log.warning(
+                "hasil submit kedua diabaikan untuk exam %s — alur sudah "
+                "selesai", getattr(self._exam, "id", "?"),
+            )
+            return
+        self._auto_submit_finished = True
         self._auto_submit_pending = False
+        self._stop_autosubmit_watchdog()
+        # Layar pengumpulan sudah tidak jadi satu-satunya layar (dan
+        # jendela ujian tetap tersembunyi sampai halaman selesai tampil),
+        # jadi polling focus boleh kembali bekerja seperti biasa.
+        self._mark_waiting_for_submit(False)
         # M1: lockdown baru dilepas di sini. Selama menunggu hasil, hook
         # keyboard / WDA_MONITOR / ClipCursor tetap aktif dan layar
         # pengumpulan terlindungi dari capture.
@@ -1456,20 +1727,114 @@ class ExamViewerWindow(QMainWindow):
             except Exception:
                 log.warning("could not deactivate security (auto-submit)",
                             exc_info=True)
-        # `deactivate()` di strict ME-SHOW window ujian lagi (HWND harus
-        # dikembalikan ke siswa), dan viewer sudah diset `_submitted` —
-        # jadi sembunyikan lagi supaya naskah ujian tidak muncul di atas
-        # layar yang sedang dibaca.
-        self.hide()
-        if ok:
-            congrats = self._show_congratulations(msg)
-            congrats.page_closed.connect(lambda: self.all_done.emit())
-        else:
-            self.all_done.emit()
-        # Terakhir: halaman selesai sudah tampil, atau dialog konfigurasi
-        # sudah ditampilkan oleh `all_done` → menutup layar pengumpulan
-        # sekarang TIDAK bisa menutup aplikasi.
-        self._close_progress_window()
+        handed_off = False
+        try:
+            # `deactivate()` di strict ME-SHOW window ujian lagi (HWND harus
+            # dikembalikan ke siswa), dan viewer sudah diset `_submitted` —
+            # jadi sembunyikan lagi supaya naskah ujian tidak muncul di atas
+            # layar yang sedang dibaca.
+            self.hide()
+            # C2: sukses yang TERLAMBAT tidak boleh memunculkan halaman
+            # selamat di atas layar percobaan berikutnya — jawaban di disk
+            # sudah bukan milik payload yang dikirim. Yang dilakukan hanya
+            # menyelesaikan alur supaya tidak ada window yang tertinggal.
+            if ok and not self._disk_answers_replaced():
+                congrats = self._show_congratulations(msg)
+                congrats.page_closed.connect(lambda: self.all_done.emit())
+            else:
+                if ok:
+                    log.info(
+                        "halaman hasil dilewati: disk berisi jawaban "
+                        "percobaan lain untuk exam %s", self._exam.id,
+                    )
+                self.all_done.emit()
+            handed_off = True
+        except Exception:
+            log.exception(
+                "langkah setelah submit auto-submit gagal untuk exam %s — "
+                "dialihkan ke dialog konfigurasi", self._exam.id,
+            )
+            if not handed_off:
+                try:
+                    self.all_done.emit()
+                except Exception:
+                    # Tidak ada layar lain yang bisa ditampilkan: dialog
+                    # konfigurasi pun gagal. Yang bisa dilakukan cuma
+                    # memastikan tidak ada layar yang menggantung.
+                    log.exception(
+                        "all_done juga gagal — tidak ada layar lain untuk "
+                        "ditampilkan",
+                    )
+        finally:
+            # Halaman selesai sudah tampil, atau dialog konfigurasi sudah
+            # ditampilkan oleh `all_done` → menutup layar pengumpulan
+            # sekarang TIDAK bisa menutup aplikasi. Penolakan `closeEvent`
+            # dari siswa dibuka di dalam `_close_progress_window`.
+            self._close_progress_window()
+
+    def _mark_waiting_for_submit(self, waiting: bool) -> None:
+        """Beri tahu enforcer bahwa kita sedang/berhenti menunggu hasil.
+
+        Selama menunggu, jendela ujian disembunyikan dan layar pengumpulan
+        yang tampil — jadi `_poll_focus` tidak boleh lagi menaikkan HWND
+        yang tidak terlihat (lihat
+        `SecurityEnforcer.set_waiting_for_submit_result`).
+        """
+        if self._security is None:
+            return
+        mark = getattr(self._security, "set_waiting_for_submit_result", None)
+        if not callable(mark):
+            return
+        try:
+            mark(bool(waiting))
+        except Exception:
+            log.warning("tidak bisa menandai menunggu hasil submit",
+                        exc_info=True)
+
+    def _start_autosubmit_watchdog(self) -> None:
+        """Pasang batas keras menunggu hasil submit background (H6).
+
+        Kalau `_on_auto_submit_done` tidak pernah datang (thread mati
+        diam-diam, signal hilang, proses disuspensi), layar pengumpulan
+        akan menggantung selamanya. Batasnya `_AUTOSUBMIT_WATCHDOG_MS`
+        (110 detik) — di atas anggaran retry + polling + notifikasi.
+        """
+        self._stop_autosubmit_watchdog()
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(self._on_autosubmit_watchdog)
+        timer.start(_AUTOSUBMIT_WATCHDOG_MS)
+        self._autosubmit_watchdog = timer
+
+    def _stop_autosubmit_watchdog(self) -> None:
+        timer = self.__dict__.get("_autosubmit_watchdog")
+        if timer is None:
+            return
+        self._autosubmit_watchdog = None
+        try:
+            timer.stop()
+        except Exception:
+            log.warning("could not stop auto-submit watchdog", exc_info=True)
+
+    def _on_autosubmit_watchdog(self) -> None:
+        """Batas keras habis: selesaikan alur seolah submit-nya gagal.
+
+        Perlakuannya sama dengan hasil "gagal": jawaban sudah tersimpan di
+        disk, jadi recovery re-entry tetap bisa mengirimnya lewat "Kirim
+        Lagi" — sedangkan layar yang menggantung tidak menyimpan apa pun.
+        """
+        if not self._auto_submit_pending:
+            return
+        log.warning(
+            "hasil submit background tidak pernah datang dalam %d ms — "
+            "alur diselesaikan paksa (jawaban tetap ada di disk untuk "
+            "'Kirim Lagi')", _AUTOSUBMIT_WATCHDOG_MS,
+        )
+        self._on_auto_submit_done(
+            False,
+            "Konfirmasi server tidak diterima dalam batas waktu. Jawaban "
+            "tetap tersimpan di perangkat ini.",
+        )
 
     def _do_submit(self) -> None:
         """Thread-safe submit gate. Only one submit runs at a time."""
@@ -1501,6 +1866,10 @@ class ExamViewerWindow(QMainWindow):
         # payload basi itu. Jalur auto-submit sudah melakukan flush yang
         # sama (AutoSubmitF1FlushTest).
         config.save_answers(self._exam.id, answers)
+        # C2: sama seperti jalur auto-submit — payload yang dikirim dicatat
+        # supaya `_cleanup_after_submit` bisa memastikan isinya masih milik
+        # percobaan ini sebelum menghapus dan sebelum menampilkan halaman.
+        self._submitted_payload = answers
         # Sidecar pemilik: jawaban di disk milik percobaan ini, supaya
         # recovery re-entry tidak mengirimnya atas nama siswa lain.
         self._write_answers_owner("_do_submit")
@@ -1807,6 +2176,13 @@ class ExamViewerWindow(QMainWindow):
             # keluar (jawaban terkirim pada batas waktu yang bukan lagi
             # batas waktu sebenarnya).
             self._timer_widget.stop()
+            # Flush jawaban TERAKHIR sebelum autosave dimatikan.
+            # Autosave punya debounce 500 ms dan flush 2 detik, jadi
+            # ketikan di dalam jendela itu akan hilang tanpa pernah
+            # menyentuh disk — di low tier tidak ada jalur submit yang
+            # bisa menyelamatkannya, dan di PC lab jawaban itu hilang
+            # permanen begitu proses ditutup.
+            self._flush_answers()
             self._stop_autosave()
             if self._security:
                 self._security.deactivate()
@@ -1948,6 +2324,11 @@ class ExamViewerWindow(QMainWindow):
             # menulis ke disk SETELAH lockdown dilepas, dan bisa menimpa
             # jawaban percobaan berikutnya di PC lab yang sama.
             self._timer_widget.stop()
+            # Sama seperti jalur keluar low-tier: flush jawaban terakhir
+            # DULU sebelum autosave dimatikan. Supervisor menekan
+            # Ctrl+Shift+Alt+Q, mengetik password, dan keluar — jawaban
+            # yang diketik 300 ms sebelum itu tidak akan pernah tersimpan.
+            self._flush_answers()
             self._stop_autosave()
             if self._security:
                 self._security.deactivate()
