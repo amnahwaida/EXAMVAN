@@ -46,6 +46,50 @@ func TestStudentKeyFromIdentityDataMatchesClientMapping(t *testing.T) {
 			"nama_lengkap": "Andi Pratama"}, "andi pratama"},
 		{"no_peserta", map[string]interface{}{
 			"no_peserta": "N02"}, "n02"},
+		// Gate `no`: `no` hanya berarti "nomor" kalau berdiri sendiri atau
+		// diikuti kata yang benar-benar menyebut identitas. Tanpa gate ini
+		// nomor telepon siswa menjadi nomor ujiannya di server, padahal
+		// client (examvan/utils.py `_NO_FOLLOWERS`) sudah menolaknya sejak
+		// ronde 7 — dua sisi tidak sepakat soal kunci yang sama.
+		{"no_hp bukan nomor ujian", map[string]interface{}{
+			"nama": "Andi", "no_hp": "0812", "kelas": "9A"}, "andi"},
+		{"no_telp bukan nomor ujian", map[string]interface{}{
+			"nama": "Andi", "no_telp": "0812"}, "andi"},
+		{"no_wa bukan nomor ujian", map[string]interface{}{
+			"nama": "Andi", "no_wa": "0812"}, "andi"},
+		{"no_hp_siswa bukan nomor ujian", map[string]interface{}{
+			"nama": "Andi", "no_hp_siswa": "0812"}, "andi"},
+		{"hp_no bukan nomor ujian", map[string]interface{}{
+			"nama": "Andi", "hp_no": "0812"}, "andi"},
+		{"telp_no bukan nomor ujian", map[string]interface{}{
+			"nama": "Andi", "telp_no": "0812"}, "andi"},
+		// Tapi `no` yang sah tetap memetakan exam_number.
+		{"no sendirian", map[string]interface{}{
+			"nama": "Andi", "no": "7"}, "7"},
+		{"no_absen", map[string]interface{}{
+			"nama": "Andi", "no_absen": "12"}, "12"},
+		{"no_ujian", map[string]interface{}{
+			"nama": "Andi", "no_ujian": "N01"}, "n01"},
+		{"no_nomor", map[string]interface{}{
+			"nama": "Andi", "no_nomor": "N3"}, "n3"},
+		// Kata yang menyebut slot mengalahkan singkatan `no` di posisi dan
+		// tier yang sama — urutan lexicografis justru mengarah ke
+		// sebaliknya (`no_ujian` < `nomor_ujian`).
+		{"nomor_ujian menang atas no_ujian", map[string]interface{}{
+			"no_ujian": "N01", "nomor_ujian": "N02", "nama": "Andi"}, "n02"},
+		{"nomor_peserta menang atas no_peserta", map[string]interface{}{
+			"no_peserta": "N01", "nomor_peserta": "N02", "nama": "Andi"}, "n02"},
+		{"nomor_kursi tetap nomor ujian", map[string]interface{}{
+			"nama": "Andi", "nomor_kursi": "K3"}, "k3"},
+		// Satu kunci yang menyebut DUA slot mengisi keduanya (H11).
+		{"nama_kelas mengisi kelas juga", map[string]interface{}{
+			"nama_kelas": "9A"}, "9a"},
+		{"rombel_nama mengisi kelas juga", map[string]interface{}{
+			"rombel_nama": "9A"}, "9a"},
+		{"nama_kelas + kelas khusus", map[string]interface{}{
+			"nama": "Andi", "nama_kelas": "9A", "kelas": "9B"}, "andi"},
+		{"nama_ujian adalah nama", map[string]interface{}{
+			"nama_ujian": "01"}, "01"},
 		{"rombel", map[string]interface{}{
 			"rombel": "9B"}, "9b"},
 		{"tanggal_lahir bukan nomor", map[string]interface{}{

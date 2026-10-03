@@ -62,6 +62,60 @@ _VERSION_REJECT_MESSAGE = (
 # meleset dari jam server.
 _server_skew_ms: int = 0
 
+# ---------------------------------------------------------------------------
+# Plafon ukuran respons
+# ---------------------------------------------------------------------------
+#
+# Dua angka, dua alasan, dan HANYA SATU mekanisme untuk masing-masing:
+# header `Content-Length` diperiksa dulu (respons yang berbohong soal
+# ukuran langsung ditolak tanpa menyentuh disk), lalu jumlah byte yang
+# benar-benar tertulis diperiksa saat streaming. Bagian kedua tidak bisa
+# dilewati header karena `Content-Length` boleh tidak ada sama sekali
+# (chunked) — dan hanya bagian kedua yang mengikat di `%TEMP%`.
+#
+# JSON 32 MB: jawaban + identitas + metadata ujian adalah teks; 32 MB sudah
+# jauh di luar apa pun yang sah, dan lebih besar dari yang pernah dipakai
+# (jawaban 100 soal tertulis beberapa ratus KB).
+#
+# PDF 128 MB: 4x plafon JSON, karena naskah ujian bisa berupa hasil pindai
+# (gambar embedded, 300 DPI) yang tidak sebanding dengan JSON. Angka ini
+# batas atas yang JAUH di atas naskah ujian wajar, jadi tidak memutus
+# ujian sah, tapi tetap berbatas: tanpa plafon, origin yang salah
+# konfigurasi (atau sengaja) mengisi disk PC lab sampai jawaban yang
+# sudah tersimpan ikut gagal ditulis.
+_MAX_JSON_BYTES = 32 * 1024 * 1024
+_MAX_PDF_BYTES = 128 * 1024 * 1024
+# Plafon JUMLAH soal, terpisah dari plafon ukuran body. Body 32MB masih
+# bisa memuat ratusan ribu entri `{"number":"1","options":[]}` yang kecil,
+# dan `AnswerSheetWidget.build_from_questions` membuat SATU widget per soal
+# di GUI THREAD. Tanpa plafon ini, satu respons dari server (atau dari
+# siapa pun yang menjawab `/api/exams/token/<t>` di host yang dipakai lab)
+# membekukan jendela ujian seluruhnya sebelum siswa sempat membaca soal
+# pertamanya. 500 comfortably di atas ujian apa pun yang masuk akal, jadi
+# ini hanya menangkap config yang rusak/hostil, bukan ujian sungguhan.
+_MAX_QUESTIONS = 500
+
+
+def _PDF_TOO_LARGE_MESSAGE(limit_bytes: int) -> str:
+    """Pesan yang bisa dibaca siswa untuk plafon PDF yang terlampaui.
+
+    Satu fungsi untuk kedua titik penolakan (dinyatakan lewat
+    `Content-Length` dan saat streaming) supaya tidak ada dua versi pesan
+    yang berbeda, dan supaya batasnya ikut disebut: angka yang disebut
+    lebih mudah dipercaya siswa/pengawas daripada "gagal".
+
+    PDF yang terlalu besar hampir selalu BUKAN naskah ujian — halaman blok
+    proxy, berkas yang salah, atau storage origin yang rusak. Dua hal itu
+    harus disebut: jawabannya TIDAK hilang (siswa tidak perlu panik dan
+    mengulang), dan ada yang perlu dihubungi (pengawas).
+    """
+    mib = max(1, int(limit_bytes) // (1024 * 1024))
+    return (
+        f"Berkas PDF terlalu besar untuk naskah ujian (melebihi {mib} MB). "
+        "Berkas itu kemungkinan bukan naskah ujian. Jawaban yang sudah "
+        "tersimpan di komputer ini tetap aman. Hubungi pengawas."
+    )
+
 
 def get_server_skew_ms() -> int:
     """Return the current server time skew in milliseconds."""
@@ -109,15 +163,15 @@ def _make_request(
     # pun yang dijawab server (origin storage, halaman login proxy, dsb.),
     # dan tercatat di access log sana. Satu opener, semua jalur.
     with _pdf_opener().open(req, timeout=timeout) as resp:
-        # Batas 32MB untuk body non-PDF: proxy rusak / file raksasa tidak
-        # boleh memenuhi RAM lab. Jalur PDF chunked (download_pdf) TIDAK
-        # tersentuh batas ini.
+        # Batas 32MB untuk body non-PDF (`_MAX_JSON_BYTES`): proxy rusak /
+        # file raksasa tidak boleh memenuhi RAM lab. Jalur PDF chunked
+        # (download_pdf) punya plafonnya sendiri, `_MAX_PDF_BYTES`.
         try:
             _resp_headers = getattr(resp, "headers", None) or {}
             declared = int(_resp_headers.get("Content-Length", -1))
         except (TypeError, ValueError):
             declared = -1
-        if declared > 32 * 1024 * 1024:
+        if declared > _MAX_JSON_BYTES:
             raw = ""
             return {
                 "success": False,
@@ -129,8 +183,11 @@ def _make_request(
                 ),
                 "raw": "",
             }
-        blob = resp.read(32 * 1024 * 1024 + 1)
-        if len(blob) > 32 * 1024 * 1024:
+        # `read(cap + 1)`: kalau panjang yang diklaim tidak ada atau
+        # berbohong, byte yang benar-benar masuk ke RAM tetap terpotong.
+        # yang benar-benar masuk ke RAM tetap terpotong di sini.
+        blob = resp.read(_MAX_JSON_BYTES + 1)
+        if len(blob) > _MAX_JSON_BYTES:
             return {
                 "success": False,
                 "error_code": "non_json_response",
@@ -229,6 +286,28 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
             _url_join(base_url, f"/api/exams/token/{urllib.parse.quote(token or '', safe='')}"),
             timeout=15,
         )
+        # Plafon jumlah soal: diperiksa SEBELUM parsing supaya list raksasa
+        # tidak pernah masuk ke memori student. Pesannya jujur dan menyebut
+        # ke pengawas, bukan traceback.
+        if isinstance(data, dict):
+            raw_questions = data.get("questions")
+            if (
+                isinstance(raw_questions, list)
+                and len(raw_questions) > _MAX_QUESTIONS
+            ):
+                log.error(
+                    "exam advertises %d questions (limit %d) — refusing",
+                    len(raw_questions), _MAX_QUESTIONS,
+                )
+                return TokenExamResponse(
+                    success=False,
+                    error="too_many_questions",
+                    message=(
+                        f"Konfigurasi ujian tidak bisa dibuka: ada "
+                        f"{len(raw_questions)} soal, batas aplikasi "
+                        f"{_MAX_QUESTIONS}. Hubungi pengawas."
+                    ),
+                )
         return TokenExamResponse.from_json(data)
     except urllib.error.HTTPError as e:
         if e.code == 426:
@@ -308,6 +387,13 @@ def _pdf_opener():
     return _PDF_OPENER
 
 
+# Penanda nama berkas sementara unduhan PDF. Bagian dari format yang
+# DIBACA balik oleh sapu di `__main__` (lihat `_pdf_temp_owner_pid`), jadi
+# hanya boleh
+# diubah bersama `_pdf_tmp_path` di bawah.
+_PDF_TMP_MARKER = ".tmp."
+
+
 def _pdf_tmp_path(dest_path: str) -> str:
     """Nama file sementara unduhan PDF, unik per proses DAN per panggilan.
 
@@ -321,7 +407,40 @@ def _pdf_tmp_path(dest_path: str) -> str:
 
     Mirrors `config._tmp_sibling`, which does the same for answers.
     """
-    return f"{dest_path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    return f"{dest_path}{_PDF_TMP_MARKER}{os.getpid()}.{threading.get_ident()}"
+
+
+def _pdf_temp_owner_pid(file_name: str) -> Tuple[Optional[int], Optional[int]]:
+    """(pid, thread_id) pemilik berkas temp, dibaca dari NAMA FILENYA saja.
+
+    `(None, None)` kalau `file_name` bukan nama temp — entah `x.pdf` yang
+    sudah selesai, atau `x.pdf.tmp.abc.def` yang tidak mungkin dihasilkan
+    proses mana pun (nama asli selalu digits dari `os.getpid()` /
+    `threading.get_ident()`).
+
+    Dipasangkan dengan `_pdf_tmp_path` di modul yang sama supaya PRODUCER
+    dan SAPU tidak bisa punya dua format berbeda: Commit `181e8eb`
+    mengganti nama temp jadi per-proses tapi pola sapu di `__main__`
+    (`examvan_exam_*.pdf`) tidak pernah ikut diperbarui, sehingga SETIAP
+    unduhan yang killed di tengah menyisakan salinan naskah ujian di
+    `%TEMP%` selamanya. Pembacaan format ada di satu tempat supaya
+    sapuan Marathon tidak bisa menyimpang lagi.
+    """
+    name = str(file_name or "")
+    if _PDF_TMP_MARKER not in name:
+        return None, None
+    tail = name.rsplit(_PDF_TMP_MARKER, 1)[1]
+    parts = tail.split(".")
+    if len(parts) != 2:
+        return None, None
+    try:
+        pid = int(parts[0])
+        tid = int(parts[1])
+    except ValueError:
+        return None, None
+    if pid <= 0 or tid <= 0:
+        return None, None
+    return pid, tid
 
 
 def download_pdf(
@@ -376,6 +495,12 @@ def download_pdf(
                 total = int(resp.headers.get("Content-Length", -1))
             except (TypeError, ValueError):
                 total = -1
+# Penolakan dini: server sudah menyatakan ukurannya, jadi tidak
+            # ada alasan menyentuh disk sama sekali. BUKAN ini yang
+            # menjamin keamanan — `Content-Length` boleh bohong — tapi
+            # menghemat satu unduhan yang jelas-jelas salah.
+            if total > _MAX_PDF_BYTES:
+                raise ValueError(_PDF_TOO_LARGE_MESSAGE(_MAX_PDF_BYTES))
             read_bytes = 0
             chunk_size = 65536
             with open(tmp_path, "wb") as f:
@@ -385,6 +510,15 @@ def download_pdf(
                         break
                     f.write(chunk)
                     read_bytes += len(chunk)
+                    # Plafon streaming. Inilah yang tidak bisa dilewati
+                    # header: respons chunked tidak punya `Content-Length`
+                    # sama sekali, dan yang menyebut angka kecil pun bisa lolos
+                    # di bawah plafon. Tanpa baris ini, origin
+                    # yang rusak atau sengaja berubah isi mengisi disk PC
+                    # lab sampai jawaban yang sudah tersimpan ikut gagal
+                    # ditulis.
+                    if read_bytes > _MAX_PDF_BYTES:
+                        raise ValueError(_PDF_TOO_LARGE_MESSAGE(_MAX_PDF_BYTES))
                     if progress_cb:
                         progress_cb(read_bytes, total)
 

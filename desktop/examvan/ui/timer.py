@@ -1,6 +1,23 @@
 """Timer widget — countdown or elapsed depending on exam config.
 
-Uses monotonic clock to prevent system time manipulation.
+Perlindungan terhadap jam sistem ada DUA LAPIS, dan keduanya harus jujur
+dinyatakan:
+
+1. `end_time` datang dari server dan tidak bisa diubah siswa, dan deadline
+   dipinjam jadi titik monotonic SEKALI saat widget dibangun (`_end_mono`).
+   Selama proses berjalan, label countdown dihitung dari
+   `time.monotonic()` — jam dinding tidak bisa menggesernya.
+2. `refresh_deadline()` (dipanggil tiap kali window regain focus) menghitung
+   ULANG deadline dari jam dinding, karena `monotonic()` tidak ikut jalan
+   saat laptop suspend dan countdown akan membeku. Hasilnya di-clamp dengan
+   `min()`, jadi hitung ulang hanya boleh MEMPERCEPAT, tidak pernah
+   memperpanjang.
+
+Jam dinding TIDAK pernah "dipulihkan" atau dibetonkan: ia tetap sumber
+kebenaran untuk hitung ulang, dan koreksi `skew` itulah yang membuatnya setara
+dengan waktu server. Yang dinetralkan adalah manipulasi jam lewat koreksi
+`skew` (lihat `compute_remaining_seconds`), bukan lewat jam monotonic sebagai
+sumber deadline.
 """
 
 from __future__ import annotations
@@ -24,9 +41,30 @@ def compute_remaining_seconds(
 ) -> Optional[float]:
     """Sisa waktu (detik) sampai deadline, atau None bila end_time rusak.
 
-    Murni & bisa diuji. `now_utc` adalah waktu perangkat; `skew_ms` = jam
-    server - jam perangkat (mirror Android ExamDeadline). Negative berarti
-    deadline sudah lewat.
+    Murni & bisa diuji. `now_utc` adalah waktu PERANGKAT; `skew_ms` =
+    server - perangkat (`api.compute_server_skew_ms`, yang menghitung
+    `server - device_now`).
+
+    Aritmetikanya: sisa benar = `end - (perangkat + skew)` = `end - server_now`.
+    Jadi skew DIKURANGKAN, persis seperti referensi Android
+    (`ExamDeadline.kt:28`: `endInstantMs - (nowMs + skewMs)`). Hasilnya tidak
+    bergantung jam perangkat sama sekali — itulah seluruh tujuan koreksinya,
+    dan itulah yang membuat memundurkan jam OS tidak menambah waktu ujian.
+
+    Bug yang diperbaiki (C1): tanda sebelumnya `+ skew`, sehingga
+    `(end - perangkat) + skew` = `sisa_benar + 2*skew`. Siswa yang mundurkan
+    jam 1 jam mendapat 2 jam tambahan, dan PC yang jamnya 1 jam cepat langsung
+    auto-submit. Bukti eksekusi (fungsi lama):
+
+        offset perangkat    skew_ms    kembali    BENAR    delta
+        sinkron                   0       3600     3600       0
+        5 menit mundur     300000       4200     3600     +600
+        1 jam mundur      3600000      10800     3600    +7200
+        1 jam maju       -3600000      -3600     3600    -7200
+
+    Tanda sisa waktu TIDAK ditentukan oleh tanda skew. Skew negatif berarti
+    server DI BEHIND perangkat, dan itu menambah sisa waktu; yang menentukan
+    tanda sisa hanyalah perbandingan `end` dengan waktu server.
     """
     if not end_time:
         return None
@@ -38,7 +76,7 @@ def compute_remaining_seconds(
             # deadline. Asumsikan UTC supaya deadline tetap berlaku.
             _log.error("end_time tanpa timezone, diasumsikan UTC: %r", end_time)
             end_wall = end_wall.replace(tzinfo=timezone.utc)
-        return (end_wall - now_utc).total_seconds() + (skew_ms / 1000.0)
+        return (end_wall - now_utc).total_seconds() - (skew_ms / 1000.0)
     except Exception:
         return None
 
@@ -73,7 +111,14 @@ class ElapsedTimerWidget(QWidget):
         QTimer.singleShot(0, self._update)
 
     def _compute_deadline(self) -> None:
-        """Convert wall-clock deadline to monotonic time (dengan koreksi skew)."""
+        """Wall-clock deadline server -> titik monotonic lokal.
+
+        `remaining` di sini sudah DIBERSIHKAN dari jam perangkat: dengan
+        koreksi skew yang benar, sisanya adalah `end - server_now`, jadi
+        builder widget ini tidak lagi bisa dipakai memperpanjang atau
+        memendekkan ujian dengan mengubah jam OS. Satu-satunya jam yang
+        dipakai sesudah titik ini di-pinjam adalah `monotonic`.
+        """
         remaining = compute_remaining_seconds(
             self._end_time, datetime.now(timezone.utc), api.get_server_skew_ms()
         )
@@ -90,21 +135,30 @@ class ElapsedTimerWidget(QWidget):
 
         Mirror Android onResume (ExamDeadline.remainingMs dihitung ulang):
         `time.monotonic()` tidak termasuk waktu suspend, jadi setelah laptop
-        tertidur countdown akan membeku. Wall clock yang benar dipakai untuk
-       issorsafe: laptop tidur 30 menit -> jam sudah maju -> sisa mengecil ->
-        deadline diperpendek. Itu memang tujuannya, dan tetap berlaku.
+        tertidur countdown akan membeku. Jam dinding dipakai lagi untuk itu.
 
-        Yang TIDAK boleh berlaku: siswa mundurkan jam perangkat untuk
-        memperpanjang ujian. `end_time` datang dari server dan tidak bisa
-        diubah siswa, jadi hasil hitung ulang di-CLAMP agar tidak pernah
-        melewati deadline absolut itu. Arahnya fail-secure:
+        Dua hal yang harus dibedakan, karena keduanya sering dicampur:
 
-          * jam dimajukan  -> sisa mengecil, deadline BERKEPING (aman)
-          * jam dimundurkan -> sisa membesar, deadline TETAP (dibaikan)
+          * memanipulasi jam TIDAK menambah waktu. `remaining` sudah
+            dinetralkan terhadap jam perangkat oleh koreksi skew
+            (`compute_remaining_seconds`), jadi menggeser jam hanya
+            menggeser sisa sebesar yang tidak dikoreksi — yaitu nol.
+          * kekosongan monotonic saat suspend BUKAN manipulasi dan tidak
+            boleh diperbaiki dengan memperpanjang deadline. Itu sebabnya
+            clampnya tetap `min()`.
 
-        Batasnya `min()`, karena monotonic sudah berdiri sebagai jam yang
-        tidak bisa dimanipulasi: memperpanjang dari sana berarti menghitung
-        mundur dari titik yang sama, yang persis hal yang tidak diizinkan.
+        Arahnya fail-secure:
+
+          * waktu server berjalan / jam dimajukan -> sisa mengecil,
+            deadline BERKEPING (aman)
+          * jam dimundurkan tanpa koreksi baru -> sisa membesar, deadline
+            TETAP (dibaikan)
+
+        Sisa yang benar sudah sama untuk semua offset jam perangkat, jadi
+        clamp `min()` kini hampir tidak pernah bekerja pada jalur happy —
+        ia tetap ada sebagai jaring pengaman untuk kasus saat koreksi skew
+        belum tersedia (`skew_ms == 0`) atau basi karena health check
+        gagal diperbarui.
         Bug yang diperbaiki: review_windows_2026-09-30.md Bagian 2 —
         countdown pernah melompat dari 01:00:00 ke 02:00:00 begitu siswa
         mengklik window, sementara server sudah menolak dengan 403.

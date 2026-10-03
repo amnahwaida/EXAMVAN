@@ -169,11 +169,16 @@ class BackgroundSubmitOwnerGuardTestCase(_Sandbox):
         fake_api = mock.Mock()
         fake_api.submit_with_retry.return_value = SubmitResponse(
             success=True, status="ok", message="ok")
+        # Yang dijaga test ini adalah "jalur background MELEWATI penjaga
+        # bersama sebelum menghapus jawaban". Penjaga bersama itu
+        # `clear_answers_if_unchanged`; implementasi atomiknya pindah ke
+        # `config` pada ronde 8 (H9) karena lock yang benar milik sana.
+        # Mematch `answers_match_disk` sudah tidak menggambarkan jalur itu.
         with mock.patch.object(ev_mod, "api", fake_api), \
              mock.patch.object(ev_mod, "notify"), \
              mock.patch.object(
-                 ev_mod, "answers_match_disk",
-                 wraps=ev_mod.answers_match_disk) as guard:
+                 ev_mod, "clear_answers_if_unchanged",
+                 wraps=ev_mod.clear_answers_if_unchanged) as guard:
             ev_mod.ExamViewerWindow._background_submit_thread(
                 None, "https://exam.example", EXAM_ID, "ABCD1234",
                 "SITI", "N02", "9B", dict(OLD_PAYLOAD),

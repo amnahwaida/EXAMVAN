@@ -44,22 +44,32 @@ class RecoveryClearAnswersUsesOwnerGuardTest(unittest.TestCase):
     """1 — recovery tidak boleh menghapus jawaban percobaan lain."""
 
     def test_recovery_clears_only_when_the_disk_still_holds_its_own_payload(self):
+        from examvan import config as server_config_exams_config
         from examvan.ui import server_config
 
         src = inspect.getsource(server_config.ServerConfigDialog._recovery_submit_thread)
-        self.assertIn(
-            "answers_match_disk",
-            src,
+        # Yang dijaga test ini adalah ADRANYA owner guard sebelum menghapus
+        # jawaban: worker ini berjalan ~84 detik, jadi sukses yang terlambat
+        # bisa menimpa percobaan yang lebih baru. Penjaganya adalah
+        # `config.clear_answers_if_unchanged` — lebih kuat dari sekadar
+        # `answers_match_disk` + `clear_answers`, karena read-decide-delete-nya
+        # atomik terhadap penulis jawaban (H9). Yang penting guard-nya ada;
+        # nama fungsi bukan subclass dari kebutuhan itu.
+        self.assertTrue(
+            "clear_answers_if_unchanged" in src or "answers_match_disk" in src,
             "jalur recovery menghapus answers tanpa owner guard: jawaban "
             "percobaan yang lebih baru bisa terhapus (sudah 84 detik worker "
             "ini berjalan)",
         )
-        # Dan import-nya harus ada, kalau tidak nama di atas tidak resolve.
-        self.assertIn(
-            "answers_match_disk",
-            inspect.getsource(server_config),
-            "answers_match_disk dihitung tapi tidak di-import",
-        )
+        # Dan penanggilnya harus benar-benar ter-import kalau itu yang dipakai.
+        if "clear_answers_if_unchanged" in src:
+            self.assertIs(
+                getattr(server_config, "config", None),
+                server_config_exams_config,
+                "clear_answers_if_unchanged dipanggil lewat `config`, tapi "
+                "nama `config` di modul ini bukan modul config yang "
+                "memiliki helper-nya",
+            )
 
 
 class StartupClearsStaleIdentityTest(unittest.TestCase):

@@ -43,12 +43,13 @@ di-alt-tab kalau siswa ingin menyalin link ke browser pilihannya.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import unicodedata
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QFont, QFontMetrics, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QFrame,
@@ -71,10 +72,56 @@ log = logging.getLogger(__name__)
 # Berapa lama link hasil boleh tinggal di clipboard setelah disalin.
 CLIPBOARD_CLEAR_SECONDS = 30
 
-# Panjang maksimal teks server yang dirender (pesan guru). Tanpa batas,
-# `congrats_message` raksasa dari server rusak/meledak membuat kartu
-# membesar tak terkendali di layar lab kecil.
+# Berapa kali clipboard dicoba baca/kosongkan lagi setelah satu kegagalan
+# sebelum saruan (countdown) dilepas. Clipboard yang MATI permanen —
+# display manager belum start, Wayland tidak mengizinkan aplikasi
+# membaca selection milik proses lain — tidak boleh membuat halaman ini
+# mencoba tanpa henti; setelah batas, pembersih terakhir yang tersisa
+# adalah `closeEvent`/`hideEvent`, yang memakai anggaran baru.
+_CLIPBOARD_READ_RETRIES = 5
+
+# Teks tombol saat clipboard tidak berhasil dibaca/dikosongkan. WAJIB
+# berbeda dari "Copy Link": kalau teksnya sama, siswa mengira token sudah
+# hilang padahal masih ada di clipboard PC lab.
+_CLIPBOARD_UNCLEARED_TEXT = "Copy Link (gagal dibersihkan)"
+
+# Batas PANJANG teks server (pesan guru, nama ujian). Tanpa batas,
+# teks dari server bisa memaksa Qt menghitung layout untuk karakter
+# yang tidak akan pernah dibaca siswa di layar lab. Batas panjang ini
+# sendiri tidak membatasi TINGGI apa pun -- tinggi dijepit oleh
+# `_SERVER_TEXT_MAX_LINES` di bawah.
 _SERVER_TEXT_LIMIT = 2000
+
+# Batas TINGGI yang dirender, dalam baris. Batas panjang di atas tidak
+# accomplish apa pun terhadap tinggi yang dirender: 9 baris pesan guru
+# saja sudah membuat tombol "Selesai" keluar dari layar 1024x600, dan 2000
+# karakter satu paragraf membungkus jadi puluhan baris. Yang diukur di
+# sini adalah tinggi setelah word-wrap pada lebar TERBURUK (kartu di lebar
+# minimumnya).
+_SERVER_TEXT_MAX_LINES = 6
+
+# Lebar minimum kartu. Dipakai sekali untuk minimum kartu DAN minimum
+# jendela: dua angka yang terpisah pasti akan berselisih lagi.
+#
+# 320, bukan 420: minimum jendela lama (360) sudah dikunci test
+# (`tests/test_congratulations.py::test_minimum_size_is_small`), dan
+# angka itu sendiri bisa dipertahankan hanya kalau kartu boleh lebih
+# sempit darinya. Yang penting keduanya hidup berdampingan: pada
+# minimum yang dideklarasikan, kartu muat di viewport dan TIDAK ada
+# scrollbar horizontal — dan di layar 1024x600 kartu tetap selebar
+# maksimumnya (560), jadi tampilan tidak berubah sama sekali.
+CARD_MIN_WIDTH = 320
+
+# Tinggi minimum jendela. SENGJA longgar: isi kartu dibungkus scroll
+# area justru untuk layar kecil, jadi memaksa tinggi penuh hanya
+# membuat jendela lebih besar dari layar. Yang dijaga hanya satu: tinggi
+# minimum yang DIUMUMKAN harus sama dengan yang dipasang
+# (`test_minimum_size_is_small` mengunci 280).
+_WINDOW_MIN_HEIGHT = 280
+
+# Margin kiri/kanan kartu (lihat `card_layout.setContentsMargins`).
+_CARD_H_MARGIN = 40
+
 
 # Override/isolate dua arah (bidi): bisa membalik urutan tampil atau
 # menyembunyikan bagian label (mis. menyamarkan teks di sebelah tombol).
@@ -107,6 +154,105 @@ def _sanitize_server_text(text: object, limit: int = _SERVER_TEXT_LIMIT) -> str:
             continue
         cleaned.append(ch)
     return "".join(cleaned)[:limit]
+
+
+def _clean_server_base(server_url: object) -> str:
+    """Bersihkan BASE server SEBELUM link hasil dibangun.
+
+    Sama seperti `_sanitize_server_text`, tapi tanpa batas panjang dan
+    tanpa mempertahankan whitespace: memotong base URL menghasilkan URL
+    yang tidak bisa dibuka, dan baris baru di dalam URL tidak pernah sah.
+
+    Yang menentukan di sini adalah KAPAN pembersihan terjadi. Dulu
+    sanitasi diterapkan ke teks gabungan `f"Link hasil: {url}"`, sedangkan
+    `_result_url` — yang justru disalin ke clipboard — tidak pernah
+    disentuh. Akibatnya apa pun yang dibuang sanitizer hilang dari LAYAR
+    saja: ZWSP di `server_url` berarti label menampilkan
+    `https://examvan.my.id/ABCD1234` sementara clipboard berisi
+    `https://exam\u200bvan.my.id/ABCD1234`, dan URL lebih dari 2000
+    karakter membuat token terpotong dari label. Membersihkan base lebih
+    dulu membuat clipboard dan layar tidak mungkin berbeda.
+    """
+    kept = [
+        ch for ch in str(server_url or "")
+        if ch not in _WHITESPACE_CONTROLS
+        and unicodedata.category(ch) not in ("Cc", "Cf", "Co", "Cs")
+        and ch not in _BIDI_CHARS
+    ]
+    return "".join(kept).strip()
+
+
+# Dua baris kosong (atau lebih) beruntun, boleh dikelilingi whitespace.
+_BLANK_LINE_RUN = re.compile(r"[ \t]*\r?\n[ \t]*(?:\r?\n[ \t]*)+")
+
+# Batas iterasi pemotongan: pemotongan selalu menghapus karakter, jadi
+# ini hanya jaring pengaman, bukan syarat yang diharapkan terjadi.
+_MAX_CLAMP_PASSES = 400
+
+
+def _clamp_server_message(
+    text: str,
+    max_lines: int = _SERVER_TEXT_MAX_LINES,
+    wrap_width: int = CARD_MIN_WIDTH - 2 * _CARD_H_MARGIN,
+) -> str:
+    """Ratakan baris kosong, lalu potong sampai tinggi yang dirender muat.
+
+    Dua sebab tinggi yang berbeda, jadi dua tahap:
+
+    * baris kosong beruntun (guru mengetik Enter berulang di
+      `<textarea maxlength="500">`, server hanya `TrimSpace`) menambah
+      tinggi tanpa menambah informasi;
+    * satu paragraf panjang membungkus jadi banyak baris, jadi batas
+      karakter saja tidak membatasi apa pun.
+
+    Penghitungan tinggi memakai lebar TERBURUK: kartu pada lebar
+    minimumnya, dikurangi margin kartu. Dengan begitu tombol "Selesai"
+    tetap terlihat di layar 1024x600 bahkan kalau kartu melebar atau
+    font sistem lebih besar dari asumsi.
+
+    Teks yang terpotong diberi tanda "…" supaya tidak terlihat utuh
+    padahal tidak — dan supaya guru/pengawas tahu pesannya perlu
+    diperpendek.
+    """
+    collapsed = _BLANK_LINE_RUN.sub("\n\n", text).strip()
+    lines = collapsed.split("\n")
+    if len(lines) > max_lines:
+        collapsed = "\n".join(lines[:max_lines]).rstrip()
+
+    passes = 0
+    while collapsed and passes < _MAX_CLAMP_PASSES:
+        passes += 1
+        if _rendered_line_count(collapsed, wrap_width) <= max_lines:
+            break
+        cut = max(1, int(len(collapsed) * 0.9))
+        head = collapsed[:cut]
+        space = head.rfind(" ")
+        if space > 0:
+            head = head[:space]
+        collapsed = head.rstrip()
+
+    if collapsed != text.strip():
+        collapsed = (collapsed.rstrip() + "…") if collapsed else "…"
+    return collapsed
+
+
+def _rendered_line_count(text: str, width: int, pixel_size: int = 15) -> int:
+    """Berapa baris yang benar-benar dirender QLabel untuk `text`.
+
+    Perkiraan konservatif: font default aplikasi pada ukuran yang sama
+    dengan `font-size` label pesan, dan lebar terburuk yang mungkin
+    dipakai. Exactness tidak diperlukan — yang dibutuhkan adalah angka
+    yang tidak pernah terlalu kecil, supaya penjepitan tidak melepaskan
+    teks yang ternyata tidak muat.
+    """
+    font = QFont()
+    font.setPixelSize(pixel_size)
+    fm = QFontMetrics(font)
+    height = fm.boundingRect(
+        0, 0, max(1, width), 100 * fm.height(), Qt.TextWordWrap, text,
+    ).height()
+    return max(1, -(-height // max(1, fm.lineSpacing())))
+
 
 _DEFAULT_CONGRATS = (
     "Jawabanmu sudah berhasil dikumpulkan. Terima kasih telah mengerjakan "
@@ -155,7 +301,7 @@ class CongratulationsWindow(QMainWindow):
         # ke pesan jujur, dan tidak ada satu pun QString di halaman yang
         # memuat token.
         self._result_url = (
-            build_result_link(server_url, exam_token)
+            build_result_link(_clean_server_base(server_url), exam_token)
             if self._public_results
             else ""
         )
@@ -167,12 +313,13 @@ class CongratulationsWindow(QMainWindow):
         self._copied_wall_at: Optional[float] = None
         self._cleared = False
         self._closed = False
+        # Berapa kali scrubbing clipboard gagal berturut-turut. Disimpan
+        # di widget, bukan di variabel lokal, karena keputusannya harus
+        # bertahan di antara `_tick` — dan harus di-reset setiap kali
+        # siswa menyalin ulang (percobaan baru).
+        self._clear_failures = 0
 
         self.setWindowTitle("EXAMVAN — Selesai")
-        # Minimum kecil (bukan 560x480): apply_fullscreen memaksa geometri
-        # sendiri, jadi minimum yang lebih kecil selalu aman dan tidak
-        # memotong kartu di layar lab kecil.
-        self.setMinimumSize(360, 280)
 
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -183,7 +330,7 @@ class CongratulationsWindow(QMainWindow):
         card = QWidget()
         card.setObjectName("congratsCard")
         card.setMaximumWidth(560)
-        card.setMinimumWidth(420)
+        card.setMinimumWidth(CARD_MIN_WIDTH)
         # Warna kartu mengikuti `styles.app_theme_dark()`, bukan
         # tema sistem: kartu gelap di dalam jendela terang (atau
         # sebaliknya) adalah regresi butir 1 di
@@ -200,7 +347,8 @@ class CongratulationsWindow(QMainWindow):
         # emoji: glyph tergantung font sistem -- di lingkungan tanpa font
         # emoji ia menjadi kotak kosong (tofu), dan momen paling penting
         # bagi siswa tidak boleh bergantung pada keberuntungan font.
-        # Fallback ke teks hanya kalau style tidak menyediakan pixmap.
+        # Tidak ada fallback apa pun kalau style tidak menyediakan
+        # pixmap; lihat catatan di bawah label.
         icon_label = QLabel()
         icon = self.style().standardIcon(QStyle.SP_DialogApplyButton)
         pm = icon.pixmap(48, 48)
@@ -215,11 +363,19 @@ class CongratulationsWindow(QMainWindow):
 
         title = QLabel("Jawaban Berhasil Dikumpulkan")
         title.setAlignment(Qt.AlignCenter)
+        title.setWordWrap(True)
+        # Minimum eksplisit 1 dengan alasan yang sama seperti label link
+        # di bawah: tanpa ini `minimumSizeHint` QLabel memakai lebar kata
+        # terpanjang, dan judulah yang menentukan minimum layout kartu
+        # (356 px pada font 22 px + margin 80) — jadi minimum jendela
+        # bergantung pada font sistem, bukan pada angka minimum kartu.
+        title.setMinimumWidth(1)
+
         title.setStyleSheet("font-size: 22px; font-weight: 700; color: #16a34a;")
         card_layout.addWidget(title)
 
-        self._exam_badge = QLabel(
-            _sanitize_server_text(exam_name.strip() or "Ujian"))
+        self._exam_badge = QLabel(_clamp_server_message(
+            _sanitize_server_text(exam_name.strip() or "Ujian")))
         self._exam_badge.setTextFormat(Qt.PlainText)
         self._exam_badge.setAlignment(Qt.AlignCenter)
         self._exam_badge.setWordWrap(True)
@@ -234,8 +390,16 @@ class CongratulationsWindow(QMainWindow):
         )
         card_layout.addWidget(self._exam_badge)
 
-        message = _sanitize_server_text(
-            (congrats_message or "").strip() or _DEFAULT_CONGRATS)
+        # `congrats_message` adalah `<textarea maxlength="500">` yang
+        # hanya di-`TrimSpace` server, jadi 15 baris kosong di tengah
+        # pesan adalah masukan yang sah — dan 9 baris saja sudah
+        # mendorong tombol "Selesai" keluar dari layar 1024x600. Batas
+        # 2000 karakter tidak membatasi tinggi apa pun; yang membatasi
+        # adalah `_clamp_server_message` (baris kosong diratakan, tinggi
+        # dijepit).
+        message = _clamp_server_message(
+            _sanitize_server_text(
+                (congrats_message or "").strip() or _DEFAULT_CONGRATS))
         self._congrats = QLabel(message)
         self._congrats.setTextFormat(Qt.PlainText)
         self._congrats.setWordWrap(True)
@@ -270,12 +434,21 @@ class CongratulationsWindow(QMainWindow):
             # badge di atas: abu-abu hardcode tidak cukup kontras di kartu
             # gelap, dan tema sudah memberi warna yang benar.
             key.setStyleSheet("font-size: 13px;")
-            val = QLabel(_sanitize_server_text(str(value).strip()))
+            # Diklem dengan tinggi yang sama seperti pesan guru: nilai
+            # ini juga label multi-baris, dan nama yang ditempel tanpa
+            # spasi tidak boleh membuat minimum layout kartu meledak
+            # (lihat catatan minimum pada label link di bawah).
+            val = QLabel(_clamp_server_message(
+                _sanitize_server_text(str(value).strip())))
             val.setTextFormat(Qt.PlainText)
             # Nilai panjang (nama ganda, kelas gabungan) membungkus, bukan
             # mendorong kartu melebar: word-wrap + melebar mengisi baris.
             val.setWordWrap(True)
             val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            # Minimum eksplisit 1 dengan alasan yang sama seperti label
+            # link: nama yang ditempel tanpa spasi tidak boleh membuat
+            # minimum layout kartu meledak.
+            val.setMinimumWidth(1)
             val.setStyleSheet("font-size: 13px; font-weight: 600;")
             row.addWidget(key)
             row.addStretch(1)
@@ -289,17 +462,27 @@ class CongratulationsWindow(QMainWindow):
         card_layout.addSpacing(6)
 
         link_row = QHBoxLayout()
-        # Teks link gabungan tetap disanitasi (bukan URL-nya yang diubah:
-        # _sanitize hanya membuang kontrol tak terlihat, dan link hasil
-        # selalu percent-encoded sehingga semantik URL tidak tersentuh).
+        # Label memakai `_result_url` APA ADANYA: yang tampil di layar dan
+        # yang masuk clipboard harus string yang sama, tanpa syarat.
+        # Sanitasi diterapkan ke BASE-nya sebelum link dibangun (lihat
+        # `_clean_server_base`), bukan ke teks gabungan ini — menerapkannya
+        # di sini dulu berarti apa pun yang dibuang hilang dari layar saja
+        # (ZWSP, atau pemotongan 2000 karakter yang menghapus token dari
+        # label), dan siswa menyalin URL yang tidak bisa dia buka).
         self._link_label = QLabel(
-            _sanitize_server_text(
-                f"Link hasil: {self._result_url}" if self._result_url
-                else "Link hasil tidak tersedia (token ujian kosong)."
-            )
+            f"Link hasil: {self._result_url}" if self._result_url
+            else "Link hasil tidak tersedia (token ujian kosong)."
         )
         self._link_label.setTextFormat(Qt.PlainText)
         self._link_label.setWordWrap(True)
+        # Minimum eksplisit 1 (bukan 0 — 0 berarti "tidak disetel",
+        # jadi layout memakai `minimumSizeHint` yang diukur dari kata
+        # terpanjang): untuk link hasil "kata" itu bisa berupa URL 2000
+        # karakter tanpa spasi, dan minimum layout kartu meledak ke 14000
+        # px sehingga scrollbar horizontal muncul di halaman yang tidak
+        # perlu bergulir. Word-wrap membuat QLabel mampu memecah kata
+        # panjang, jadi minimum kecil aman dan link tetap terbaca penuh.
+        self._link_label.setMinimumWidth(1)
         # TANPA TextSelectableByMouse: menyeleksi link dengan mouse
         # menyalin token ke clipboard TANPA hitung mundur pembersih —
         # membuka lagi kebocoran yang tombol Copy (satu-satunya jalur
@@ -372,6 +555,17 @@ class CongratulationsWindow(QMainWindow):
         scroll.setWidget(central)
         self.setCentralWidget(scroll)
 
+        # Minimum jendela dihitung SETELAH scroll area terpasang, dan
+        # lebarnya harus memuat kartu PLUS scrollbar vertikal: scrollbar
+        # memakan lebar viewport, jadi minimum 420 dengan viewport 405
+        # memaksa scrollbar horizontal muncul hanya karena aritmetika itu.
+        # 360px yang pernah dipakai di sini lebih buruk — kartunya 420,
+        # jadi mengalah bukan hanya soal scrollbar.
+        self.setMinimumSize(
+            CARD_MIN_WIDTH + scroll.verticalScrollBar().sizeHint().width(),
+            _WINDOW_MIN_HEIGHT,
+        )
+
     # ------------------------------------------------------------------
     # Accessors (dipakai test, bukan internal produksi)
     # ------------------------------------------------------------------
@@ -390,6 +584,14 @@ class CongratulationsWindow(QMainWindow):
 
     def result_url(self) -> str:
         return self._result_url
+
+    def displayed_link_text(self) -> str:
+        """Teks label link SEBENAARNYA yang dilihat siswa.
+
+        Dipakai test untuk mengunci invarian "yang tampil = yang
+        disalin" tanpa menyentuh atribut private.
+        """
+        return self._link_label.text()
 
     def copy_button(self) -> QPushButton:
         return self._copy_btn
@@ -417,6 +619,10 @@ class CongratulationsWindow(QMainWindow):
         self._copied_at = time.monotonic()
         self._copied_wall_at = time.time()
         self._cleared = False
+        # Salinan baru = percobaan baru: anggaran retry scrubbing
+        # di-reset, supaya clipboard yang sempat mati tidak ikut
+        # mengurangi jatah percobaan untuk link yang baru disalin.
+        self._clear_failures = 0
         self._start_timer()
         self._tick()
 
@@ -457,12 +663,24 @@ class CongratulationsWindow(QMainWindow):
         )
         self._copy_btn.setText(f"Copy Link ({int(remaining)}s)")
 
-    def _clear_clipboard_if_ours(self) -> None:
+    def _clear_clipboard_if_ours(self, *, fresh_attempt: bool = False) -> None:
         """Kosongkan clipboard -- HANYA kalau isinya masih link kita.
 
         Kalau siswa menyalin sesuatu yang lain setelah menekan tombol,
         isi clipboard itu miliknya; menghapusnya adalah kehilangan data
-        yang tidak disengaja.
+        yang tidak disengaja. Dua kasus yang sengaja diperlakukan
+        BERBEDA:
+
+        * baca mengembalikan TEKS LAIN -> milik siswa, jangan sentuh;
+        * baca mengembalikan `""` -> itu BUKAN izin mengosongkan apa pun.
+          Di Wayland, atau saat pemilik selection X11 sudah mati,
+          pembacaan kosong terjadi karena tidak ada yang memegang
+          selection, bukan karena isinya memang kosong. Menghapus di titik
+          ini bisa menghapus salinan yang BARU DIMILIKI proses lain
+          (balapan antara pembacaan dan salinan siswa). Jadi `clear()`
+          tidak dipanggil, tapi keputusannya dianggap sudah diambil:
+          mengulanginya selamanya tidak menambah informasi apa pun dan
+          hanya membakar CPU tiap detik.
 
         Batas yang harus jujur (M11): `clipboard.clear()` hanya
         mengosongkan clipboard AKTIF. Riwayat clipboard OS (mis. Win+V di
@@ -472,24 +690,94 @@ class CongratulationsWindow(QMainWindow):
         seluruh kelas pada mode static; yang menutup lubang itu
         sepenuhnya adalah guru menonaktifkan publikasi nilai, bukan
         tombol ini.
+
+        `fresh_attempt=True` dipakai oleh `closeEvent`/`hideEvent`:
+        mereka adalah kesempatan terakhir, jadi anggaran percobaan
+        di-reset — clipboard yang sedang tidak terbaca saat satu tick
+        tidak boleh membekukan pembersih terakhir.
         """
         if not self._result_url:
             return
-        self._cleared = True
+        if not self._scrub_clipboard(fresh_attempt=fresh_attempt):
+            # Tidak ada keputusan (baca/clear gagal): countdown TETAP
+            # hidup dan `_tick` akan mencoba lagi pada detik berikutnya.
+            # Melepas saruan di sini adalah bug H6: satu pembacaan yang
+            # gagal membuat token tinggal di clipboard PC lab selamanya
+            # dengan tidak ada satu pun QString yang menyatakannya.
+            return
+        # Baru SEKARANG saruan dilepas: pembacaan berhasil dan keputusan
+        # sudah diambil.
         self._copied_at = None
         self._copied_wall_at = None
+        self._cleared = True
+        self._copy_btn.setText("Copy Link")
+        self._copy_btn.setEnabled(
+            bool(self._result_url) and self._public_results)
+
+    def _scrub_clipboard(self, *, fresh_attempt: bool = False) -> bool:
+        """Satu percobaan pembersihan clipboard. True bila SUDAH diputuskan.
+
+        False berarti "belum ada keputusan": clipboard tidak bisa dibaca
+        atau isinya milik kita tapi tidak bisa dikosongkan, jadi pemanggil
+        WAJIB menyisakan countdown untuk dicoba lagi.
+        """
+        if not self._result_url:
+            # Tidak ada yang bisa disapu: jangan sentuh clipboard siswa
+            # hanya karena halaman ini sedang disembunyikan.
+            return True
+        if fresh_attempt:
+            self._clear_failures = 0
         try:
             clipboard = QApplication.clipboard()
-            if clipboard.text().strip() == self._result_url:
-                clipboard.clear()
-            # Reset tombol di DALAM try: kalau clipboard gagal diakses,
-            # biarkan hitung mundur apa adanya daripada menampilkan
-            # "Copy Link" seolah link sudah bersih.
-            self._copy_btn.setText("Copy Link")
-            self._copy_btn.setEnabled(
-                bool(self._result_url) and self._public_results)
+            current = clipboard.text()
         except Exception:
-            log.debug("clipboard clear failed", exc_info=True)
+            self._note_clipboard_failure("dibaca")
+            return False
+        self._clear_failures = 0
+        if current.strip() == self._result_url:
+            try:
+                clipboard.clear()
+            except Exception:
+                self._note_clipboard_failure("dikosongkan")
+                return False
+        elif not current.strip():
+            log.info(
+                "clipboard terbaca kosong: tidak ada pemilik selection "
+                "atau selection sudah mati — isinya tidak disentuh"
+            )
+        return True
+
+    def _note_clipboard_failure(self, what: str) -> None:
+        """Catat kegagalan scrubbing: tombol jujur, saruan belum lepas.
+
+        Percobaan dibatasi supaya halaman tidak mencoba membaca clipboard
+        yang sudah mati selamanya. Setelah batas, countdown dilepas (agar
+        `_tick` tidak memanggil clipboard tiap detik) tapi TIDAK dengan
+        kasar: tombolnya tetap menampilkan kegagalan, dan menekan ulang
+        tombol Copy akan menyalakan countdown baru.
+        """
+
+        self._clear_failures += 1
+        if self._clear_failures < _CLIPBOARD_READ_RETRIES:
+            log.debug(
+                "clipboard gagal %s (percobaan %d/%d) — countdown tetap "
+                "dijaga untuk mencoba lagi",
+                what, self._clear_failures, _CLIPBOARD_READ_RETRIES,
+            )
+            self._copy_btn.setText(_CLIPBOARD_UNCLEARED_TEXT)
+            return
+        log.warning(
+            "clipboard gagal %s %d kali berturut-turut — link hasil dibiarkan "
+            "apa adanya; hanya menutup halaman ini atau menekan ulang "
+            "tombol Copy yang bisa mencoba lagi",
+            what, self._clear_failures,
+        )
+        self._copied_at = None
+        self._copied_wall_at = None
+        self._cleared = True
+        self._copy_btn.setText(_CLIPBOARD_UNCLEARED_TEXT)
+        self._copy_btn.setEnabled(
+            bool(self._result_url) and self._public_results)
 
     # ------------------------------------------------------------------
     # Timer
@@ -513,8 +801,16 @@ class CongratulationsWindow(QMainWindow):
     def showEvent(self, event) -> None:  # noqa: N802 (Qt API)
         # Halaman tampil lagi setelah disalin (hide lalu show): hitung
         # mundur harus lanjut, jadi timer di-restart bila masih ada
-        # salinan yang dijaga. Tanpa ini, menyembunyikan lalu
-        # menampilkan halaman membekukan countdown selamanya.
+        # salinan yang dijaga.
+        #
+        # Cabang ini bukan syarat fiktif. `hideEvent` menyapu
+        # clipboard sekarang, tapi TIDAK membuang deadline-nya (lihat
+        # catatan di sana), jadi setelah hide/show yang jujur syarat di
+        # benar-benar terpenuhi. Sebelumnya `hideEvent` ikut melepas
+        # saruan, cabang ini mati, dan satu-satunya test yang
+        # mengejarnya memanggil `_stop_timer()` langsung dengan alasan
+        # yang salah: QTimer tidak dimatikan suspend, dia resume lalu
+        # berbunyi.
         if self._copied_at is not None and not self._cleared:
             self._start_timer()
         super().showEvent(event)
@@ -522,18 +818,31 @@ class CongratulationsWindow(QMainWindow):
     def hideEvent(self, event) -> None:  # noqa: N802 (Qt API)
         # Halaman disembunyikan tanpa ditutup (mis. di-hide pemanggil):
         # token tidak boleh tertinggal di clipboard hanya karena halaman
-        # tidak terlihat — bersihkan dulu, lalu hentikan timer supaya
-        # tidak membuang tick pada widget gaib.
-        self._clear_clipboard_if_ours()
+        # tidak terlihat — jadi clipboard DISAPU SEKARANG (fail-safe,
+        # tidak melemah sedikit pun dari perilaku lama).
+        #
+        # Yang TIDAK dilakukan: membuang deadline countdown. Hide/show
+        # yang sementara (minimisasi, Alt-Tab, dialog di atasnya) dulu
+        # membuang satu-satunya naganya, sehingga tidak ada lagi yang
+        # menjaga clipboard setelah halaman kembali tampil — dan
+        # clipboard manager yang mengembalikan salinan lama (X11
+        # selection restore saat fokus) tidak pernah disapu. Jadi yang
+        # dipanggil di sini adalah `_scrub_clipboard` (keputusan + isi
+        # clipboard), bukan `_clear_clipboard_if_ours` yang sekalian
+        # melepas saruan. Timer tetap dihentikan supaya tick tidak
+        # terbuang untuk widget yang tidak terlihat; `showEvent` yang
+        # menyalakannya lagi.
+        self._scrub_clipboard(fresh_attempt=True)
         self._stop_timer()
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         # Menutup layar tidak boleh meninggalkan token di clipboard --
         # kalau siswa menutup sebelum hitung mundur habis, timer ikut
-        # mati dan tidak ada yang membersihkan.
+        # mati dan tidak ada yang membersihkan. Ini kesempatan TERAKHIR,
+        # jadi anggaran percobaan scrubbing di-reset (`fresh_attempt`).
         first_close = not self._closed
-        self._clear_clipboard_if_ours()
+        self._clear_clipboard_if_ours(fresh_attempt=True)
         self._closed = True
         self._stop_timer()
         super().closeEvent(event)

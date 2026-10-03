@@ -7,6 +7,36 @@ SocketIO-style messages and auto-reconnects with exponential backoff.
 The socket is RECEIVE-ONLY for token-authenticated clients (the server hub
 ignores mutating events from non-privileged sockets), so presence stays on
 HTTP access-log (see exam_viewer._send_access_log) — exactly like Android.
+
+Token kelas di URL — batas yang jujur
+-------------------------------------
+Kredensialnya adalah token SELURUH KELAS pada mode static, dan ada di
+query string. Ini tidak bisa dihapus dari sisi klien:
+
+  * `QWebSocket` (Qt5) tidak bisa memasang header request arbitrer.
+    `QNetworkAccessManager.createRequest` adalah virtual C++ dan tidak bisa
+    di-override dari Python; tidak ada `QNetworkRequest` yang bisa
+    disisipkan ke `QWebSocket.open()`.
+  * Server (`webui/cmd/server/main.go`) membaca `c.GetHeader("X-Exam-Token")`
+    lebih dulu, lalu `c.Query("token")`. Menghapus query token dari klien
+    tanpa perubahan server akan membuat WS tidak pernah terautentikasi —
+    dan itu mematikan auto-submit saat pengawas menghentikan ujian.
+
+Duo yang menutup kebocoran, keduanya di luar berkas ini:
+
+  * proxy: `webui/nginx/nginx.conf` — `access_log off` untuk `/ws/`,
+    sama seperti `/api/health` dan `/healthz`. SEBELUMNYA blok `/ws/`
+    mewarisi `access_log /dev/stdout` (format `combined` memuat
+    `$request`), jadi `GET /ws/7?token=...` tertulis apa adanya pada
+    setiap connect dan setiap reconnect.
+  * origin: `cmd/server/main.go` masih memakai `gin.Logger()`, yang
+    menempelkan query string ke path. Perlu logger yang melewati `/ws/`
+    atau format tanpa query, dan (untuk menghilangkan kredensial dari URL
+    sepenuhnya) pembacaan subprotocol/header oleh handler WS.
+
+Yang dilakukan di sini: URL dibangun di satu tempat (`_ws_url`) supaya
+formatnya tidak bisa berubah di antara beberapa call, dan token tidak
+pernah ikut ke log klien — hanya nomor ujian yang dicatat.
 """
 
 from __future__ import annotations
@@ -114,13 +144,28 @@ class ExamWebSocket(QObject):
     # Internals
     # ------------------------------------------------------------------
 
+    def _ws_url(self) -> QUrl:
+        """URL handshake WS, dalam satu tempat saja.
+
+        Terpisah dari `_do_connect` supaya format query yang dibaca server
+        (`c.Query("token")`) punya satu sumber kebenaran, dan supaya
+        test bisa memeriksa URL tanpa membuka socket. Fungsi ini
+        SENGaja tidak menyentuh timer reconnect, counter backoff, atau
+        `_should_reconnect`: membangun URL adalah operasi murni, dan
+        membuat timer di sini akan menambah satu timer per reconnect.
+        """
+        scheme = "wss" if self._base_url.startswith("https") else "ws"
+        host = self._base_url.replace("https://", "").replace("http://", "")
+        quoted = urllib.parse.quote(self._token or "", safe="")
+        return QUrl(f"{scheme}://{host}/ws/{self._exam_id}?token={quoted}")
+
     def _do_connect(self) -> None:
         if not self._should_reconnect:
             return
 
-        scheme = "wss" if self._base_url.startswith("https") else "ws"
-        host = self._base_url.replace("https://", "").replace("http://", "")
-        url = QUrl(f"{scheme}://{host}/ws/{self._exam_id}?token={urllib.parse.quote(self._token or '', safe='')}")
+        url = self._ws_url()
+        # HANYA nomor ujian yang dicatat: URL lengkap memuat token kelas,
+        # dan log klien dibaca teknisi lab.
         log.info("WS connecting to /ws/%s", self._exam_id)
 
         if self._ws is not None:

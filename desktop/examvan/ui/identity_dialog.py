@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt
@@ -21,6 +22,15 @@ from PyQt5.QtWidgets import (
 
 from ..models import Exam, IdentityField
 from ..utils import identity_data_with_canonical
+
+# H4: teks dari server (nama ujian, `IdentityField.label`, pesan status)
+# tidak pernah divalidasi, dan default `QLabel.textFormat()` adalah
+# `Qt.AutoText` — jadi markup dari server dirender sebagai rich text, dan
+# `<img src="file://...">` membuat `QTextDocument` membuka berkas lokal
+# sinkron di thread GUI. Sanitizer-nya SATU-SATUNYA di repo
+# (`congratulations`, yang tidak boleh diedit ronde ini) — di-IMPORT, bukan
+# disalin, supaya tidak ada dua versi yang berbeda.
+from .congratulations import _sanitize_server_text
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +84,40 @@ _CARD_MAX_WIDTH = 560
 # Ruang kosong minimal antara kartu dan tepi jendela, agar kartu tidak
 # menempel ke sisi layar saat jendela sedang dikecilkan.
 _CARD_GUTTER = 40
+
+# Batas panjang nilai identitas, harus sama dengan yang dipangkas server di
+# `sanitize` (webui/internal/handlers/api/exams.go:205-220).
+_SERVER_VALUE_MAX_RUNES = 200
+
+# Ruang kosong di atas/bawah field yang dibawa ke layar saat validasi
+# gagal — cukup untuk pesan error inline di bawahnya ikut terlihat, bukan
+# hanya kotak inputnya.
+_SCROLL_MARGIN_PX = 40
+
+
+def _server_storable_value(text: str) -> str:
+    """Nilai SETELAH dibersihkan server — untuk validasi, bukan untuk wire.
+
+    Server menjalankan `stripControlAndBidi` (buang `unicode.IsControl` dan
+    kategori Cf) lebih dulu, baru `TrimSpace`. Jadi isian yang terlihat
+    "terisi" bisa menjadi kosong setelah itu — `{"nama": "<U+200B>"}` (nama
+    yang ditempel dari dokumen yang membawa zero-width) jadi 400
+    "Identitas 'Nama' wajib diisi" SELAMANYA, dan tidak ada satu pun pesan
+    yang sampai ke siswa karena sisi klien melihat kotaknya tidak kosong.
+
+    Fungsi ini hanya dipakai untuk MEMBANDING: nilai yang benar-benar dikirim
+    tetap `QLineEdit.text()` apa adanya (lihat `get_identity_data`), supaya
+    tidak ada perubahan diam-diam yang mengarang ulang isian siswa.
+    """
+    cleaned = []
+    for ch in str(text or ""):
+        if ch in ("\t", "\n"):
+            cleaned.append(ch)
+            continue
+        if unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs"):
+            continue
+        cleaned.append(ch)
+    return "".join(cleaned).strip()
 
 
 class _CardScrollArea(QScrollArea):
@@ -321,6 +365,12 @@ class IdentityDialog(QDialog):
         # "Masuk Ujian" button below the bottom of the screen with no way to
         # reach it — the student was locked out before the exam even started.
         self._scroll = _CardScrollArea()
+        # `QScrollArea` mewarisi `StrongFocus` (11), jadi dengan urutan tab
+        # di bawah satu Tab lewat tombol submit mendarat DI SINI: fokus
+        # hilang ke dead-zone tanpa cincin fokus yang terlihat, dan siswa
+        # tidak tahu sedang mengetik ke mana. Form ini punya kotak input dan
+        # tombol, jadi seluruh rantai tab sudah tertutup olehnya.
+        self._scroll.setFocusPolicy(Qt.NoFocus)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -364,8 +414,9 @@ class IdentityDialog(QDialog):
         # field rapat, dan blok form tetap ter-center vertikal.
         card_layout.addStretch(1)
 
-        # Exam name
-        exam_label = QLabel(self._exam.name)
+        # Exam name — teks server, jadi teks polos (lihat catatan import).
+        exam_label = QLabel(_sanitize_server_text(self._exam.name))
+        exam_label.setTextFormat(Qt.PlainText)
         exam_label.setStyleSheet("font-size: 18px; font-weight: bold;")
         exam_label.setAlignment(Qt.AlignCenter)
         exam_label.setWordWrap(True)
@@ -399,12 +450,24 @@ class IdentityDialog(QDialog):
             # `field_<index>`), jadi setiap field PASTI punya widget.
             group = QVBoxLayout()
             group.setSpacing(4)
-            lbl = QLabel(field.label + (" *" if field.required else ""))
+            lbl = QLabel(_sanitize_server_text(
+                field.label + (" *" if field.required else "")))
+            lbl.setTextFormat(Qt.PlainText)
             lbl.setStyleSheet("font-weight: bold;" if field.required else "")
             lbl.setWordWrap(True)
             group.addWidget(lbl)
 
             inp = QLineEdit()
+            # Batas yang SAMA dengan server (`sanitize` di
+            # `webui/internal/handlers/api/exams.go:205-220` memotong ke 200
+            # rune). Tanpa ini klien boleh mengirim 260 rune sementara baris
+            # tersimpan 200: kunci yang dicari saat approval berikutnya tidak
+            # akan pernah cocok dengan yang tersimpan
+            # (`HasSubmissionForStudentKey`), jadi siswa terkunci
+            # `repeat_required` SELAMANYA — dan namanya terpotong diam-diam
+            # di hasil publik. Memotong di sisi klien membuat kunci yang
+            # dikirim persis sama dengan yang disimpan.
+            inp.setMaxLength(_SERVER_VALUE_MAX_RUNES)
             inp.setPlaceholderText(f"Masukkan {field.label.lower()}")
             # Pre-fill from saved data
             saved_val = self._saved.get(field.key, "")
@@ -419,6 +482,9 @@ class IdentityDialog(QDialog):
             # mencari lagi field mana yang salah di balik dialog itu.
             # Label di sini muncul tepat di bawah kotak yang kosong.
             err = QLabel("")
+            # Isinya diisi dari `field.label` (server) saat validasi — lihat
+            # `_on_submit`.
+            err.setTextFormat(Qt.PlainText)
             err.setObjectName("identityFieldError")
             err.setWordWrap(True)
             err.hide()
@@ -539,10 +605,16 @@ class IdentityDialog(QDialog):
             inp = self._inputs.get(field.key)
             if not inp:
                 continue
-            if field.required and not inp.text().strip():
+            # `strip()`-nya Python memakai `str.isspace()`, yang TIDAK
+            # mencakup Cf seperti U+200B. Server membuang Cf lebih dulu, jadi
+            # isian seperti itu akan terkirim, ditolak 400, dan tidak ada
+            # yang bisa diperbaiki dari sisi siswa. Bandingkan nilai SETELAH
+            # cleaning server (lihat `_server_storable_value`).
+            if field.required and not _server_storable_value(inp.text()):
                 err = self._error_labels.get(field.key)
                 if err is not None:
-                    err.setText(f"{field.label} wajib diisi")
+                    err.setText(_sanitize_server_text(
+                        f"{field.label} wajib diisi"))
                     err.show()
                 if first_bad_key is None:
                     first_bad_key = field.key
@@ -555,6 +627,24 @@ class IdentityDialog(QDialog):
             if offender is not None:
                 offender.setFocus(Qt.OtherFocusReason)
                 offender.selectAll()
+                # Fokus saja tidak cukup: pada form yang lebih tinggi daripada
+                # viewport (8 field sudah cukup di 1024x600, 30 field di
+                # arena), field kosong DAN pesan error inline-nya berada di
+                # luar layar — `y` negatif di viewport. Siswa menekan Enter
+                # lalu tidak terjadi apa-apa, karena yang ia lihat bukan
+                # bagian yang terlihat.
+                #
+                # `ensureWidgetVisible` dipakai supaya yang digeser adalah
+                # scrollbar yang sama dengan yang dilihat siswa.
+                try:
+                    self._scroll.ensureWidgetVisible(
+                        offender, 0, _SCROLL_MARGIN_PX,
+                    )
+                except Exception:
+                    # ScrollArea yang belum punya geometri (dialog belum
+                    # pernah tampil) — tidak ada yang bisa di-scroll, dan
+                    # fokus tetap dilakukan supaya tidak hilang.
+                    log.debug("ensureWidgetVisible gagal", exc_info=True)
             return
 
         # Ronde 6 (item 6): semua jalur DI ATAS return tanpa latch — validasi

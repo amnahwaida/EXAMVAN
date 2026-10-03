@@ -131,8 +131,25 @@ class CredentialFilePermissionsTestCase(_ConfigSandbox):
         # yang ditulis memang rahasianya.
         config.set("exam_token", "ABCD1234")
         config.set("identity_data", {"nama": "Ahmad"})
-        data = json.loads((self.dir / "config.json").read_text(encoding="utf-8"))
-        self.assertEqual(data["exam_token"], "ABCD1234")
+        raw = (self.dir / "config.json").read_text(encoding="utf-8")
+        data = json.loads(raw)
+
+        # Assertion lama (`data["exam_token"] == "ABCD1234"`) MENYATAKAN
+        # bug H12: token kelas adalah kredensial seluruh kelas pada mode
+        # static, dan `exam_token_history` + label `submitted_*` sudah
+        # di-obfuscate sejak dulu -- hanya `exam_token` yang polos. Kini
+        # disimpan di `exam_token_obf`.
+        self.assertNotIn(
+            "ABCD1234", raw,
+            "token ujian tersimpan plaintext di config.json: pada PC lab "
+            "yang dipakai bersama, ini kredensial hasil seluruh kelas",
+        )
+        self.assertNotIn("exam_token", data)
+        self.assertEqual(
+            config._decode_secret(data["exam_token_obf"]), "ABCD1234")
+        # API in-process tetap melihat token polos, jadi pemanggil
+        # (`server_config`, `ws`, `api`) tidak perlu berubah.
+        self.assertEqual(config.get("exam_token"), "ABCD1234")
         self.assertEqual(data["identity_data"], {"nama": "Ahmad"})
 
 

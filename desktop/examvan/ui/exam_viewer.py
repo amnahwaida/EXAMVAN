@@ -264,6 +264,14 @@ from ..utils import (
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
 from .congratulations import CongratulationsWindow
+
+# SATU-SATUNYA sanitizer teks server di repo ini: `congratulations` sudah
+# menyediakannya (bersama `setTextFormat(Qt.PlainText)` di labelnya) untuk
+# nama ujian + pesan guru. File itu tidak boleh diedit ronde ini, jadi yang
+# dipakai di sini IMPORT (baca-saja) — bukan salinan: dua salinan pasti
+# berbeda dalam satu putaran, dan yang lebih 보수atif biasanya yang terlupa
+# dipanggil.
+from .congratulations import _sanitize_server_text
 from .fullscreen import apply_fullscreen, covers_fullscreen
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
@@ -290,6 +298,16 @@ _ADMIN_EXIT_MODIFIERS = (
 # tombol, satu-satunya jalan keluar Task Manager.
 _AUTOSUBMIT_WATCHDOG_MS = 110_000
 
+# Jeda sebelum perbaikan fullscreen yang dipicu perubahan GEOMETRI.
+#
+# Dua alasan, keduanya soal WM: (1) saat drag Move/Size masih berjalan,
+# memasang ulang geometri di tengah-tengah drag akan membatalkannya;
+# (2) pada `show()` pertama Qt masih menghitung ukuran jendela, jadi
+# memperbaiki di tengah calculate itu sia-sia — dan `apply_fullscreen()`
+# sudah dipanggil oleh jalur show/enforcer. 150 ms cukup untuk keduanya
+# selesai, dan event geometri yang beruntun digabung jadi satu perbaikan.
+_FULLSCREEN_REPAIR_DELAY_MS = 150
+
 
 def answers_match_disk(exam_id, answers) -> bool:
     """True HANYA kalau isi disk untuk `exam_id` masih persis `answers`.
@@ -304,13 +322,21 @@ def answers_match_disk(exam_id, answers) -> bool:
         TERLAMBAT menghapus jawaban percobaan baru — dan kalau sesi baru
         itu mati mendadak sesudahnya, tidak ada yang tersisa untuk
         dipulihkan;
-      * `server_config._recovery_submit_thread` (jalur "Kirim Lagi") —
-        PEMAKAIANNYA belum dipasang di file itu (lihat laporan ronde ini),
-        karena file itu di luar daftar yang boleh diedit ronde ini.
+      * `ServerConfigDialog._recovery_submit_thread` (jalur "Kirim Lagi") —
+        SUDAH memakai `answers_match_disk` (`server_config.py:943`), tapi
+        masih PASANGAN baca-hapus yang tidak atomik: helper yang benar ada
+        di bawah (`clear_answers_if_unchanged`). File itu bukan bagian dari
+        ronde ini, jadi perbaikannya dilaporkan, bukan dikerjakan — lihat
+        bagian "perlu perubahan di luar Roundtable ini" pada laporan.
 
     Fail-safe: kalau `load_answers` melempar, jawabannya False — "tidak bisa
     dipastikan" tidak boleh berarti "boleh dihapus". Membaca saja, tidak
     pernah mengubah apa pun.
+
+    JANGAN dipakai sendirian sebelum `clear_answers`: fungsi ini hanya
+    MEMBACA disk, jadi pasangan "baca lalu hapus" yang dia izinkan tetap
+    bisa disela penulis jawaban di antara keduanya. Yang dipakai untuk
+    menghapus adalah `clear_answers_if_unchanged`.
     """
     try:
         current = config.load_answers(exam_id)
@@ -321,6 +347,29 @@ def answers_match_disk(exam_id, answers) -> bool:
         )
         return False
     return current == answers
+
+
+def clear_answers_if_unchanged(exam_id, answers) -> bool:
+    """Hapus jawaban `exam_id` HANYA kalau isinya masih persis `answers`.
+
+    Wrapper tipis di atas `config.clear_answers_if_unchanged`. Operasinya
+    hidup di `config` karena di sana tempat lock-nya: `_answers_lock` di sana
+    yang dipegang `save_answers`/`save_answers_owner`, dan hanya dari sana
+    read-decide-delete bisa dibuat atomik terhadap penulis jawaban (H9).
+    Detailnya dan bukti racing-nya ada di docstring helper di `config`.
+
+    Dipakai di ketiga call site setelah submit terkonfirmasi:
+    `_background_submit_thread`, `_cleanup_after_submit`, dan (lewat
+    `config`) jalur recovery di `server_config`. `_cleanup_after_submit`
+    sekaligus memakai hasil kembaliannya untuk memutuskan apakah halaman
+    selamat masih boleh ditampilkan.
+
+    Mengembalikan True HANYA kalau penghapusan benar-benar dijalankan;
+    selain itu fail-closed (kunci hilang, `load_answers` melempar, isi
+    berbeda) karena menghapus jawaban milik percobaan lain jauh lebih
+    merusak daripada membiarkannya.
+    """
+    return config.clear_answers_if_unchanged(exam_id, answers)
 
 
 class _ProgressWindow(QWidget):
@@ -455,6 +504,9 @@ class ExamViewerWindow(QMainWindow):
         # Re-entrancy guard for _enforce_fullscreen, which is driven by a
         # window-state change that showFullScreen() itself produces.
         self._fullscreen_reasserting = False
+        # Satu perbaikan fullscreen yang sudah dijadwalkan (dari event
+        # geometri) — menggabungkan move/resize beruntun jadi satu perbaikan.
+        self._fullscreen_repair_scheduled = False
         # Peringatan konfigurasi ujian yang muncul di layar (mis. nomor soal
         # bentrok) — supaya siswa bisa melaporkannya, bukan diam-diam
         # kehilangan jawaban.
@@ -535,23 +587,59 @@ class ExamViewerWindow(QMainWindow):
         self._ws.connect(self._server_url, self._exam.id, self._token)
 
         # Restore saved answers
+        #
+        # Answers yang ditemukan di disk BARU dipulihkan setelah lembar
+        # jawaban dibangun (`_build_answer_sheet`), bukan lewat timer yang
+        # mulai dihitung dari konstruktor. Alasannya PRUNING: separuh
+        # `restore_answers` hanya bisa berjalan kalau `_answer_widgets` sudah
+        # terisi — ia membuang nilai single/multi/matching yang tidak ada
+        # lagi di pilihan SEKARANG. Dengan timer 500 ms dan PDF yang baru
+        # selesai setelah network, restore berjalan saat widget masih nol
+        # (terukur: widget=0 saat restore), jadi jawaban basi ikut terkirim
+        # dan dinilai SALAH tanpa pesan. Timer tetap dipasang sebagai
+        # jaring pengaman (lihat `_restore_saved_answers`).
+        #
+        # Jangan pulihkan jawaban milik percobaan lain (PC lab dipakai
+        # bergantian): owner yang berbeda berarti jawaban ini bukan milik
+        # siswa sekarang — lihat config.resolve_submit_answers.
+        # `self._student_key` dipakai langsung (bukan dihitung ulang): satu
+        # sumber kebenaran untuk gerbang restore, sidecar, dan submit.
+        _restore: Dict[str, Any] = {}
+        _owner = config.load_answers_owner(exam.id)
+        _mine = self._student_key
         saved = config.load_answers(exam.id)
-        if saved:
-            # Jangan pulihkan jawaban milik percobaan lain (PC lab dipakai
-            # bergantian): owner yang berbeda berarti jawaban ini bukan
-            # milik siswa sekarang — lihat config.resolve_submit_answers.
-            # `self._student_key` dipakai langsung (bukan dihitung ulang):
-            # satu sumber kebenaran untuk gerbang restore, sidecar, dan
-            # submit.
-            _owner = config.load_answers_owner(exam.id)
-            _mine = self._student_key
-            if _owner is not None and str(_owner.get("student_key", "") or "") and str(_owner.get("student_key", "") or "") != _mine:
-                log.warning(
-                    "restore jawaban exam %s dilewati: owner != percobaan ini",
-                    exam.id,
-                )
-            else:
-                QTimer.singleShot(500, lambda: self._answer_sheet.restore_answers(saved))
+        if saved and _owner is not None and str(
+            _owner.get("student_key", "") or ""
+        ) and str(_owner.get("student_key", "") or "") != _mine:
+            log.warning(
+                "restore jawaban exam %s dilewati: owner != percobaan ini",
+                exam.id,
+            )
+        elif saved:
+            _restore = dict(saved)
+        self._pending_restore = _restore or None
+        self._restore_applied = False
+        QTimer.singleShot(500, self._restore_saved_answers)
+
+    def _restore_saved_answers(self) -> None:
+        """Pulihkan jawaban dari disk — HANYA setelah lembar ada.
+
+        Dipanggil dua kali: dari `_build_answer_sheet` (jalur utama — saat
+        itu widget sudah ada, jadi pruning benar-benar berjalan) dan dari
+        timer 500 ms sebagai jaring pengaman (kalau somehow lembar sudah
+        dibangun lebih dulu, mis. oleh rebuild karena PDF gagal lalu
+        diulang).
+        """
+        pending = self.__dict__.get("_pending_restore")
+        if not pending or self.__dict__.get("_restore_applied"):
+            return
+        if not self._answer_sheet.is_built():
+            # Lembar belum ada: pruning akan mengiterasi nol widget, jadi
+            # MENUNGGU lebih benar daripada berlari sia-sia.
+            return
+        self._restore_applied = True
+        self._pending_restore = None
+        self._answer_sheet.restore_answers(pending)
 
     def _setup_ui(self) -> None:
         # Window title: generic, no exam name leakage
@@ -572,7 +660,17 @@ class ExamViewerWindow(QMainWindow):
         top_layout.setContentsMargins(8, 4, 8, 4)
 
         # Exam title
-        self._lbl_title = QLabel(self._exam.name)
+        #
+        # H4: `exam.name` datang dari server dan TIDAK divalidasi (hanya
+        # `panel_color` yang diregex-kan di `models.Exam`). Default
+        # `QLabel.textFormat()` adalah `Qt.AutoText`, jadi tanpa dua baris
+        # di bawah ini server bisa menyuntik rich text ke layar siswa —
+        # termasuk `<img src="file:///...">`, yang membuat `QTextDocument`
+        # membuka berkas lokal sinkron di thread GUI. Perlakuan yang sama
+        # sudah dipakai `congratulations` untuk pesan guru; polanya tinggal
+        # diterapkan di mana-mana.
+        self._lbl_title = QLabel(_sanitize_server_text(self._exam.name))
+        self._lbl_title.setTextFormat(Qt.PlainText)
         self._lbl_title.setStyleSheet("font-size: 16px; font-weight: bold;")
         top_layout.addWidget(self._lbl_title, 1)
 
@@ -791,6 +889,10 @@ class ExamViewerWindow(QMainWindow):
         ujiannya: tidak ada yang bisa diklik dan tidak ada tombol retry.
         """
         self._answer_sheet.build_from_questions(self._exam.questions)
+        # Restore jawaban SEKARANG juga: widget sudah ada, jadi pruning di
+        # `restore_answers` benar-benar mengiterasi pilihan soal dan
+        # membuang nilai yang sudah tidak valid.
+        self._restore_saved_answers()
         duplicates = self._answer_sheet.duplicate_question_numbers()
         if duplicates:
             # Konfigurasi ujian rusak: nomor soal bentrok. Server hanya
@@ -994,8 +1096,8 @@ class ExamViewerWindow(QMainWindow):
         """Clean up after successful submit."""
         # C2: call site KETIGA dari `clear_answers` setelah submit sukses.
         # Dua call site sebelumnya (`_background_submit_thread` dan
-        # `server_config._recovery_submit_thread`) sudah memakai
-        # `answers_match_disk`; yang ini terlewat, dan akibatnya submit
+        # `server_config._recovery_submit_thread`) sudah memakai penjagaan
+        # yang sama; yang ini terlewat, dan akibatnya submit
         # yang sukses — bisa saja yang TERLAMBAT, setelah siswa menutup
         # jendela lalu siswa berikutnya masuk dan autosave — menghapus
         # jawaban percobaan yang lebih baru dan memunculkan halaman selamat
@@ -1007,7 +1109,37 @@ class ExamViewerWindow(QMainWindow):
                 "exam %s (payload yang dikirim sudah durable)", self._exam.id,
             )
         else:
-            config.clear_answers(self._exam.id)
+            # H9: helper yang sama dengan jalur submit background, bukan
+            # `clear_answers` telanjang. `_disk_answers_replaced()` di atas
+            # hanya MEMBACA disk, jadi tanpa kunci yang memagari
+            # baca-hapus, autosave percobaan berikutnya bisa masuk tepat di
+            # antara keduanya dan ikut terhapus.
+            cleared = clear_answers_if_unchanged(
+                # `__dict__.get`, bukan atribut langsung: viewer yang dibuat
+                # lewat `__new__` tanpa `__init__` (test) melempar
+                # RuntimeError kalau atribut belum ada.
+                self._exam.id, self.__dict__.get("_submitted_payload"),
+            )
+            if not cleared and self.__dict__.get("_submitted_payload"):
+                # `clear_answers_if_unchanged` menolak HANYA kalau isinya
+                # sudah bukan payload kita — itu bukti percobaan lain menulis
+                # di tengahnya, jadi halaman selamat memang tidak boleh
+                # menimpa layar percobaan berikutnya.
+                replaced = True
+                log.info(
+                    "halaman hasil dilewati: isi disk berubah saat clear "
+                    "exam %s (percobaan lain menulis di tengahnya)",
+                    self._exam.id,
+                )
+            # `elif not cleared`: tanpa payload yang dikirim
+            # (`_submitted_payload` belum terisi) helper-nya sengaja
+            # gagal-terbuka — TIDAK menghapus, karena tidak ada bukti isi
+            # disk milik kita. Tapi itu TIDAK berarti attempt lain mengambil
+            # alih, jadi halaman tetap ditampilkan. Menyamakan keduanya
+            # (seperti versi sebelumnya) membuat siswa kehilangan konfirmasi
+            # "berhasil dikumpulkan" tanpa sebab yang nyata, hanya karena
+            # urutan pemanggilan atribut.
+
         # Sticky marker (F2, mirror Android): ujian ini sudah SELESAI di
         # perangkat ini. Re-entry berikutnya MewANAKKAN pilihan eksplisit
         # ("Kerjakan Ulang" / "Kembali") lewat
@@ -1030,7 +1162,7 @@ class ExamViewerWindow(QMainWindow):
         self._btn_submit.setText("✅ Terkumpul")
 
         # Wipe PDF temp file
-        self._pdf_viewer.cleanup()
+        self._cleanup_pdf_viewer()
         self._discard_pdf()
 
         # Halaman selamat, bukan QMessageBox.
@@ -1171,7 +1303,6 @@ class ExamViewerWindow(QMainWindow):
         if self._submitted:
             return
         answers = self._answer_sheet.get_answers()
-        config.save_answers(self._exam.id, answers)
         # H1: sidecar pemilik WAJIB ditulis di sini, bukan hanya di jalur
         # submit. Semua penulis jawaban lewat satu fungsi ini — debounce
         # 500 ms, flush 2 detik, dan (kalau dipanggil) flush submit —
@@ -1185,7 +1316,20 @@ class ExamViewerWindow(QMainWindow):
         # submit, siswa B masuk → B melihat jawaban A di layar dan
         # ditawari "Kirim Lagi" atas nama B. Jawaban A tercatat atas nama B
         # dan nilai A hilang. Sidecar menutup keduanya.
+        #
+        # H10: sidecar ditulis SEBELUM jawaban, bukan sesudahnya. Urutan
+        # lama membiarkan jendela di mana jawaban sudah ada tapi sidecar
+        # belum — dan kedua gerbang justru gagal-TERBUKA tepat di jendela
+        # itu. Autosave menembak tiap 0,5–2 detik sepanjang satu naskah,
+        # jadi jendela itu dilewati ribuan kali, dan satu Task Manager di
+        # dalamnya meninggalkan jawaban tanpa pemilik. Arah yang aman:
+        # kedua gerbang selalu mengecek jawaban DULU (`load_answers`), jadi
+        # sidecar tanpa jawaban itu INERT, sedangkan jawaban tanpa sidecar
+        # itu kebocoran. Urutan yang sama sudah dipakai
+        # `config.clear_answers` (owner dihapus TERAKHIR, hanya kalau
+        # jawabannya benar-benar hilang).
         self._write_answers_owner("_save_answers")
+        config.save_answers(self._exam.id, answers)
         self._answers_dirty = False
 
     def _stop_autosave(self) -> None:
@@ -1202,6 +1346,36 @@ class ExamViewerWindow(QMainWindow):
     # -------------------------------------------------------------------
     # Submit
     # -------------------------------------------------------------------
+
+    def _cleanup_pdf_viewer(self) -> None:
+        """Tutup dokumen PDF, TIDAK PERNAH melempar.
+
+        `PdfWidget.cleanup()` memanggil `self._doc.close()` tanpa penjaga
+        (`pdf_viewer.py:373-376`), jadi satu handle yang sudah rusak
+        menjadi exception yang merambat ke mana saja. Tiga akibat nyata
+        di jalur ini:
+
+          * `_cleanup_after_submit`: jawaban sudah durable dan
+            `clear_answers` sudah jalan, tapi exception escaping berarti
+            halaman selamat tidak pernah dibuat dan `all_done` tidak
+            pernah ditembakkan — tombol sudah tulis "✅ Terkumpul" tapi
+            mati, dan tidak ada layar lagi;
+          * `closeEvent` cabang `already_done`: `cleanup()` dipanggil
+            SEBELUM `closed.emit()`, jadi kegagalan terus-menerus membuat
+            SETIUP close di-`ignore()`kan — jendela tidak bisa ditutup,
+            satu-satunya jalan keluar Task Manager;
+          * jalur keluar low-tier / admin exit: siswa menekan "Ya" lalu
+            tidak terjadi apa-apa.
+
+        `_discard_pdf()` (yang menghapus berkas naskah di `%TEMP%`) tetap
+        dipanggil terpisah dan tidak bergantung pada ini.
+        """
+        try:
+            self._pdf_viewer.cleanup()
+        except Exception:
+            log.warning(
+                "could not close the PDF document — continuing", exc_info=True,
+            )
 
     def _discard_pdf(self) -> None:
         # Tandai dulu: download yang sedang berjalan harus tahu bahwa
@@ -1491,15 +1665,16 @@ class ExamViewerWindow(QMainWindow):
             memory, self._exam.id,
             build_student_key(self._identity_data, self._token),
         )
+        # H10: sidecar DULU, baru jawaban — lihat catatan panjang di
+        # `_save_answers`. Sidecar tanpa jawaban inert; jawaban tanpa
+        # sidecar membocorkan jawaban ini ke siswa berikutnya.
+        self._write_answers_owner("_auto_submit")
         config.save_answers(self._exam.id, answers)
         # C2: simpan payload yang SEDANG dikirim. `_cleanup_after_submit`
         # membandingkannya dengan isi disk sebelum menghapus apa pun dan
         # sebelum menampilkan halaman selamat — hanya viewer yang tahu
         # payload ini, disk tidak.
         self._submitted_payload = answers
-        # Sidecar pemilik: jawaban di disk milik percobaan ini, supaya
-        # recovery re-entry tidak mengirimnya atas nama siswa lain.
-        self._write_answers_owner("_auto_submit")
 
         # 2. Presence: logout segera (TTL Redis); `complete` saat submit sukses.
         self._stop_presence(completed=False)
@@ -1513,7 +1688,7 @@ class ExamViewerWindow(QMainWindow):
             # Sama seperti jalur manual: setelah submit dimulai, edit lebih
             # lanjut tidak pernah ikut terkirim -- lebih baik terkunci jelas.
             self._answer_sheet.setEnabled(False)
-        self._pdf_viewer.cleanup()
+        self._cleanup_pdf_viewer()
         self._discard_pdf()
         # M1: `deactivate()` TIDAK dipanggil di sini. Melepasnya sekarang
         # membebaskan keyboard hook, WDA_MONITOR, dan ClipCursor untuk
@@ -1620,9 +1795,12 @@ class ExamViewerWindow(QMainWindow):
                 # Invariant: clear HANYA bila isi disk masih persis payload
                 # yang baru saja dikonfirmasi server. Isi yang berbeda
                 # berarti milik percobaan lain -- bukan urusan thread ini.
-                if answers_match_disk(exam_id, answers):
-                    config.clear_answers(exam_id)
-                else:
+                #
+                # `clear_answers_if_unchanged`, bukan `answers_match_disk`
+                # + `clear_answers`: pasangan baca-hapus yang terpisah bisa
+                # disela autosave percobaan baru DI ANTARA keduanya (H9).
+                cleared = clear_answers_if_unchanged(exam_id, answers)
+                if not cleared:
                     log.info(
                         "skip clear_answers: disk berisi jawaban percobaan "
                         "lain untuk exam %s (payload lama sudah durable)",
@@ -1865,14 +2043,15 @@ class ExamViewerWindow(QMainWindow):
         # "Kirim Lagi" lalu menimpa jawaban yang sudah durable dengan
         # payload basi itu. Jalur auto-submit sudah melakukan flush yang
         # sama (AutoSubmitF1FlushTest).
+        # H10: sidecar pemilik (jawaban di disk milik percobaan ini, supaya
+        # recovery re-entry tidak mengirimnya atas nama siswa lain) ditulis
+        # SEBELUM jawaban — lihat catatan panjang di `_save_answers`.
+        self._write_answers_owner("_do_submit")
         config.save_answers(self._exam.id, answers)
         # C2: sama seperti jalur auto-submit — payload yang dikirim dicatat
         # supaya `_cleanup_after_submit` bisa memastikan isinya masih milik
         # percobaan ini sebelum menghapus dan sebelum menampilkan halaman.
         self._submitted_payload = answers
-        # Sidecar pemilik: jawaban di disk milik percobaan ini, supaya
-        # recovery re-entry tidak mengirimnya atas nama siswa lain.
-        self._write_answers_owner("_do_submit")
 
         # Kunci lembar jawaban SELAMA submit berjalan.
         #
@@ -2084,6 +2263,65 @@ class ExamViewerWindow(QMainWindow):
             pass
         super().changeEvent(event)
 
+    def _schedule_fullscreen_repair(self) -> None:
+        """Jadwalkan `_enforce_fullscreen` dari perubahan GEOMETRI.
+
+        `changeEvent` hanya melihat perubahan STATE. Pindah dan resize polos
+        tidak mengubah state apa pun, jadi keduanya pernah lolos tanpa satu
+        perbaikan pun (terukur: `_enforce_fullscreen` dipanggil 0× sesudah
+        `move()`, 0× sesudah `resize()`, 3× sesudah minimize/restore).
+
+        Di medium/low Alt+Space juga tersedia — `keyPressEvent` hanya
+        menelan `Qt.Key_Space` + Alt di strict dan tidak ada keyboard hook di
+        bawah strict — jadi ini bukan concerns strict saja.
+
+        Dijadwalkan lewat `QTimer.singleShot`, bukan dipanggil langsung:
+        memperbaiki geometri dari dalam `moveEvent`/`resizeEvent` akan
+        bertarung dengan WM yang sedang memindahkan/memperkecil jendela
+        (di Windows drag yang sedang berjalan bisa dibatalkan). Jeda
+        `_FULLSCREEN_REPAIR_DELAY_MS` juga menggabungkan banyak event
+        geometri beruntun jadi satu perbaikan, dan membiarkan urutan
+        `show()` yang pertama selesai apa adanya.
+        """
+        try:
+            if self._submitted:
+                return
+            if self._fullscreen_reasserting:
+                # Sedang memperbaiki — `apply_fullscreen` sendiri memicu
+                # move/resize, jadi memperbaiki lagi hanya berputar.
+                return
+            if self._fullscreen_repair_scheduled:
+                return
+            self._fullscreen_repair_scheduled = True
+            QTimer.singleShot(
+                _FULLSCREEN_REPAIR_DELAY_MS,
+                self._run_scheduled_fullscreen_repair,
+            )
+        except RuntimeError:
+            # Objek PyQt yang belum diinisialisasi (`__new__` tanpa
+            # `__init__`, seperti double di test) melempar RuntimeError
+            # untuk SETIAP akses atribut. Lewati penjadwalan — bukan
+            # alasanproteksi gagal. Pola yang sama dipakai `_flush_answers`.
+            pass
+
+    def _run_scheduled_fullscreen_repair(self) -> None:
+        self._fullscreen_repair_scheduled = False
+        try:
+            self._enforce_fullscreen()
+        except RuntimeError:
+            # Jendela sudah dihancurkan sebelum timer-nya jatuh tempo.
+            pass
+        except Exception:
+            log.warning("perbaikan fullscreen terjadwal gagal", exc_info=True)
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._schedule_fullscreen_repair()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._schedule_fullscreen_repair()
+
     def closeEvent(self, event: QCloseEvent) -> None:
         # Already submitted — always allow close, bypass all guards
         with self._submit_lock:
@@ -2091,7 +2329,13 @@ class ExamViewerWindow(QMainWindow):
         if already_done:
             if self._security:
                 self._security.deactivate()
-            self._pdf_viewer.cleanup()
+            # `_cleanup_pdf_viewer` tidak pernah melempar (lihat helpernya),
+            # tapi `_discard_pdf()` dan `closed.emit()` TIDAK boleh
+            # bergantung pada cleanup itu sama sekali: kalau terlewat,
+            # naskah ujian tertinggal di %TEMP% untuk pupil berikutnya dan
+            # `__main__` tidak pernah tahu jendela ini sudah ditutup.
+            self._cleanup_pdf_viewer()
+            self._discard_pdf()
             self.closed.emit()
             event.accept()
             return
@@ -2145,8 +2389,13 @@ class ExamViewerWindow(QMainWindow):
         # `closeEvent` berikutnya jadi `event.ignore()`, dan di medium/
         # strict itu menutup gate close→auto-submit — satu-satunya jalan
         # keluar yang tersisa cuma Task Manager. Selain itu exception yang
-        # lolos dari sini pada PyQt5 berakhir sebagai `qFatal()` (SIGABRT),
-        # jadi path "kegagalan dialog" harus ditangani, bukan diteruskan.
+        # lolos dari sini pada PyQt5 5.15.10 TIDAK abort: ukurannya hanya
+        # traceback ke stderr lalu alur dilanjutkan (diverifikasi ronde 8).
+        # Dan pada build PyInstaller `--windowed` stderr dibuang, jadi
+        # kegagalan diam-diam yang sebenarnya terlihat SISWA adalah dialog
+        # keluar yang tidak pernah tampil — tombol "Keluar" tidak melakukan
+        # apa pun tanpa penjelasan. Itu sebabnya path "kegagalan dialog"
+        # harus ditangani di sini, bukan diteruskan.
         try:
             with self._modal_dialog_guard():
                 _box = QMessageBox(
@@ -2186,7 +2435,7 @@ class ExamViewerWindow(QMainWindow):
             self._stop_autosave()
             if self._security:
                 self._security.deactivate()
-            self._pdf_viewer.cleanup()
+            self._cleanup_pdf_viewer()
             self._discard_pdf()
             self.closed.emit()
             with self._submit_lock:
@@ -2332,7 +2581,7 @@ class ExamViewerWindow(QMainWindow):
             self._stop_autosave()
             if self._security:
                 self._security.deactivate()
-            self._pdf_viewer.cleanup()
+            self._cleanup_pdf_viewer()
             self._discard_pdf()
             with self._submit_lock:
                 self._submitted = True

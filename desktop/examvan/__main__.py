@@ -24,13 +24,23 @@ def _setup_logging() -> None:
     PDF, dan submit hilang begitu saja dan bug lapangan tidak bisa
     didiagnosis. Log di ~/.config/examvan/app.log (rotating 1 MB × 3)
     agar folder config tidak membengkak.
+
+    PERMISSION (LOW): log ini dulu satu-satunya berkas yang ditulis klien
+    TANPA 0600/DACL, padahal isinya bisa memuat token kelas
+    (`_validated_token` mencatat token di level WARNING saat jatuh ke
+    fallback QLineEdit) dan nomor ujian. Semua berkas kredensial lain sudah
+    0600 + DACL pemilik; log harus sama. Rotation mewarisi mode berkas asal
+    (rename mempertahankan inode), jadi satu panggilan untuk `app.log`
+    cukup untuk `app.log.1..3` — tapi log versi lama sudah terlanjur 0644
+    di disk, jadi backup yang masih ada ikut dikunci di sini.
     """
     try:
         from pathlib import Path
         log_dir = Path.home() / ".config" / "examvan"
         log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "app.log"
         handler = RotatingFileHandler(
-            log_dir / "app.log",
+            log_file,
             maxBytes=1_000_000,
             backupCount=3,
             encoding="utf-8",
@@ -38,6 +48,17 @@ def _setup_logging() -> None:
         handler.setFormatter(logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s: %(message)s"
         ))
+        # Dipakai helper yang SAMA dengan config.json/answers: `chmod`
+        # untuk POSIX dan DACL pemilik untuk Windows (chmod tidak
+        # menyentuh ACL). Best-effort di dalamnya.
+        from . import config as _config
+
+        for candidate in (log_file, *sorted(log_dir.glob("app.log.*"))):
+            try:
+                if candidate.is_file():
+                    _config._restrict_to_owner(candidate)
+            except OSError:
+                continue
         root = logging.getLogger()
         root.setLevel(logging.INFO)
         root.addHandler(handler)
@@ -111,10 +132,17 @@ def _validated_token(dialog) -> str:
     if not token:
         try:
             token = dialog.input_token.text().strip().upper()
+            # Token TIDAK dicetak. Pada mode static-token itu kredensial hasil
+            # SELURUH KELAS, dan `app.log` di PC lab tidak dibersihkan antar
+            # siswa — jadi menuliskannya berarti kelas berikutnya punya token
+            # hanya dengan membuka `%USERPROFILE%` + `app.log` di Notepad.
+            # Panjang + dua karakter akhir sudah cukup untuk membedakan
+            # "konektor tidak mengirim token" dari "siswa mengetik acak",
+            # tanpa memperbesar kebocoran.
             log.warning(
-                "validated_token kosong — memakai isi QLineEdit (%s) untuk "
-                "dialog persetujuan dan jendela ujian",
-                token or "<kosong>",
+                "validated_token kosong — memakai isi QLineEdit untuk dialog "
+                "persetujuan dan jendela ujian (panjang=%d, akhir=%s)",
+                len(token), token[-2:] if len(token) >= 2 else "-",
             )
         except Exception:
             log.warning("tidak bisa membaca token sama sekali", exc_info=True)
@@ -183,15 +211,131 @@ def _recover_windows_settings() -> None:
 
 
 
+def _process_is_alive(pid: int) -> bool:
+    """True kalau proses dengan PID itu masih hidup.
+
+    Satu-satunya bukti, dipakai sapu PDF untuk membedakan "sisa proses
+    yang sudah mati" dari "unduhan instance lain yang sedang berjalan".
+
+    Arah bias: kalau tidak bisa MEMBUKTIKAN prosesnya sudah mati, jawab
+    "hidup". Menghapus file milik proses yang masih menulis membuat
+    `os.replace` di proses itu gagal → siswa melihat "download failed"
+    untuk berkas yang tidak pernah rusak; menyisakan file basi hanya
+    membuang sedikit ruang disk yang akan hilang di sapu berikutnya.
+
+    PID yang dipakai ulang setelah proses mati membuat satu file basi
+    tertinggal satu putaran startup — arah yang benar, karena satu
+    berkas yang salah dihapus lebih mahal daripada satu berkas yang
+    belum terhapus.
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        return _windows_process_is_alive(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Proses ADA, cuma milik user lain. "Hidup".
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _windows_process_is_alive(pid: int) -> bool:
+    """Versi Win32 dari `_process_is_alive` (best-effort, default "hidup").
+
+    `chmod` sudah tidak berarti apa-apa di Windows, dan `os.kill(pid, 0)`
+    tidak ada di sana. `OpenProcess` + `GetExitCodeProcess` adalah cara
+    standar; `ERROR_ACCESS_DENIED` dari `OpenProcess` berarti proses ADA
+    (milik akun lain), jadi dijawab "hidup" — bukan "mati".
+
+    Kegagalan apa pun → True, supaya caller tidak menghapus file yang
+    mungkin masih dipakai.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        ERROR_INVALID_PARAMETER = 87
+        kernel32 = ctypes.windll.kernel32  # noqa: PLC0415 — hanya di Windows
+        kernel32.GetLastError.restype = wintypes.DWORD
+        handle = kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid,
+        )
+        if not handle:
+            # 87 = tidak ada proses dengan PID itu. Apa pun kode lain
+            # (termasuk ACCESS_DENIED) = jangan buktikan apa pun, tahan file.
+            return kernel32.GetLastError() != ERROR_INVALID_PARAMETER
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return True
+
+
+def _stale_pdf_candidates(temp_dir) -> list:
+    """Semua nama naskah ujian milik EXAMVAN di `temp_dir`, dua bentuknya.
+
+    Bentuk pertama (`examvan_exam_<id>.pdf`) adalah hasil `os.replace`
+    yang sudah selesai. Bentuk kedua (`...pdf.tmp.<pid>.<tid>`) adalah
+    unduhan yang belum selesai — atau prosesnya DIBUNUH di tengah, dan
+    itu justru kasus yang paling mahal: salinan naskah ujian utuh (atau
+    hampir utuh) tertinggal di `%TEMP%` sampai proses berikutnya menyapunya.
+
+    `glob("examvan_exam_*.pdf")` tidak akan pernah cocok dengan bentuk
+    kedua: `*` di `glob` berhenti di `/`, bukan melintasi titik, dan nama
+    itu sudah tidak berakhiran `.pdf`. Pola kedua karena itu dibuat
+    eksplisit, bukan `*`.
+    """
+    from pathlib import Path
+
+    from .api import _PDF_TMP_MARKER
+
+    base = Path(temp_dir)
+    return sorted(
+        set(base.glob("examvan_exam_*.pdf"))
+        | set(base.glob(f"examvan_exam_*.pdf{_PDF_TMP_MARKER}*"))
+    )
+
+
 def _sweep_stale_exam_pdfs() -> None:
     """Sapu PDF ujian basi di tempdir (L-3, best-effort).
 
     Naskah ujian diunduh ke `examvan_exam_<id>.pdf` di tempdir dan normalnya
     dihapus tiap jalur keluar viewer — tapi crash/kill proses melewatkan
-    semuanya. Mutex instansi-tunggal menjamin tidak ada proses EXAMVAN lain
-    yang sedang mengunduh saat sapu ini jalan, jadi aman menghapus yang
-    berpola milik kita. Best-effort: kegagalan tidak boleh menggagalkan
-    startup.
+    semuanya, termasuk saudara `.tmp.<pid>.<tid>` yang tidak pernah dihapus
+    `_discard_pdf` (ia hanya tahu `dest_path`).
+
+    BERJALAN SETELAH `_acquire_single_instance_lock()`. Dulu urutannya
+    terbalik: sapu dipanggil sebelum mutex diambil, sementara docstring
+    membenarkan keamanannya justru dengan mutex yang belum ada.
+    Sekarang urutannya dijamin oleh `main()` dan, sebagai jaring kedua
+    yang benar-benar bekerja lintas platform, `_process_is_alive`: berkas
+    temp milik proses yang masih hidup tidak pernah disentuh.
+
+    Catatan jujur tentang mutex (MEDIUM 2): `CreateMutexW` dengan nama
+    tanpa awalan `Global`/`Local` hidup di namespace SESI Win32 pemanggil,
+    jadi dua sesi di satu mesin (Fast User Switching, RDP/terminal server)
+    masing-masing punya mutex sendiri dan keduanya tetap bisa jalan. Klaim
+    itu disimpulkan dari semantik Win32 (dokumentasi object namespace),
+    TIDAK bisa dieksekusi di runner Linux ini. Di Linux tidak ada mutex
+    sama sekali.
+    Itulah sebabnya cek PID — bukan mutex — yang jadi mekanisme keamanannya.
+
+    Best-effort: kegagalan tidak boleh menggagalkan startup.
 
     WAJIB modul-level, bukan di tengah badan `main()`: fungsi yang
     didefinisikan di dalam badan fungsi lain mengakhiri badan itu, jadi
@@ -200,19 +344,68 @@ def _sweep_stale_exam_pdfs() -> None:
     """
     try:
         import tempfile
-        from pathlib import Path
+
+        from .api import _pdf_temp_owner_pid
 
         count = 0
-        for path in Path(tempfile.gettempdir()).glob("examvan_exam_*.pdf"):
+        for path in _stale_pdf_candidates(tempfile.gettempdir()):
             try:
-                if path.is_file():
-                    path.unlink()
-                    count += 1
+                if not path.is_file():
+                    continue
+                pid, _tid = _pdf_temp_owner_pid(path.name)
+                if pid is not None and _process_is_alive(pid):
+                    # Instance lain sedang mengunduh ke sana.
+                    continue
+                path.unlink()
+                count += 1
             except OSError:
                 continue
         log.debug("menyapu %d PDF ujian basi", count)
     except Exception:
         log.debug("sweep PDF ujian basi gagal", exc_info=True)
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Kunci instansi-tunggal. True = lanjut; False = sudah ada proses lain.
+
+    Dipisah dari `main()` supaya urutannya terhadap sapu PDF bisa diuji
+    tanpa menjalankan UI, dan supaya penolakan (`sys.exit`) tetap milik
+    `main()` saja -- fungsi ini tidak boleh mengeluarkan proses darinya.
+
+    Batas jujur dari mekanisme ini, disimpulkan dari semantik Win32 dan
+    TIDAK bisa dieksekusi di runner Linux ini:
+
+    * Nama tanpa awalan `Global`/`Local` hidup di namespace SESI pemanggil.
+      Dua sesi di satu mesin (Fast User Switching, RDP/terminal server)
+      masing-masing mendapat mutex sendiri, jadi keduanya tetap bisa
+      menjalankan EXAMVAN. Perbaikannya (awalan `Global`) menuntut nama
+      yang sama dipakai di `examvan.iss` (`AppMutex`), jadi itu perubahan
+      lintas berkas -- dilaporkan, tidak dikerjakan di sini.
+    * Di Linux fungsi ini selalu True: tidak ada mutex. Itulah sebabnya
+      `_sweep_stale_exam_pdfs` tidak bergantung pada mutex dan memeriksa
+      PID pemilik tiap berkas temp satu per satu (`_process_is_alive`).
+
+    Kegagalan memasang mutex = lanjut jalan (best-effort), seperti
+    sebelumnya: PC yang salah konfigurasi lebih baik menampilkan jendela
+    daripada diam-diam tidak bisa dibuka.
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        from ctypes import windll  # noqa: PLC0415 — hanya ada di Windows
+
+        global _app_mutex_handle
+        _kernel32 = windll.kernel32
+        _handle = _kernel32.CreateMutexW(None, False, "EXAMVAN_SingleInstance_v1")
+        # GetLastError harus dibaca SEGERA setelah CreateMutexW.
+        _err = _kernel32.GetLastError()
+        if _err == 183:  # ERROR_ALREADY_EXISTS
+            return False
+        _app_mutex_handle = _handle
+        return True
+    except Exception:
+        log.warning("single-instance mutex gagal dipasang", exc_info=True)
+        return True
 
 
 # Modul Qt yang di-hard-import oleh aplikasi.
@@ -323,8 +516,6 @@ def main() -> None:
         # run atexit at all.
         atexit.register(_recover_windows_settings)
         _recover_windows_settings()
-    # L-3: sapu PDF ujian basi di sebelah pemulihan crash.
-    _sweep_stale_exam_pdfs()
 
     # Identitas + konteks dari proses SEBELUMNYA ikut disapu di sini.
     #
@@ -357,32 +548,32 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("EXAMVAN")
+
     # Instansi tunggal (Windows saja): cegah dua proses ujian berjalan
     # bersamaan di PC yang sama. No-op di Linux.
-    if sys.platform == "win32":
-        try:
-            from ctypes import windll  # noqa: PLC0415 — hanya ada di Windows
+    #
+    # URUTAN PENTING (MEDIUM 2): kunci diambil SEBELUM sapu PDF. Dulu
+    # sapu dipanggil 40 baris lebih awal, sementara docstring-nya
+    # membenarkan keamanannya dengan mutex yang belum ada pada baris itu.
+    # Di Linux tidak ada mutex sama sekali, jadi yang benar-benar menahan
+    # sapu agar tidak menabrak unduhan instance lain adalah cek PID di
+    # `_sweep_stale_exam_pdfs` — dua hal ini sengaja dipisah: mutex
+    # mengurangi jumlah proses, cek PID yang membuat penghapusan aman.
+    if not _acquire_single_instance_lock():
+        from PyQt5.QtWidgets import QMessageBox
 
-            global _app_mutex_handle
-            _kernel32 = windll.kernel32
-            _handle = _kernel32.CreateMutexW(None, False, "EXAMVAN_SingleInstance_v1")
-            # GetLastError harus dibaca SEGERA setelah CreateMutexW.
-            _err = _kernel32.GetLastError()
-            if _err == 183:  # ERROR_ALREADY_EXISTS
-                from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.warning(
+            None,
+            "EXAMVAN",
+            "EXAMVAN sudah berjalan. Tutup jendela yang ada "
+            "sebelum membuka yang baru.",
+        )
+        sys.exit(0)
 
-                QMessageBox.warning(
-                    None,
-                    "EXAMVAN",
-                    "EXAMVAN sudah berjalan. Tutup jendela yang ada "
-                    "sebelum membuka yang baru.",
-                )
-                sys.exit(0)
-            _app_mutex_handle = _handle
-        except SystemExit:
-            raise
-        except Exception:
-            log.warning("single-instance mutex gagal dipasang", exc_info=True)
+    # L-3: sapu PDF ujian basi di sebelah pemulihan crash — dan di
+    # belakang kunci instansi-tunggal.
+    _sweep_stale_exam_pdfs()
+
     # Dari APP_VERSION, bukan literal: literal ketiga yang tidak terhubung
     # ke mana pun adalah alasan Properties exe dan installer pernah
     # melaporkan nomor berbeda.

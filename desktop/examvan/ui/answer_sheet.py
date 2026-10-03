@@ -22,6 +22,15 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+# H4: `left_items`/`right_items` berasal dari server dan tidak pernah
+# divalidasi. Tanpa `setTextFormat(Qt.PlainText)` di bawah, default
+# `QLabel.textFormat()` = `Qt.AutoText` dan markup dari server dirender
+# sebagai rich text — termasuk `<img src="file://...">` yang membuat
+# `QTextDocument` membuka berkas lokal sinkron di thread GUI. Sanitizer-nya
+# milik `congratulations` (tidak boleh diedit ronde ini) — di-IMPORT, bukan
+# disalin, supaya tidak lahir dua versi yang berbeda.
+from .congratulations import _sanitize_server_text
+
 
 class _PopupWheelGuard(QObject):
     """Keep the scroll area still while a combo popup is open.
@@ -575,7 +584,12 @@ class AnswerSheetWidget(QWidget):
             row_layout = QVBoxLayout()
             row_layout.setSpacing(6)
             row_layout.setContentsMargins(0, 6, 0, 6)
-            lbl = QLabel(str(left))
+            # Item kiri adalah teks server (lihat catatan import H4).
+            # `left_key` di bawah tetap memakai `str(left)` apa adanya:
+            # sanitasi ini hanya untuk TAMPILAN, dan mengubah kunci payload
+            # akan memutus kecocokan `evaluateMatching` di server.
+            lbl = QLabel(_sanitize_server_text(str(left)))
+            lbl.setTextFormat(Qt.PlainText)
             lbl.setStyleSheet("font-size: 13px; font-weight: bold;")
             row_layout.addWidget(lbl)
 
@@ -707,6 +721,17 @@ class AnswerSheetWidget(QWidget):
             if val is not None and val != "" and val != [] and val != {}:
                 answered += 1
         self._lbl_count.setText(f"{answered} / {total} terjawab")
+
+    def is_built(self) -> bool:
+        """True kalau `build_from_questions` sudah pernah berjalan.
+
+        Dibutuhkannya: separuh `restore_answers` adalah PRUNING yang hanya
+        bisa jalan kalau `_answer_widgets` sudah terisi. Pemanggil di luar
+        lembar (viewer menjadwalkan restore dari konstruktor, sedangkan
+        lembar baru dibangun setelah PDF siap) memakai ini untuk menunggu,
+        bukan memulihkan jawaban ke layar yang belum ada soalnya.
+        """
+        return self._counted_numbers is not None
 
     def get_answers(self) -> Dict[str, Any]:
         """Return all answers as {question_num_str: value}.

@@ -27,11 +27,20 @@ class ComputeRemainingSecondsTest(unittest.TestCase):
     def test_remaining_with_skew(self):
         now = datetime(2026, 8, 16, 8, 0, 0, tzinfo=timezone.utc)
         end = now + timedelta(minutes=30)
-        # skew +5s (server ahead) → remaining 1805s
+        # skew +5s (server 5 dtk DI DEPAN perangkat) →_device_now_ harus
+        # dikoreksi MAJU 5 dtk, jadi sisa 1800 - 5 = 1795s.
+        #
+        # Nilai lama test ini 1805.0, dan itu justru MENGUNCI bug-nya:
+        # `compute_remaining_seconds` menambahkan skew, padahal
+        # `api.compute_server_skew_ms` mengembalikan `server - device`
+        # (api.py:187). Akibatnya error jam perangkat dihitung DUA KALI
+        # dengan arah yang sama: perangkat mundur 1 jam dapat 2 jam
+        # tambahan. Koreksi yang benar membuat sisa sama sekali tidak
+        # bergantung pada jam perangkat (audit ronde 8, C1).
         remaining = compute_remaining_seconds(
             end.isoformat(), now, skew_ms=5000,
         )
-        self.assertAlmostEqual(remaining, 1805.0, places=3)
+        self.assertAlmostEqual(remaining, 1795.0, places=3)
 
     def test_negative_when_past_deadline(self):
         now = datetime(2026, 8, 16, 8, 0, 0, tzinfo=timezone.utc)

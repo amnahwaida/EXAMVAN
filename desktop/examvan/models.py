@@ -33,6 +33,65 @@ def _as_dict(data: Any) -> Dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _text(value: Any) -> Optional[str]:
+    """Coerce nilai apa pun jadi teks, atau None kalau memang tidak ada.
+
+    SATU choke point untuk semua field yang nanti dipakai Qt atau method
+    string. Server yang salah bentuk (proxy, WAF, captive portal, payload
+    tangan) bisa mengisi kolom teks dengan angka atau objek, dan tanpa ini
+    nilainya sampai ke Qt apa adanya:
+
+        HealthResponse.from_json({"status": 12345}).status  ->  12345  (int)
+        SubmitResponse.from_json({"congrats_message": [1, 2]})
+            .congrats_message                                ->  [1, 2]
+
+    `ui/congratulations.py:238` memanggil `.strip()` pada
+    `congrats_message`, jadi int/list/dict melempar AttributeError DI
+    TENGAH jalur auto-submit — di mana exception itu tertelan
+    `log.debug` di `exam_viewer.py:1674`, `_on_auto_submit_done` tidak
+    pernah jalan, `_auto_submit_pending` tetap True, dan siswa terkunci di
+    layar progres sampai watchdog 110 detik. Di jalur manual, siswa diberi
+    tahu submit-nya GAGAL padahal sukses.
+
+    Coercion, BUKAN filter truthiness. `"false"` tetap `"false"` dan
+    `12345` jadi `"12345"` — bukan `""` — supaya pesan yang dilihat siswa
+    dan isi log tetap sama dengan yang sebenarnya dikirim server, dan
+    supaya `error_code` yang membandingkan dengan TEKS (`"non_json_response"`)
+    tidak berubah artinya hanya karena tipenya salah.
+    """
+    if value is None:
+        return None
+    return value if isinstance(value, str) else str(value)
+
+
+def _text_or(value: Any, default: str = "") -> str:
+    """`_text` dengan default untuk field yang tidak boleh `None`."""
+    coerced = _text(value)
+    return default if coerced is None else coerced
+
+
+def _flag(value: Any, default: bool = False) -> bool:
+    """Bool yang menghormati bentuk string, konsisten untuk semua flag.
+
+    Server (dan proxy yang menulis ulang payload) bisa mengirim flag sebagai
+    teks. `bool("false")` adalah True, jadi `required` yang dikonversi
+    dengan `bool()` membuat kolom OPSIONAL menjadi WAJIB — siswa lalu
+    dipaksa mengisi field yang memang opsional dengan dialog yang tidak
+    punya jalan keluar. `strict_mode` dan `public_results` sudah
+    string-decoded; sekarang `required` ikut aturan yang sama.
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("", "0", "false", "no", "off"):
+            return False
+        if s in ("1", "true", "yes", "on"):
+            return True
+        return bool(s)
+    return bool(value)
+
+
 @dataclass
 class IdentityField:
     key: str
@@ -72,10 +131,10 @@ class HealthResponse:
         data = _as_dict(data)
         return cls(
             success=bool(data.get("success")),
-            status=data.get("status", ""),
-            version=data.get("version", ""),
-            certificate_fingerprint=data.get("certificate_fingerprint"),
-            server_time_utc=data.get("server_time_utc"),
+            status=_text_or(data.get("status", "")),
+            version=_text_or(data.get("version", "")),
+            certificate_fingerprint=_text(data.get("certificate_fingerprint")),
+            server_time_utc=_text(data.get("server_time_utc")),
         )
 
 
@@ -116,14 +175,26 @@ class Exam:
                 if not isinstance(f, dict):
                     continue
                 # Ronde 6 (item 2): key WAJIB berupa string. Angka di JSON
-                # (`123`) tidak bisa di-decode ke `Key string` di Go, jadi
-                # `api/exams.go` membuang UnmarshalTypeError dan field itu
-                # tersimpan dengan `Key:""`. Client di sini memanggil
-                # `str()`, jadi angka 123 menjadi "123.0" dan terkirim —
-                # sementara `identityFieldValue` mencari `field_<idx>` lalu
-                # `""`, tidak pernah "123.0": field wajib selalu kosong dan
-                # setiap submit dijawab 400 "Identitas '<label>' wajib diisi"
-                # tanpa ada yang bisa memperbaikinya dari sisi siswa.
+                # (`123`) tidak bisa di-decode ke `Key string` di Go, dan
+                # `api/exams.go` MEMBUANG UnmarshalTypeError-nya — bukan
+                # hanya field itu yang gagal, tapi SELURUH array
+                # `identity_fields` pada respons itu, karena `json.Unmarshal`
+                # berhenti di error pertama lalu mengembalikan error-nya ke
+                # pemanggil. Kalau array itu tidak ada sama sekali, request
+                # lanjut sebagai "ujian tanpa kolom identitas"; kalau ada,
+                # seluruh field lenyap bersama-sama.
+                #
+                # Dua konsekuensi yang harus jujur disebut:
+                #  1. Di sisi CLIENT, `str(123)` adalah "123" (BUKAN
+                #     "123.0" seperti pernah diklaim komentar ini) dan key itu
+                #     terkirim apa adanya.
+                #  2. `identityFieldValue` mencari `field.Key` PERSIS
+                #     seperti tersimpan, lalu fallback `field_<idx>` lalu
+                #     `""` — tidak pernah "123". Jadi field wajib yang
+                #     nomornya terkirim sebagai angka akan selalu dianggap
+                #     kosong dan setiap submit dijawab 400 "Identitas
+                #     '<label>' wajib diisi" tanpa ada yang bisa
+                #     memperbaikinya dari sisi siswa.
                 #
                 # Coercion TETAP dilakukan (server rusak tidak boleh
                 # menjatuhkan dialog join), tapi key yang salah bentuk
@@ -151,7 +222,7 @@ class Exam:
                     IdentityField(
                         key=str(f.get("key") or ""),
                         label=str(f.get("label") or f.get("key") or ""),
-                        required=bool(f.get("required", False)),
+                        required=_flag(f.get("required", False)),
                         key_is_text=key_is_text,
                     )
                 )
@@ -171,16 +242,9 @@ class Exam:
         raw_strict = data.get("strict_mode", False)
         # String "false"/"0"/""/"no"/"off" -> False; "1"/"true"/"yes"/"on"
         # -> True (strip + case-insensitive). Non-string ikut bool(v).
-        if isinstance(raw_strict, str):
-            _s = raw_strict.strip().lower()
-            if _s in ("", "0", "false", "no", "off"):
-                strict_mode = False
-            elif _s in ("1", "true", "yes", "on"):
-                strict_mode = True
-            else:
-                strict_mode = bool(raw_strict)
-        else:
-            strict_mode = bool(raw_strict)
+        # `_flag` yang sama juga dipakai `required`, supaya ketiga
+        # flag config punya satu definisi "tentuk apa yang berarti false".
+        strict_mode = _flag(raw_strict)
         raw_color = data.get("panel_color", "#6366f1")
         panel_color = str(raw_color or "")
         if not re.fullmatch(r"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?", panel_color):
@@ -188,24 +252,19 @@ class Exam:
         # Kunci PERSIS "public_results" seperti dikirim server (int 0/1).
         # Absen → True (perilaku lama). Bentuk string ("0"/"false"/...)
         # ditoleransi karena proxy/payload tangan bisa membawanya.
-        raw_public = data.get("public_results", True)
-        if isinstance(raw_public, str):
-            public_results = raw_public.strip().lower() not in (
-                "", "0", "false", "no", "off")
-        else:
-            public_results = bool(raw_public)
+        public_results = _flag(data.get("public_results", True), default=True)
         return cls(
             id=exam_id,
             name=str(data.get("name") or ""),
-            status=data.get("status", ""),
-            security_level=data.get("security_level", DEFAULT_LEVEL),
+            status=_text_or(data.get("status", "")),
+            security_level=_text_or(data.get("security_level", DEFAULT_LEVEL)),
             strict_mode=strict_mode,
             public_results=public_results,
             identity_fields=fields,
             panel_color=panel_color,
             size_mb=size_mb,
-            start_time=data.get("start_time"),
-            end_time=data.get("end_time"),
+            start_time=_text(data.get("start_time")),
+            end_time=_text(data.get("end_time")),
             questions=questions,
         )
 
@@ -273,8 +332,9 @@ class TokenExamResponse:
         return cls(
             success=bool(data.get("success")),
             exam=exam,
-            error=data.get("error"),
-            message=data.get("message"),        )
+            error=_text(data.get("error")),
+            message=_text(data.get("message")),
+        )
 
 
 @dataclass
@@ -339,12 +399,12 @@ class SubmitResponse:
                 score = None
         return cls(
             success=bool(data.get("success")),
-            message=data.get("message", ""),
-            status=data.get("status"),
-            job_id=data.get("job_id"),
+            message=_text_or(data.get("message", "")),
+            status=_text(data.get("status")),
+            job_id=_text(data.get("job_id")),
             score=score,
-            congrats_message=data.get("congrats_message"),
-            error_code=data.get("error_code"),
+            congrats_message=_text(data.get("congrats_message")),
+            error_code=_text(data.get("error_code")),
         )
 
 @dataclass
@@ -368,7 +428,7 @@ class RequestApprovalResponse:
         data = _as_dict(data)
         return cls(
             success=bool(data.get("success", "status" in data)),
-            status=data.get("status", "pending"),
-            message=data.get("message", data.get("error", "")),
+            status=_text_or(data.get("status", "pending"), "pending"),
+            message=_text_or(data.get("message", data.get("error", ""))),
         )
 

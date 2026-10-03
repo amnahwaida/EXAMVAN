@@ -11,7 +11,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-
 	"html/template"
 	"log"
 	"math"
@@ -209,7 +208,7 @@ func main() {
 	// saat join wave — itu CPU terbuang plus churn rotasi log Docker; di
 	// produksi access_log nginx sudah mencakup kebutuhan audit HTTP.
 	if cfg.IsDevelopment() {
-		r.Use(gin.Logger())
+		r.Use(gin.LoggerWithFormatter(logFormatterWithoutQueryString))
 	}
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS(cfg.CORSOrigins))
@@ -528,6 +527,61 @@ const (
 	rateLimitWSPerMinute       = natRoomSize * 3 // GET /ws/:room_id — koneksi long-lived + badai reconnect
 	rateLimitHasilPerMinute    = natRoomSize * 3 // GET /hasil[/:token] + /api/hasil/:token — IP ceiling (satu NAT sekolah = satu ruangan, 500+ siswa berbagi satu IP, satu tampilan = 2 permintaan); anti-brute yang sebenarnya di-enforce per-CLIENT di dalam handler, dengan backstop per-token yang jauh lebih longgar (public.hasilClientRateLimitMax / hasilTokenRateLimitMax — lihat internal/handlers/public/hasil_ratelimit.go)
 )
+
+// logFormatterWithoutQueryString = formatter log gin yang TIDAK PERNAH menulis
+// query string.
+//
+// Kenapa perlu: `QWebSocket` di Qt5 tidak bisa memasang header request, jadi
+// client不得不 menaruh token ujian di query (`ws.py::_ws_url`), dan handler WS
+// membacanya dari `c.Query("token")` (`registerRoutes`). Pada mode static-token
+// itu kredensial hasil SELURUH KELAS.
+//
+// `gin.Logger()` bawaan memakai formatter default yang menempelkan
+// `RawQuery` ke path, jadi setiap connect DAN setiap reconnect menulis
+// `GET /ws/7?token=ABCD1234` apa adanya ke access log — persis kebocoran yang
+// `api.py` sengaja dihindari untuk `identity_data`, dan yang `nginx.conf`
+// sudah dimatikan untuk `location /ws/`. Log ini adalah lapisan origin-nya.
+//
+// Yang dibuang bukan cuma `token`, tapi SELURUH query string: kalau nanti ada
+// parameter lain yang sensitif ditambahkan di URL, formatter ini tetap aman
+// tanpa perlu diubah. Path tanpa query sudah cukup untuk diagnosis, dan
+// `Host`/`ClientIP` tetap dicatat.
+func logFormatterWithoutQueryString(p gin.LogFormatterParams) string {
+	path := p.Path
+	if path == "" && p.Request != nil {
+		path = p.Request.URL.Path
+	}
+	// `p.Path` pada gin sudah termasuk query kalau formatter default yang
+	// memakainya; ambil path BERSIH langsung dari URL agar tidak bergantung
+	// pada implementasi internal gin.
+	if p.Request != nil && p.Request.URL != nil {
+		path = p.Request.URL.Path
+	}
+	clipped := path
+	if len(clipped) > 256 {
+		clipped = clipped[:256] + "…"
+	}
+	_ = p.ErrorMessage
+	return fmt.Sprintf(
+		"%s | %3d | %13v | %15s | %-7s %s%s\n",
+		p.TimeStamp.Format("2006/01/02 - 15:04:05"),
+		p.StatusCode,
+		p.Latency,
+		p.ClientIP,
+		p.Method,
+		clipped,
+		queryNote(p.Request),
+	)
+}
+
+// queryNote memberi tahu bahwa query sengaja dihapus, supaya baris log tidak
+// disalahbaca sebagai request tanpa parameter sama sekali.
+func queryNote(r *http.Request) string {
+	if r == nil || r.URL == nil || r.URL.RawQuery == "" {
+		return ""
+	}
+	return " [qs disembunyikan]"
+}
 
 func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	// ---- Public pages (no auth required) ----

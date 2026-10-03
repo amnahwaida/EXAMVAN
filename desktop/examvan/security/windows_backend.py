@@ -657,12 +657,46 @@ def _get_hwnd(window: Any) -> Optional[int]:
         return None
 
 
+class MonitorDetectError(RuntimeError):
+    """Jumlah monitor TIDAK bisa dipastikan — bukan "satu monitor".
+
+    Keadaan ketiga yang selama ini hilang. `_has_multiple_monitors()`
+    pernah memakai `except Exception: return False`, jadi "tidak bisa
+    memastikan" dijawab persis sama dengan "memang ada satu monitor" —
+    sedangkan dua pemanggilnya (`ServerConfigDialog._strict_monitor_ok` dan
+    `__main__` sebelum membuka jendela ujian) mendokumentasikan policy
+    FAIL-CLOSED: "detector exception = tolak" lengkap dengan pesan
+    "Tidak Dapat Memeriksa Layar". Cabang itu tidak pernah tereksekusi,
+    karena exception-nya sudah ditelan di sini.
+
+    Sekarang kegagalan DILEWATKAN sebagai exception, sehingga policy kedua
+    pemanggil benar-benar berlaku. Subkelas `RuntimeError` supaya
+    `except Exception` di sana tetap menangkapnya.
+    """
+
+
 def _has_multiple_monitors() -> bool:
-    """Check if system has more than one monitor."""
+    """True kalau sistem benar-benar punya lebih dari satu monitor.
+
+    Melempar `MonitorDetectError` kalau jumlah monitor TIDAK bisa
+    dipastikan (probe Win32 tidak terikat, atau mengembalikan 0). Pelegalnya
+    ada di `WindowsBackend.has_multiple_monitors` dan `_bind_failed`.
+    """
     try:
-        return _GetSystemMetrics(SM_CMONITORS) > 1
-    except Exception:
-        return False
+        count = _GetSystemMetrics(SM_CMONITORS)
+    except Exception as exc:
+        raise MonitorDetectError(
+            "GetSystemMetrics(SM_CMONITORS) gagal — jumlah monitor tidak "
+            "bisa dipastikan"
+        ) from exc
+    if not isinstance(count, int) or count < 1:
+        # GetSystemMetrics mengembalikan 0 saat gagal; 0 monitor bukan
+        # "satu monitor".
+        raise MonitorDetectError(
+            f"GetSystemMetrics(SM_CMONITORS) mengembalikan {count!r} — "
+            "jumlah monitor tidak bisa dipastikan"
+        )
+    return count > 1
 
 
 # ---------------------------------------------------------------------------
@@ -790,12 +824,20 @@ class WindowsBackend(SecurityBackend):
         self._hook_started = False
         self._hook_installed = False
         self._exec_state_handle: Optional[int] = None
+        # Kegagalan `_bind()` dulu hanya meninggalkan `log.warning`, lalu
+        # seluruh probe Win32 berikutnya resolve lewat module `__getattr__`
+        # dan melempar AttributeError yang tidak terlihat. Sekarang
+        # dicatat di state, supaya `has_multiple_monitors` bisa gagal-
+        # TERBUKA alih-alih melaporkan "satu monitor" (lihat
+        # `MonitorDetectError`).
+        self._bind_failed = False
         if sys.platform == "win32":
             # Binding deterministik saat backend dibuat — bukan kebetulan
             # import (fallback __getattr__ tetap ada untuk pemanggil awal).
             try:
                 _bind()
             except Exception:
+                self._bind_failed = True
                 log.warning("Win32 bind gagal saat init", exc_info=True)
 
     # ------------------------------------------------------------------
@@ -1125,10 +1167,23 @@ class WindowsBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def has_multiple_monitors(self) -> bool:
-        """Return True if system has more than 1 active monitor.
+        """True kalau sistem benar-benar punya lebih dari 1 monitor aktif.
 
-        Used by enforcer to show warning / block exam.
+        Melempar `MonitorDetectError` kalau tidak bisa dipastikan. Itu
+        disengaja: pemanggilnya — `_strict_monitor_ok` di `server_config`
+        dan gate sebelum jendela ujian dibuka di `__main__` — punya cabang
+        "detector exception = tolak" yang tidak akan pernah tereksekusi
+        kalau fungsi ini menelan error-nya sendiri. `enforcer` juga
+        membungkus panggilannya, dan hanya mencatat.
+
+        `linux_backend.py` masih memakai bentuk lama (fail-OPEN) dan itu
+        terdokumentasi sebagai pilihan sendiri — tidak diubah ronde ini.
         """
+        if getattr(self, "_bind_failed", False):
+            raise MonitorDetectError(
+                "binding Win32 gagal saat backend dibuat — jumlah monitor "
+                "tidak bisa dipastikan"
+            )
         return _has_multiple_monitors()
 
     # ------------------------------------------------------------------

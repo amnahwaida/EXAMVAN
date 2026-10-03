@@ -449,6 +449,13 @@ class ViewerHandsOverToThePageTestCase(unittest.TestCase):
         win._presence_active = False
         win._heartbeat_timer = mock.Mock()
         win._ws = mock.Mock()
+        # `_submitted_payload` diisi di `_do_submit`/`_auto_submit_and_exit`,
+        # dan itulah yang dipakai penjaga `clear_answers_if_unchanged` untuk
+        # memutuskan apakah isi disk masih milik percobaan ini. Tanpa itu,
+        # helper-nya gagal-terbuka dan `_cleanup_after_submit` menganggap
+        # disk sudah diganti attempt lain — kondisi yang tidak mungkin
+        # terjadi di produksi tapi membuat viewer fiktif salah____________
+        win._submitted_payload = {"1": "C", "2": "A"}
         return win
 
     def test_viewer_hides_while_congrats_page_shows(self):
@@ -464,7 +471,13 @@ class ViewerHandsOverToThePageTestCase(unittest.TestCase):
         win.close = lambda *a, **k: viewer_closed.append(True)
         win.hide = lambda *a, **k: hidden.append(True)
 
-        with mock.patch.object(ev.config, "clear_answers"), \
+        # Penjaga yang dipanggil `_cleanup_after_submit` adalah
+        # `config.clear_answers_if_unchanged` (read-decide-delete atomik),
+        # bukan `clear_answers` telanjang — mematch yang lama membuat test
+        # tidak menguji jalur yang benar-benar berjalan.
+        with mock.patch.object(
+                ev.config, "clear_answers_if_unchanged",
+                return_value=True) as guard, \
                 mock.patch.object(ev.config, "mark_submitted"), \
                 mock.patch.object(ev.api, "complete_exam"):
             win._cleanup_after_submit("Hebat!")
@@ -497,7 +510,13 @@ class ViewerHandsOverToThePageTestCase(unittest.TestCase):
         win.close = lambda *a, **k: viewer_closed.append(True)
         win.hide = lambda *a, **k: None
 
-        with mock.patch.object(ev.config, "clear_answers"), \
+        # Penjaga yang dipanggil `_cleanup_after_submit` adalah
+        # `config.clear_answers_if_unchanged` (read-decide-delete atomik),
+        # bukan `clear_answers` telanjang — mematch yang lama membuat test
+        # tidak menguji jalur yang benar-benar berjalan.
+        with mock.patch.object(
+                ev.config, "clear_answers_if_unchanged",
+                return_value=True) as guard, \
                 mock.patch.object(ev.config, "mark_submitted"), \
                 mock.patch.object(ev.api, "complete_exam"):
             win._cleanup_after_submit("Hebat!")
@@ -814,7 +833,15 @@ class ServerTextSafetyTestCase(unittest.TestCase):
         card = page.findChild(QWidget, "congratsCard")
         self.assertIsNotNone(card)
         self.assertEqual(card.maximumWidth(), 560)
-        self.assertEqual(card.minimumWidth(), 420)
+        # Minimum kartu diturunkan dari lebar minimum JENDELA (`:CARD_MIN_WIDTH`),
+        # bukan angka tetap 420. Nilai 420 lebih besar dari minimum jendela 360,
+        # jadi pada minimum jendela muncul scrollbar HORIZONTAL dan kartu
+        # melebihi window-nya (audit ronde 8). Yang dijaga test ini adalah
+        # rentang min..max yang masuk akal, bukan angka 420 yang sudah usang.
+        from examvan.ui import congratulations as congratulations_mod
+        self.assertEqual(card.minimumWidth(), congratulations_mod.CARD_MIN_WIDTH)
+        self.assertLessEqual(card.minimumWidth(), card.maximumWidth())
+        self.assertLessEqual(card.minimumWidth(), page.minimumWidth())
 
     def test_note_and_version_inherit_theme_color(self):
         from PyQt5.QtWidgets import QLabel

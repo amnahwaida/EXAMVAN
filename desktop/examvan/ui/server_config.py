@@ -6,7 +6,7 @@ import logging
 import threading
 from typing import Dict, Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QEventLoop, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -30,7 +30,8 @@ from ..utils import (
     map_identity_to_standard,
     student_label,
 )
-from .exam_viewer import answers_match_disk
+from .congratulations import _sanitize_server_text
+from .exam_viewer import answers_match_disk  # noqa: F401  (re-export untuk pengujian)
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,28 @@ log = logging.getLogger(__name__)
 # Bentuk KANONIK (https://, tanpa trailing slash) karena `_on_connect`
 # menormalkan input dengan asumsi itu.
 DEFAULT_SERVER_URL = "https://examvan.my.id"
+
+# Slot identitas yang benar-benar milik SATU siswa, jadi satu-satunya
+# yang boleh jadi dasar "jawaban di disk ini punya kamu".
+#
+# `exam_number` satu-satunya: nama dipakai dua siswa berbeda di kelas
+# berbeda, dipakai seluruh angkatan, dan token dipakai SELURUH kelas
+# pada mode static-token. `_offer_resubmit_choice` sudah memakai aturan
+# yang sama untuk modal "sudah terkumpul" — dua aturan berbeda untuk
+# kasus yang sama hanya menghasilkan dua perilaku berbeda.
+#
+# Kunci yang BUKAN per-siswa bukan hanya tidak berguna sebagai bukti:
+# ia sama untuk semua orang yang memakai PC itu, jadi perbandingan
+# `owner_key != current_key` selalu lulus dan recovery milik siapa pun
+# bisa dikirim atas nama siapa pun.
+_PER_STUDENT_KEY_SOURCE = "exam_number"
+
+# Batas menunggu worker "Kirim Lagi" melapor (detik). Worker ini bisa
+# berjalan ~84 detik di produksi (retry 7 + polling 202), jadi batasnya
+# longgar; tujuannya bukan memotong pengiriman yang sah, melainkan
+# memastikan dialog TIDAK PERNAH menggantung permanen karena worker yang
+# hilang (proxy buntu, proses dibunuh, koneksi yang membeku).
+RECOVERY_WAIT_SECONDS = 180
 
 
 def _present_result_page(
@@ -136,6 +159,27 @@ def _present_result_page(
     return congrats
 
 
+def _redact_key_for_log(key: str, source: str) -> str:
+    """Bentuk yang AMAN untuk dicetak ke log.
+
+    `build_student_key` bisa TURUN ke token ujian ketika tidak ada kolom
+    identitas yang bisa dipakai (lihat `utils.build_student_key_source`).
+    Pada mode static-token itu kredensial hasil SELURUH KELAS, dan `app.log`
+    di PC lab tidak dibersihkan antar siswa — jadi mencetaknya berarti kelas
+    berikutnya punya token-nya hanya dengan mengetik
+    ``%USERPROFILE%`` + ``\\.config\\examvan\\app.log`` di Notepad.
+
+    Yang dicetak cukup untuk diagnosis: `source` sudah ditulis sebagai
+    argumen terpisah, jadi untuk `source == "token"` tidak ada yang perlu
+    ditambah. Kunci yang BUKAN token (nama/nomor) tetap dicetak — itu PII,
+    tapi bukan kredensial, dan sangat berguna saat menelusuri jawaban salah
+    orang.
+    """
+    if source == "token":
+        return "<token: tidak dicetak>"
+    return repr(key)
+
+
 class ServerConfigDialog(QDialog):
     """Initial dialog: enter server URL and exam token."""
 
@@ -147,6 +191,10 @@ class ServerConfigDialog(QDialog):
     _sig_show_identity = pyqtSignal()
     _sig_recovery_available = pyqtSignal(object)  # Exam — jawaban belum terkirim
     _sig_recovery_done = pyqtSignal(str)          # (message) — kirim ulang sukses
+    # (url, fingerprint lama, fingerprint baru) — sertifikat berubah.
+    # Signal terpisah karena `_check_certificate_fingerprint` dipanggil dari
+    # worker: QMessageBox hanya boleh dibangun di UI thread.
+    _sig_certificate_changed = pyqtSignal(str, str, str)
 
     def __init__(self, kiosk_mode: bool = False, parent=None):
         super().__init__(parent)
@@ -177,6 +225,7 @@ class ServerConfigDialog(QDialog):
         self._sig_show_identity.connect(self._show_identity_dialog)
         self._sig_recovery_available.connect(self._show_recovery)
         self._sig_recovery_done.connect(self._recovery_done_slot)
+        self._sig_certificate_changed.connect(self._certificate_changed_slot)
 
         self._setup_ui()
         self._load_saved()
@@ -241,11 +290,32 @@ class ServerConfigDialog(QDialog):
         card_layout.addWidget(lbl_url)
         card_layout.addWidget(self.input_url)
 
+        # Catatan host. H3: URL tersimpan yang bukan server sekolah tetap
+        # di-prefill (lab swakelola tidak boleh setiap pagi mengetik
+        # ulang), tapi tanpa catatan ia tidak bisa dibedakan dari server
+        # sekolah di mata siswa maupun pengawas — dan setelah URL itu
+        # tercatat, token kelas berikutnya dikirim ke sana.
+        self._server_url_note = QLabel("")
+        self._server_url_note.setWordWrap(True)
+        self._server_url_note.setAlignment(Qt.AlignCenter)
+        self._server_url_note.setStyleSheet("font-size: 11px;")
+        self._server_url_note.hide()
+        card_layout.addWidget(self._server_url_note)
+        self.input_url.textChanged.connect(self._refresh_server_url_note)
+
         # Token
         lbl_token = QLabel("Token Ujian")
         self.input_token = QLineEdit()
         self.input_token.setPlaceholderText("8 karakter (contoh: ABCD1234)")
         self.input_token.setMaxLength(8)
+        # DISAMARKAN. `remember_url` bawaannya menyala, jadi token kelas
+        # sesi sebelumnya ada di kotak ini — dan dialog ini tetap
+        # terbuka di antara dua siswa. Kode di repo ini sendiri
+        # memperlakukan token itu sebagai kredensial: `_present_result_page`
+        # memanggil `protect_window_capture` tepat karena halaman
+        # hasil memuatnya. `text()` tetap mengembalikan nilai aslinya,
+        # jadi masking tidak mengubah alur apa pun.
+        self.input_token.setEchoMode(QLineEdit.Password)
         card_layout.addWidget(lbl_token)
         card_layout.addWidget(self.input_token)
 
@@ -270,6 +340,14 @@ class ServerConfigDialog(QDialog):
         self.lbl_status.setStyleSheet("color: #e53935;")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
+        # `QLabel` default `Qt.AutoText`, dan label ini membawa DUA teks yang
+        # datang dari server: `health.status` (`GET /api/health`) dan
+        # `resp.message`/`resp.error` (`GET /api/exams/token/<t>`). Tanpa
+        # `PlainText`, satu string dari server (atau halaman blok proxy)
+        # bisa menyuntik markup ke layar siswa, dan `<img src="file://...">`
+        # membuat `QTextDocument` membuka berkas lokal sinkron di thread GUI.
+        # Sanitasi teksnya sendiri ada di `_set_status_slot`.
+        self.lbl_status.setTextFormat(Qt.PlainText)
         card_layout.addWidget(self.lbl_status)
 
         outer.addWidget(card, alignment=Qt.AlignHCenter)
@@ -278,26 +356,143 @@ class ServerConfigDialog(QDialog):
         outer.addStretch(2)
 
 
+    def server_url_warning_text(self) -> str:
+        """Catatan host yang sedang terlihat di bawah kotak URL."""
+        return self._server_url_note.text()
+
+    def _server_is_trusted(self, url: str) -> bool:
+        """Host yang boleh dipakai tanpa konfirmasi ulang.
+
+        Dua sumber, dan hanya dua:
+
+        * `DEFAULT_SERVER_URL` — server sekolah, yang dituju semua
+          instalasi;
+        * `trusted_server_url` — host yang PERNAH dikonfirmasi pengawas
+          di komputer ini, jadi lab swakelola tidak terkunci di dialog
+          pada setiap peluncuran.
+
+        Host lain harus dikonfirmasi lewat `_confirm_trusted_server`.
+        """
+        url = str(url or "").strip().rstrip("/")
+        if url == DEFAULT_SERVER_URL:
+            return True
+        trusted = str(
+            config.get("trusted_server_url", "") or ""
+        ).strip().rstrip("/")
+        return bool(trusted) and url == trusted
+
+    def _refresh_server_url_note(self, *_args) -> None:
+        """Tampilkan catatan kalau host di kotak bukan host percaya.
+
+        Dipanggil dari `textChanged`, jadi catatan ini selalu soal host
+        yang SEDANG diketik — bukan host yang tersimpan. Tanpa itu, URL
+        lama ter-prefill tanpa memberitahu siapa pun bahwa host itu akan
+        ditanyakan lagi.
+        """
+        url = self.input_url.text().strip()
+        if url and not self._server_is_trusted(url):
+            self._server_url_note.setStyleSheet(
+                "font-size: 11px; color: #b45309;")
+            self._server_url_note.setText(
+                f"Server ini bukan server sekolah ({DEFAULT_SERVER_URL}). "
+                "Pastikan dengan pengawas — host akan ditanyakan sebelum "
+                "token ujian dikirim."
+            )
+            self._server_url_note.show()
+        else:
+            self._server_url_note.setText("")
+            self._server_url_note.hide()
+
+    def _confirm_trusted_server(self, url: str) -> bool:
+        """True = boleh lanjut connects. False = sudah dijelaskan, jangan
+        kirim apa pun.
+
+        Dijalankan di UI thread (`_on_connect`), jadi dialognya boleh
+        modal.
+
+        H3: `_on_connect` dulu hanya menolak cleartext. Host HTTPS apa
+        pun — termasuk impostor yang menyalin sertifikat asli — langsung
+        dipakai, lalu `_connect_thread` menyimpannya, jadi token kelas
+        siswa berikutnya terkirim ke sana.
+        """
+        if self._server_is_trusted(url):
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Server Bukan Server Sekolah")
+        box.setText(f"EXAMVAN akan mengirim token ujian ke:\n{url}")
+        box.setInformativeText(
+            f"Host ini bukan server sekolah bawaan ({DEFAULT_SERVER_URL}).\n\n"
+            "Token ujian pada mode static adalah kredensial hasil SELURUH "
+            "KELAS: server tujuan bisa membukanya, membaca identitas siswa, "
+            "dan menerima semua jawaban kelas ini. Lanjutkan hanya kalau "
+            "pengawas sudah memberi tahu server ini benar."
+        )
+        box.addButton("Hubungkan ke Server Ini", QMessageBox.YesRole)
+        batal = box.addButton("Batal", QMessageBox.NoRole)
+        # Default = Batal: satu Enter yang tidak sengaja pada dialog ini
+        # berarti "kirim kredensial kelas ke host yang tidak saya kenal".
+        box.setDefaultButton(batal)
+        # `exec_()` mengembalikan StandardButton dari tombol yang diklik
+        # (documented untuk QMessageBox) — sama seperti
+        # `_offer_resubmit_choice`, supaya keputusannya tidak bergantung
+        # pada `clickedButton()` yang kosong saat dialog ditutup dengan
+        # Escape atau tombol tutup.
+        reply = box.exec_()
+        if reply != QMessageBox.Yes:
+            log.warning(
+                "koneksi ke server yang bukan server sekolah DITOLAK: %s", url,
+            )
+            # `_enable_connect_ui` mengosongkan label status, jadi
+            # penjelasannya ditulis SETELAH itu.
+            self._enable_connect_ui()
+            self.lbl_status.setStyleSheet("color: #e53935;")
+            self.lbl_status.setText(
+                f"Koneksi dibatalkan: {url} bukan server sekolah. Hubungi "
+                "pengawas, atau pakai server sekolah."
+            )
+            return False
+        log.warning(
+            "server yang dipakai bukan server sekolah: %s (disetujui)", url,
+        )
+        config.set("trusted_server_url", url)
+        return True
+
     def _load_saved(self) -> None:
         """Isi form dari config, atau default server bila belum pernah diisi.
 
         `remember_url` akhirnya DICHIBAHKAN, yang sebelumnya tidak berlaku
         sama sekali: nilainya dibaca tapi tidak pernah dipakai sebagai
-        syarat, sehingga URL dan token selalu di-pre-fill apa pun yang
+        syarat, sehingga URL dan token selalu di-prefill apa pun yang
         siswa pilih. Sekarang kontraknya jelas:
 
-          dicentang   -> isi lagi di komputer ini (atau pakai default server)
-          tidak       -> jangan sentuh; form dikosongkan
+          dicentang   -> isi lagi di komputer ini (dan simpan lagi)
+          tidak       -> jangan sentuh; form dikosongkan, dan token TIDAK
+                        ditulis ke disk sama sekali
 
-        Yang TIDAK berubah: token tetap ditulis ke disk walau tidak
-        dicentang, karena `_xor_obfuscate` memakainya sebagai kunci decode
-        jawaban yang tersimpan (`config.py:32-39`). Menghapusnya akan
-        membuat recovery "Kirim Lagi" gagal decode. Yang dikontrol remember
-        adalah pre-fill, bukan penyimpanan.
+        Koreksi alasan yang lama (diberi dua kali di file ini):
+        "`_xor_obfuscate` memakainya sebagai kunci decode jawaban yang
+        tersimpan" TIDAK benar sejak kunci jawaban dipisah ke
+        `_OBFUSCATE_KEY` (lihat docstring fungsi itu sendiri). Token
+        tidak lagi ikut campur, jadi tidak ada satu pun fitur di disk yang
+        membutuhkannya.
+
+        Yang TETAP benar dan perlu diketahui: `answers_*.dat` versi LAMA
+        memang hanya bisa didecode dengan mencoba token yang pernah dipakai
+        (`_legacy_token_candidates`), jadi "Kirim Lagi" untuk berkas
+        sekecil itu perlu pengawas. Berkas jawaban versi sekarang tidak
+        bergantung pada token sama sekali.
+
+        URL yang tersimpan TETAP di-prefill walau tidak dipercaya (H3):
+        lab swakelola yang sah tidak boleh mengetik ulang tiap pagi. Yang
+        membuatnya jujur adalah catatan terlihat dari
+        `_refresh_server_url_note` dan konfirmasi di `_confirm_trusted_server`
+        — bukan dengan menyembunyikan URL yang sudah pernah dipakai.
         """
         remember = bool(config.get("remember_url", True))
         self.chk_remember.setChecked(remember)
         if not remember:
+            self._refresh_server_url_note()
             return
 
         url = config.get("server_url", "") or DEFAULT_SERVER_URL
@@ -306,6 +501,7 @@ class ServerConfigDialog(QDialog):
             self.input_url.setText(url)
         if token:
             self.input_token.setText(token.upper())
+        self._refresh_server_url_note()
 
     @property
     def validated_token(self) -> str:
@@ -354,6 +550,12 @@ class ServerConfigDialog(QDialog):
             self.input_token.setFocus()
             return
 
+        # Gerbang kepercayaan host, SEBELUM ada yang dikirim. Belum ada satu
+        # pun request: penolakan terjadi sebelum worker dijalankan, jadi
+        # token kelas tidak pernah menyentuh host yang tidak disetujui.
+        if not self._confirm_trusted_server(url):
+            return
+
         self.input_token.setText(token)
         self.btn_connect.setEnabled(False)
         # Input dikunci selama koneksi berjalan: sumber keduanya (Enter pada
@@ -396,9 +598,13 @@ class ServerConfigDialog(QDialog):
             # Step 1: Health check
             health = api.check_health(url)
             if not health.success:
+                # Urutan sengaja: `enable` dulu, status belakangan.
+                # `_enable_connect_ui` mengosongkan label status, jadi
+                # emit terbalik membuat pesan kegagalan lenyap sebelum
+                # sempat dibaca (dan `--windowed` membuang log).
+                self._sig_enable_btn.emit()
                 self._sig_status.emit(
                     f"Gagal terhubung ke server:\n{health.status}", True)
-                self._sig_enable_btn.emit()
                 return
 
             # Fingerprint sertifikat yang dilaporkan server — dipantau
@@ -416,18 +622,25 @@ class ServerConfigDialog(QDialog):
             resp = api.get_exam_by_token(url, token)
             if not resp.success or not resp.exam:
                 msg = resp.message or resp.error or "Token tidak valid"
-                self._sig_status.emit(msg, True)
                 self._sig_enable_btn.emit()
+                self._sig_status.emit(msg, True)
                 return
 
-            # Save config SEBELUM gate submitted — decode jawaban di disk memakai
-            # token sebagai kunci XOR (_xor_obfuscate); token yang baru diketik
-            # harus tersimpan dulu agar recovery bisa membaca jawaban tersimpan.
-            # URL+token selalu disimpan (token juga dipakai sebagai kunci decode);
-            # `remember_url` hanya mengontrol apakah di-reload ke input berikutnya.
+            # Config ditulis setelah token lookup berhasil — lebih dulu
+            # berarti URL ada di disk untuk server yang bahkan tidak
+            # mengenal token itu.
+            #
+            # `remember_url` sekarang BERARTI: tidak dicentang = URL dan
+            # token tidak ditulis sama sekali. Alasan lama ("token harus
+            # tersimpan karena `_xor_obfuscate` memakainya sebagai kunci
+            # decode") sudah tidak benar sejak kunci jawaban dipisah ke
+            # `_OBFUSCATE_KEY`, dan `_xor_obfuscate` sendiri menyatakan
+            # itu. Yang membaca token dari config adalah jalur "Kirim
+            # Lagi", dan jalur itu sekarang menerimanya dari UI thread
+            # (`_show_recovery`), bukan dari disk.
             config.set("server_url", url)
-            config.set("exam_token", token)
             config.set("remember_url", remember_url)
+            config.set("exam_token", token if remember_url else "")
 
             # Tidak ada gerbang "sudah dikerjakan" di titik mana pun.
             # Lihat _offer_pending_recovery() untuk penjelasan policies-nya.
@@ -439,17 +652,33 @@ class ServerConfigDialog(QDialog):
             self._sig_show_identity.emit()
         except Exception as exc:  # noqa: BLE001 — jaring apapun harus sampai ke UI
             log.warning("connect thread crashed", exc_info=True)
+            self._sig_enable_btn.emit()
             self._sig_status.emit(
                 f"Koneksi gagal: {exc}\nCoba lagi atau hubungi pengawas.", True
             )
-            self._sig_enable_btn.emit()
 
     def _check_certificate_fingerprint(self, url: str, fingerprint: str) -> None:
         """Bandingkan fingerprint sertifikat dengan kunjungan sebelumnya.
 
-        Disimpan per URL (kunci `cert_fp_<url>`). Kunjungan pertama: simpan,
-        tanpa peringatan. Kunjungan berikutnya yang berbeda: peringatan di
-        dialog + log — guru/pengawas yang melihatnya bisa memutuskan.
+        Disimpan per URL (kunci `cert_fp_<url>`).
+
+        Kunjungan PERTAMA ke host yang sudah dipercaya (server sekolah, atau
+        host yang dikonfirmasi `_confirm_trusted_server`) langsung
+        disimpan — tidak ada yang bisa dikonfirmasi karena belum ada
+        pembanding, dan `_on_connect` sudah meminta persetujuan sebelum
+        host asing bisa dipakai. Host yang TIDAK dipercaya tidak
+        pernah mencapai titik ini: `_connect_thread` baru jalan setelah
+        konfirmasi, jadi sidik jari impostor tidak pernah di-pin diam-diam.
+
+        Kunjungan berikutnya yang BERBEDA = peringatan yang harus dilihat
+        orang, bukan baris log: build `--windowed` membuang stderr, jadi
+        "sudah dicatat di log" berarti "tidak terjadi apa pun yang dilihat
+        pemantau". Dialog-nya dikirim lewat signal supaya tampil di UI
+        thread (QMessageBox dari worker adalah pelanggaran threading Qt),
+        dan TIDAK memblokir: rotasi sertifikat yang sah adalah hal biasa
+        di sekolah, dan memblokir semuanya mematikan app tepat saat
+        sekolah sedang memutar sertifikatnya. Yang berubah adalah
+        penglihatannya, bukan policy-nya.
         """
         try:
             key = f"cert_fp_{url}"
@@ -459,11 +688,8 @@ class ServerConfigDialog(QDialog):
                     "certificate fingerprint changed for %s: %s -> %s",
                     url, previous[:16], fingerprint[:16],
                 )
-                self._sig_status.emit(
-                    "Peringatan: sertifikat server berubah sejak "
-                    "kunjungan terakhir. Bisa jadi rotasi sah, bisa juga "
-                    "proxy mencurigakan. Hubungi pengawas bila ragu.",
-                    True,
+                self._sig_certificate_changed.emit(
+                    url, previous, fingerprint,
                 )
                 return
             if not previous:
@@ -471,6 +697,25 @@ class ServerConfigDialog(QDialog):
         except Exception:
             # Pemantauan fingerprint tidak boleh menggagalkan koneksi.
             log.debug("fingerprint check failed", exc_info=True)
+
+    @pyqtSlot(str, str, str)
+    def _certificate_changed_slot(
+        self, url: str, previous: str, current: str,
+    ) -> None:
+        """Tampilkan perubahan sertifikat di UI thread (lihat di atas)."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Sertifikat Server Berubah")
+        box.setText(f"Sertifikat {url} berbeda dari kunjungan terakhir.")
+        box.setInformativeText(
+            "Sertifikat lama : " + (previous[:32] or "(tidak diketahui)") + "\n"
+            "Sertifikat baru : " + (current[:32] or "(tidak diketahui)") + "\n\n"
+            "Bisa jadi rotasi sertifikat yang sah, bisa juga proxy yang "
+            "mencurigakan di jaringan sekolah. Hubungi pengawas sebelum "
+            "melanjutkan."
+        )
+        box.setStandardButtons(QMessageBox.Ok)
+        box.exec_()
 
     # --- Slots (run on UI thread, connected via signals) ---
 
@@ -507,9 +752,18 @@ class ServerConfigDialog(QDialog):
 
     @pyqtSlot(str, bool)
     def _set_status_slot(self, msg: str, is_error: bool) -> None:
+        # SEBELUMNYA teks mentah. Dua pemanggil terbesarnya mengirim teks
+        # server apa adanya: `health.status` dari `/api/health` dan
+        # `resp.message`/`resp.error` dari `/api/exams/token/<t>`. Dengan
+        # `Qt.PlainText` di `lbl_status` markup sudah tidak dieksekusi, tapi
+        # karakter tersembunyi (Cf) dan bidi override masih bisa
+        # menyamarkan isi pesan di mata siswa. Sanitizer yang DIPAKAI
+        # (`congratulations._sanitize_server_text`) sama dengan yang dipakai
+        # `exam_viewer`/`identity_dialog`/`waiting_approval`/`answer_sheet`:
+        # satu implementasi, bukan lima.
         color = "#e53935" if is_error else "#2e7d32"
         self.lbl_status.setStyleSheet(f"color: {color};")
-        self.lbl_status.setText(msg)
+        self.lbl_status.setText(_sanitize_server_text(msg))
 
     @pyqtSlot()
     def _enable_btn_slot(self) -> None:
@@ -544,33 +798,134 @@ class ServerConfigDialog(QDialog):
         # salah, dan halaman selamat tampil kosong.
         self._recovery_identity = dict(config.get_identity_data() or {})
         if reply != QMessageBox.Yes:
+            # Menolak TIDAK boleh jadi jalan buntu tanpa penjelasan. Tawaran
+            # tetap ditolak (lihat `_offer_pending_recovery`), tapi siswa
+            # sekarang tahu jawabannya masih ada di disk, kenapa tidak
+            # dikirim, dan apa yang bisa dia lakukan: mencoba lagi lewat
+            # tombol Hubungkan, atau tanya pengawas.
             self._enable_connect_ui()
-            self.lbl_status.setText("")
+            self.lbl_status.setStyleSheet("color: #b45309;")
+            self.lbl_status.setText(
+                "Jawaban lama masih tersimpan di komputer ini dan TIDAK "
+                "dikirim. Tekan 'Hubungkan' lagi untuk mencoba kirim ulang; "
+                "jawaban itu akan tertimpa kalau kamu mulai mengerjakan "
+                "ujian, jadi hubungi pengawas kalau tidak bisa dikirim."
+            )
             return
 
         self.btn_connect.setEnabled(False)
         self.lbl_status.setStyleSheet("color: #2e7d32;")
         self.lbl_status.setText("Mengirim ulang jawaban...")
-        threading.Thread(
-            target=self._recovery_submit_thread,
-            args=(exam, dict(self._recovery_identity)),
-            daemon=True,
-        ).start()
+        # Token di-capture di UI thread, sama seperti identitas. Alasannya
+        # bukan hanya widget: dengan checkbox "Simpan" tidak dicentang,
+        # token TIDAK ada di config sama sekali (lihat `_connect_thread`),
+        # jadi membacanya dari sana membuat kirim ulang selalu 401.
+        self._run_recovery_worker(
+            exam, dict(self._recovery_identity), self._current_token()
+        )
+
+    def _run_recovery_worker(
+        self, exam, identity: Dict[str, str], token: str
+    ) -> None:
+        """Jalankan worker kirim ulang, lalu TUNGGU sampai ia melapor.
+
+        Kenapa menunggu (ronde 8). Dulu method ini hanya memulai thread
+        dan langsung kembali dalam ~1,7 ms, jadi `_offer_pending_recovery`
+        mengembalikan False dan `_show_identity_dialog` melanjutkan —
+        membersihkan identitas, sementara worker masih hidup. Kalau ia
+        selesai beberapa detik kemudian, `_recovery_done_slot` membangun
+        halaman hasil fullscreen di atas dialog yang sedang dipakai dan
+        `_on_result_page_closed` menulis marker submit + `clear_identity()`
+        untuk ujian yang alirnya masih berjalan. Di antara keduanya siswa
+        bisa saja sudah mengetik identitas dan token untuk ujian BERBEDA.
+
+        Menunggu di dalam nested `QEventLoop` (bukan `thread.join()`):
+        UI tetap menggambar dan tetap bisa ditutup, jadi menunggu tidak
+        sama dengan membekukan dialog. `watchdog` menutup jalan keluar
+        kalau worker benar-benar hilang — tanpa itu, "tunggu sampai
+        melapor" berubah menjadi kunci macet untuk siswa.
+
+        Setiap sinyal "sudah selesai" yang mungkin dipakai worker
+        (`_sig_recovery_done`, `_sig_status`, `_sig_enable_btn`) ikut
+        menghentikan tunggu ini, dan semua koneksi DIBUANG setelahnya:
+        kalau tidak, slot yang sudah keluar tetap menyalakan `loop.quit()`
+        untuk waiter berikutnya.
+        """
+        loop = QEventLoop(self)
+        # Dua flag, bukan satu: `watchdog` juga menghentikan loop, tapi
+        # "berhenti karena worker melapor" dan "berhenti karena batas
+        # waktu habis" punya akibat yang BERBEDA — yang kedua tidak boleh
+        # diperlakukan sebagai keberhasilan diam-diam.
+        reported = {"value": False}
+
+        def _on_reported(*_args):
+            if reported["value"]:
+                return
+            reported["value"] = True
+            loop.quit()
+
+        def _on_timeout():
+            loop.quit()
+
+        watchdog = QTimer(self)
+        watchdog.setSingleShot(True)
+        watchdog.timeout.connect(_on_timeout)
+
+        signals = (
+            self._sig_recovery_done, self._sig_status, self._sig_enable_btn,
+        )
+        for signal in signals:
+            signal.connect(_on_reported)
+        watchdog.start(int(RECOVERY_WAIT_SECONDS * 1000))
+        try:
+            threading.Thread(
+                target=self._recovery_submit_thread,
+                args=(exam, identity, token),
+                daemon=True,
+            ).start()
+            if not reported["value"]:
+                loop.exec_()
+        finally:
+            watchdog.stop()
+            for signal in signals:
+                try:
+                    signal.disconnect(_on_reported)
+                except (TypeError, RuntimeError):
+                    pass
+        if not reported["value"]:
+            # Worker tidak melapor sampai batas tunggu: jawabannya belum
+            # diketahui sudah tersimpan di server, dan memulai percobaan
+            # baru di atas pengiriman yang masih berjalan adalah
+            # dual-attempt yang justru ingin dicegah.
+            log.warning(
+                "kirim ulang untuk exam %s tidak melapor dalam %d detik — "
+                "ujian tidak dilanjutkan, jawaban tetap di disk",
+                getattr(exam, "id", "?"), int(RECOVERY_WAIT_SECONDS),
+            )
+            self._enable_connect_ui()
+            self.lbl_status.setStyleSheet("color: #e53935;")
+            self.lbl_status.setText(
+                "Pengiriman ulang tidak memberi jawaban dalam batas waktu. "
+                "Jawaban tetap tersimpan di komputer ini — hubungi pengawas."
+            )
 
     def _recovery_submit_thread(
-        self, exam, identity: Dict[str, str]
+        self, exam, identity: Dict[str, str], token: str = ""
     ) -> None:
         """Kirim ulang jawaban tersimpan di background — TIDAK menyentuh Qt.
 
-        `identity` DITERIMA SEBAGAI ARGUMEN (lihat `_show_recovery`), bukan
-        dibaca ulang dari config: nilainya harus PERSIS yang ditawarkan di
-        dialog recovery, apa pun yang terjadi pada config selama proses.
+        `identity` dan `token` DITERIMA SEBAGI ARGUMEN (lihat
+        `_show_recovery`), bukan dibaca ulang dari config: nilainya harus
+        PERSIS yang ditawarkan di dialog recovery, apa pun yang terjadi
+        pada config selama proses — termasuk `remember_url` yang dikosongkan
+        tokennya.
+
+        `config.get("exam_token", ...)` tetap jadi fallback supaya call
+        site lama (dan test yang memanggil worker langsung) tidak ikut
+        rusak, tapi bukan sumber utama lagi.
         """
-        # Token dibaca dari config, BUKAN dari QLineEdit: pemanggilan ini
-        # berjalan di worker thread, dan membaca widget Qt dari luar
-        # thread GUI tidak thread-safe. `config.set("exam_token", ...)`
-        # sudah menyimpan token yang sama sebelum dialog ini muncul.
-        token = str(config.get("exam_token", "") or "").strip().upper()
+        token = str(token or config.get("exam_token", "") or "").strip().upper()
+
         answers = config.load_answers(exam.id) or {}
         std = map_identity_to_standard(identity)
         start_time = config.load_start_time(exam.id)
@@ -624,8 +979,17 @@ class ServerConfigDialog(QDialog):
                 # percobaan baru — persis yang sudah diperbaiki di sisi
                 # viewer. Isi disk yang berbeda berarti milik percobaan
                 # lain, bukan urusan thread ini.
-                if answers_match_disk(exam.id, answers):
-                    config.clear_answers(exam.id)
+                # `config.clear_answers_if_unchanged`, bukan
+                # `answers_match_disk()` lalu `clear_answers()`: pasangan
+                # baca-then-hapus itu raced (H9) — di antara pembacaan dan
+                # unlink, autosave percobaan berikutnya bisa menimpa disk
+                # beserta sidecar owner-nya, lalu keduanya terhapus. Helper
+                # di `config` memegang `_answers_lock` yang sama dengan
+                # `save_answers`, jadi tidak ada yang bisa menimpanya di
+                # tengah transaksi. Dipanggil juga oleh jalur auto-submit
+                # dan cleanup manual, jadi ketiga call site satu aturan.
+                if config.clear_answers_if_unchanged(exam.id, answers):
+                    pass
                 else:
                     log.info(
                         "skip clear_answers di recovery: disk berisi jawaban "
@@ -639,20 +1003,24 @@ class ServerConfigDialog(QDialog):
                 msg = resp.congrats_message or resp.message or "Jawaban berhasil dikumpulkan."
                 self._sig_recovery_done.emit(msg)
             else:
+                # `enable` emitted LEBIH DAHULU: `_enable_connect_ui`
+                # mengosongkan label status, jadi pesan kegagalan yang
+                # emitted setelahnya akan langsung dihapus dan siswa
+                # tidak pernah tahu kenapa kirim ulang gagal.
+                self._sig_enable_btn.emit()
                 self._sig_status.emit(
                     "Pengiriman ulang gagal: "
                     + (resp.message or "terjadi kesalahan")
                     + ". Jawaban tetap tersimpan — coba lagi.",
                     True,
                 )
-                self._sig_enable_btn.emit()
         except Exception as e:
+            self._sig_enable_btn.emit()
             self._sig_status.emit(
                 "Pengiriman ulang gagal: " + str(e)
                 + ". Jawaban tetap tersimpan — coba lagi.",
                 True,
             )
-            self._sig_enable_btn.emit()
 
     @pyqtSlot(str)
     def _recovery_done_slot(self, msg: str) -> None:
@@ -711,10 +1079,14 @@ class ServerConfigDialog(QDialog):
         # dibuat, jadi pembersihan `__main__` (`_on_viewer_closed`) tidak
         # pernah jalan — dan kotak yang sudah ter-prefill adalah satu
         # klik (atau satu Enter) dari memakai token kelas lagi di PC lab
-        # yang dipakai bersama. `config["exam_token"]` SENGAJA dibiarkan:
-        # token itu kunci XOR decode jawaban tersimpan (lihat
-        # `_recovery_submit_thread`), dan `remember_url` sudah mengatur
-        # apakah token boleh di-prefill pada kunjungan berikutnya.
+        # yang dipakai bersama.
+        #
+        # `config["exam_token"]` TIDAK lagi dibiarkan begitu: sejak kunci
+        # jawaban dipisah ke `_OBFUSCATE_KEY` (lihat `config._xor_obfuscate`)
+        # tidak ada fitur yang membutuhkannya, jadi dengan "Simpan" tidak
+        # dicentang token tidak pernah masuk disk sama sekali. Kalau
+        # dicentang, `remember_url` yang mengatur apakah token boleh
+        # di-prefill pada kunjungan berikutnya.
         try:
             self.input_token.clear()
         except Exception:
@@ -762,6 +1134,54 @@ class ServerConfigDialog(QDialog):
         config.clear_identity()
         self._enable_connect_ui()
 
+    def _current_token(self) -> str:
+        """Token yang dipakai flow ini, tanpa pernah menyentuh widget.
+
+        `validated_token` sengaja dibungkus try/except: sebagian test
+        (dan beberapa jalur error) membangun dialog tanpa constructor,
+        jadi membaca atribut yang belum ada tidak boleh menjatuhkan
+        gerbang yang sedang menjaga jawaban siswa.
+        """
+        try:
+            return str(self.validated_token or "").strip().upper()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _owner_key_is_per_student(owner: Dict[str, str]) -> bool:
+        """Bisa nggak sidecar itu membuktikan pemiliknya satu siswa?
+
+        `config.save_answers_owner` menyimpan `student_label(identity,
+        token)` yang selalu berbentuk `"<slot>=<nilai>"` atau
+        `"token (identitas kosong)"`. Label yang menandai slot bersama —
+        atau label yang tidak bisa dibaca sama sekali — tidak bisa jadi
+        bukti kepemilikan: kunci yang sama bukan bukti siapa pun.
+
+        Perbandingan kunci di `_offer_pending_recovery` tetap jalan; yang
+        ini hanya memastikan data sidecar dan kunci yang dibandingkan
+        memang bicara tentang satu siswa.
+        """
+        label = str(owner.get("label", "") or "").strip()
+        if not label or "=" not in label:
+            return False
+        return label.split("=", 1)[0].strip() == _PER_STUDENT_KEY_SOURCE
+
+    def _refuse_recovery(self, reason: str) -> None:
+        """Jawaban di disk TIDAK ditawarkan — dengan penjelasan jujur.
+
+        Dua hal yang harus benar di sini: siswa diberi tahu (menekan
+        tombol lalu tidak terjadi apa-apa adalah kegagalan, bukan
+        kebijakan), dan identitas pemilik tidak ikut terbocorkan — itu
+        bukan urusannya siapa yang menjawab tadi.
+        """
+        self.lbl_status.setStyleSheet("color: #e53935;")
+        self.lbl_status.setText(
+            "Ada jawaban lama di komputer ini, tapi identitas ujian ini "
+            f"tidak punya kolom yang bisa memastikan itu jawabanmu "
+            f"({reason}). File-nya tetap tersimpan dan TIDAK dikirim; "
+            "hubungi pengawas kalau kamu yakin itu jawabanmu."
+        )
+
     def _offer_pending_recovery(self, identity: Dict[str, str]) -> bool:
         """True bila siswa boleh lanjut. Tidak pernah menolak.
 
@@ -787,20 +1207,70 @@ class ServerConfigDialog(QDialog):
         * siswa B masuk di PC yang sama sebelum A sempat kembali → kunci
           berbeda → jawaban A TIDAK ditawarkan, apalagi dikirim atas nama
           B. Berkasnya dibiarkan di disk supaya A masih bisa memulihkannya
-          sendiri; pelanggarannya hanya dilog.
-        * owner tidak dikenal (jawaban ditulis versi app lama tanpa
-          sidecar) → fail-open: tawarkan seperti perilaku lama. Menolak
-          recovery yang sah hanya karena upgrade app lebih buruk daripada
-          risiko salah kirim satu kali di masa transisi.
+          sendiri; pelanggaran hanya dilog.
+
+        Kunci yang SAMANYA bukan bukti (ronde 8, H2)
+        --------------------------------------------
+        Membandingkan kunci saja tidak cukup, karena kunci bisa jatuh ke
+        nilai yang bukan milik satu orang. `build_student_key_source`
+        mengembalikan `(token, "token")` untuk ujian yang tidak punya kolom
+        nomor/nama/kelas yang memetakan — dan itu bukan kasus langka:
+        kunci field di webui dibangun dari label yang hanya huruf kecil
+        dan angka, jadi label non-Latin menjadi `field_1`, `field_2`, ...
+        dan `map_identity_to_standard` tidak mengenali satu pun.
+
+        Di konfigurasi seperti itu semua siswa memakai satu token, jadi
+        `owner_key != current_key` SELALU benar dan tidak pernah menahan
+        apa pun. Menawarkan jawaban siswa A kepada siswa B bukan hanya
+        salah soal privasi: jawaban A akan tercatat atas nama B.
+
+        Karena itu kunci siswa yang sedang diketik WAJIB berasal dari slot
+        per-siswa (`_PER_STUDENT_KEY_SOURCE`), dan sidecar pemiliknya
+        harus bisa membuktikan hal yang sama. Menolak tawaran BUKAN
+        menolak ujian:
+        `_offer_pending_recovery` tetap mengembalikan True, siswa boleh
+        masuk dan mengerjakan ulang, dan berkasnya tidak pernah dihapus.
+        Yang hilang hanya "Kirim Lagi" — dan itu memang satu-satunya hal
+        yang tidak bisa dilakukan dengan benar tanpa bukti pemilik.
+
+        Fail-open yang lama ("owner tidak dikenal → tawarkan") DIHAPUS,
+        hanya untuk kunci yang bukan per-siswa: tanpa sidecar tidak ada
+        data apa pun tentang pemilik, jadi tidak ada yang bisa
+        dibuktikan. Yang tetap fail-open adalah jalur tanpa jawaban
+        tersimpan sama sekali (tidak ada apa pun yang perlu dipulihkan).
         """
         assert self._exam is not None
         if config.load_answers(self._exam.id):
             owner = config.load_answers_owner(self._exam.id)
+            current_key = build_student_key(identity, self._current_token())
+            _, source = build_student_key_source(
+                identity, self._current_token()
+            )
+            if source != _PER_STUDENT_KEY_SOURCE:
+                # Tidak bisa dibuktikan milik siapa pun. Tidak ditawarkan,
+                # tidak dikirim, tidak dihapus — dan siapa pun pemiliknya
+                # TIDAK ikut disebut ke pengetik sekarang (bukan
+                # urusannya).
+                log.warning(
+                    "recovery untuk exam %s tidak ditawarkan: kunci "
+                    "identitas sekarang turun ke %s (kunci=%s), bukan "
+                    "satu siswa — semua siswa di PC ini akan mendapat "
+                    "kunci yang sama",
+                    self._exam.id, source,
+                    _redact_key_for_log(current_key, source),
+                )
+                self._refuse_recovery(f"kunci identitas: {source}")
+                return True
             if owner is not None:
                 owner_key = str(owner.get("student_key", "") or "")
-                current_key = build_student_key(
-                    identity, self.validated_token
-                )
+                if not self._owner_key_is_per_student(owner):
+                    log.warning(
+                        "recovery untuk exam %s tidak ditawarkan: label "
+                        "pemilik tidak menandai satu siswa (label=%r)",
+                        self._exam.id, owner.get("label", ""),
+                    )
+                    self._refuse_recovery("pemilik tidak dapat dipastikan")
+                    return True
                 if owner_key and owner_key != current_key:
                     # Jawaban milik siswa lain. Tidak ditawarkan, tidak
                     # dikirim, tidak dihapus — dan labelnya TIDAK dibocorkan
@@ -984,10 +1454,11 @@ class ServerConfigDialog(QDialog):
                 log.log(
                     logging.WARNING if collects else logging.INFO,
                     "kunci marker submit untuk exam %s turun ke %s "
-                    "(kunci=%r) — modal 'sudah terkumpul' tidak "
+                    "(kunci=%s) — modal 'sudah terkumpul' tidak "
                     "dipertanyakan karena kunci itu bukan satu siswa: "
                     "%s",
-                    self._exam.id, source, attempt,
+                    self._exam.id, source,
+                    _redact_key_for_log(attempt, source),
                     "ujian punya kolom nomor/nama yang bisa dipakai"
                     if collects else
                     "ujian memang tidak punya kolom nomor/nama",

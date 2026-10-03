@@ -573,19 +573,22 @@ PARITY_TABLE = [
 # `identity_data` yang SUDAH dipetakan ke kunci kanonik untuk baris yang
 # dikirim client versi ini, jadi halaman pengawas tidak salah orang.
 # Yang tersisa adalah data lama / payload yang tidak lewat dialog.
-KNOWN_GO_DIVERGENCE = [
-    # Client: tidak ada slot yang bisa diisi (nama saja + telepon) ->
-    # kunci identitas kosong. Go masih menebak '0812' dari `no_hp`.
-    ({"nama": "Andi", "no_hp": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_hp": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_telp": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_wa": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_telpon": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_hp_siswa": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_telp_siswa": "0812"}, "0812"),
-    ({"nama": "Andi", "kelas": "9A", "no_hp_ortu": "0812"}, "0812"),
-    ({"nama": "Andi", "nomor_ujian": "01", "kelas": "9A", "no_hp": "0812"},
-     "0812"),
+
+
+# Ronde 8: Go ikut diperbaiki (gate `no` yang sama seperti Python), jadi
+# kasus `no_hp` ini tidak lagi "divergence yang diketahui" — keduanya
+# sekarang menghasilkan kunci yang sama dan harus terkunci di
+# PARITY_TABLE supaya tidak bisa melenceng diam-diam lagi.
+PARITY_TABLE = PARITY_TABLE + [
+    ({"nama": "Andi", "no_hp": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_hp": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_telp": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_wa": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_telpon": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_hp_siswa": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_telp_siswa": "0812"}, "andi"),
+    ({"nama": "Andi", "kelas": "9A", "no_hp_ortu": "0812"}, "andi"),
+    ({"nama": "Andi", "nomor_ujian": "01", "kelas": "9A", "no_hp": "0812"}, "01"),
 ]
 
 
@@ -678,27 +681,48 @@ class GoParityTest(unittest.TestCase):
         self.assertEqual(got[0], build_student_key(data))
 
 
-class KnownGoDivergenceTest(unittest.TestCase):
-    """Tiket terbuka: `student_key.go` masih menebak nomor telepon."""
+class PhoneNumberNeverBecomesTheKeyTest(unittest.TestCase):
+    """Tiket tertutup: `no_hp` tidak lagi jadi kunci di KEDUA sisi.
 
-    def test_client_no_longer_returns_the_phone_number(self):
-        for data, go_still_says in KNOWN_GO_DIVERGENCE:
+   -round 7 mencatat ini sebagai `KNOWN_GO_DIVERGENCE` + sentinel
+    `test_go_still_reports_the_bug` yang gagal begitu Go diperbaiki. Go kini
+    memakai gate `no` yang sama dengan Python, jadi kasusnya pindah ke
+    `PARITY_TABLE` dan sentinel dihapus. Yang tersisa di sini adalah
+    jaminan arahnya: NOMOR TELEPON TIDAK BOLEH jadi kunci siswa di client,
+    karena kolom itu yang dipakai gate "sudah mengerjakan" dan penanda
+    owner jawaban.
+    """
+
+    PHONE_KEYS = [
+        {"nama": "Andi", "no_hp": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_hp": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_telp": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_wa": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_telpon": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_hp_siswa": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_telp_siswa": "0812"},
+        {"nama": "Andi", "kelas": "9A", "no_hp_ortu": "0812"},
+    ]
+
+    def test_the_client_never_keys_on_a_phone_number(self):
+        for data in self.PHONE_KEYS:
             with self.subTest(data=data):
-                self.assertNotEqual(build_student_key(data), go_still_says)
+                key = build_student_key(data)
+                for phone in ("0812",):
+                    self.assertNotIn(
+                        phone, key,
+                        "nomor telepon menjadi kunci siswa: kolom ini yang "
+                        "menentukan gate 'sudah dikerjakan' dan penanda owner "
+                        "jawaban, jadi satu nomor HP bisa menutup kelas",
+                    )
 
-    def test_go_still_reports_the_bug(self):
-        # Kalau ini gagal, Go sudah ikut diperbaiki: pindahkan kasusnya
-        # dari KNOWN_GO_DIVERGENCE ke PARITY_TABLE.
-        typed = [c for c, _ in KNOWN_GO_DIVERGENCE]
-        got = _go_student_keys(typed)
+    def test_go_agrees_on_every_phone_key(self):
+        got = _go_student_keys(self.PHONE_KEYS)
         if got is None:
             self.skipTest("go / student_key.go tidak tersedia")
-        wrong = [
-            (data, want, g)
-            for (data, want), g in zip(KNOWN_GO_DIVERGENCE, got)
-            if want != g
-        ]
-        self.assertEqual(wrong, [], "student_key.go sudah berubah")
+        for data, g in zip(self.PHONE_KEYS, got):
+            with self.subTest(data=data):
+                self.assertEqual(g, build_student_key(data))
 
 
 if __name__ == "__main__":  # pragma: no cover

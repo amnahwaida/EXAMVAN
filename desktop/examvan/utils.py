@@ -160,17 +160,29 @@ def _slot_candidates(key: object) -> Dict[str, tuple]:
     """`{slot: (tier, posisi_kata, generik)}` kandidat slot dari satu kunci.
 
     Dict kosong = kunci ini tidak identitas (kata tanggal/jam, atau tidak
-    ada kata slot sama sekali). Kunci seperti itu TIDAK PERNAH diisi ke
-    kolom standar -- menebak lebih buruk daripada satu error yang jelas.
+    ada kata slot sama sekali, atau hanya tier-2 yang tersinggung). Kunci
+    seperti itu TIDAK PERNAH diisi ke kolom standar -- menebak lebih buruk
+    daripada satu error yang jelas.
 
-    Satu kunci boleh menjadi kandidat LEBIH dari satu slot, tapi HANYA di
-    antara kata tier-1. Dulu `_dispatch` mengembalikan hit PERTAMA lalu
-    berhenti, jadi `nama_kelas` (kata tier-1 `nama` di posisi 0 dan
-    `kelas` di posisi 1) hanya bisa mengisi kolom nama: '9A' dibuang,
+    Satu kunci boleh menjadi kandidat LEBIH dari satu slot, dan itu dipakai
+    betulan. `_dispatch` lama mengembalikan hit PERTAMA lalu berhenti, jadi
+    `nama_kelas` (kata tier-1 `nama` di posisi 0 dan `kelas` di posisi 1)
+    hanya bisa mengisi kolom nama: '9A' dibuang,
     `submissions.student_class` kosong, halaman selamat dan tabel hasil
     publik tidak menampilkan kelas, dan `build_attempt_key` kehilangan
     komponen kelasnya — dua siswa nama sama di kelas berbeda lalu memakai
     satu perangkat yang sama pada percobaan yang sama.
+
+    Permintaan multi-slot ini dulu TIDAK benar-benar terpenuhi, meskipun
+    mekanismenya ada: `map_identity_to_standard` menolak nilai yang sudah
+    dipakai slot lain tanpa kecuali kunci mana pun, dan karena slot
+    diiterasi nomor -> nama -> kelas, nama selalu menang:
+
+        {'nama_kelas': '9A'}  ->  {'student_name': '9A'}   class: None
+
+    Sekarang nilai yang sama boleh mengisi dua slot DALAM DARI SATU KUNCI
+    saja (lihat catatan (c) di `map_identity_to_standard`), jadi kelas ikut
+    terisi dan fitur ini akhirnya benar.
 
     Tier-2 tetap diabaikan begitu kunci punya hit tier-1, persis seperti
     `_dispatch` lama: `nama_ujian` adalah NAMA (bukan nomor ujian),
@@ -242,7 +254,10 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
         batas kata, bukan substring; satu kunci boleh jadi kandidat untuk
         lebih dari satu slot; tier-1 mengalahkan tier-2;
         kata tanggal/jam/waktu tidak pernah mengklaim slot;
-    (c) nilai yang sudah terpakai tidak dipakai ulang untuk slot lain.
+    (c) nilai yang sudah terpakai KUNCI LAIN tidak dipakai ulang untuk
+        slot lain. Satu kunci boleh mengisi dua slot dengan nilai yang
+        sama — itulah yang membuat `nama_kelas` mengisi kolom kelas juga,
+        bukan cuma kolom nama (H11).
 
     Ronde 6 (item 4) — Determinisme
     --------------------------------
@@ -285,16 +300,22 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
     # determinisme di docstring.
     #
     # Nilai BLANK tidak pernah menjadi kandidat (M5). Go melompatinya di
-    # lapisan kanonik maupun di lapisan dispatch
-    # (`student_key.go`), sedangkan Python dulu membiarkan `student_name: ''`
-    # memblokir slot nama supaya kunci students jatuh ke KELAS:
+    # lapisan kanonik maupun di lapisan dispatch (`student_key.go`),
+    # sedangkan Python dulu membiarkan `student_name: ''` memblokir slot nama
+    # supaya kunci students jatuh ke KELAS:
     # {'student_name':'','nama':'Andi','kelas':'9A'} -> py '9a', go 'andi'.
+    #
+    # Nilai NON-TEKS juga dilompat, dengan alasan yang sama: Go membaca
+    # `identity[k].(string)`, jadi `{'nomor_ujian': 12345, 'nama': 'Andi'}`
+    # menjadi "andi" di server dan "12345" di client — dua kunci berbeda
+    # untuk siswa yang sama. Config ini sudah rusak sejak sisi server, jadi
+    # memaksanya jadi identitas hanya menambah satu lapisan kebohongan.
     canonical_candidates: Dict[str, list] = {}
     for key, val in items:
         kl = str(key or "").lower()
         if kl not in _CANONICAL_SLOTS:
             continue
-        if not str(val if val is not None else "").strip():
+        if not isinstance(val, str) or not val.strip():
             continue
         canonical_candidates.setdefault(kl, []).append((key, val))
     for std_key in _CANONICAL_SLOTS:
@@ -322,18 +343,40 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
     # `claimed` dipakai DUA hal sekaligus: mencatat nilai yang sudah
     # dipakai slot lain (c), dan mencatat kunci mana yang benar-benar
     # mengisi sebuah slot supaya sisa nilainya bisa di-log.
-    assigned = set(result.values())  # track assigned values to avoid duplicates
+    #
+    # (c) Nilai yang sudah diklaim slot lain TIDAK dipakai ulang -- KECUALI
+    # oleh kunci yang sama. Inilah yang membuat fitur "satu kunci, dua slot"
+    # benar-benar bekerja: `nama_kelas` == "class name" adalah SATU field
+    # dengan SATU nilai, dan nilai itu memang rightful-nya milik slot nama
+    # DAN slot kelas. Dulu `assigned = set(result.values())` memblokirnya
+    # begitu saja, dan karena tier diiterasi nomor -> nama -> kelas, slot
+    # nama selalu menang sehingga `'9A'` HILANG dan
+    # `submissions.student_class` kosong untuk satu kelas penuh:
+    #
+    #     {'nama_kelas': '9A'}  ->  {'student_name': '9A'}  class: None
+    #
+    # Larangan yang tersisa adalah yang benar: satu nilai dari KUNCI BERBEDA
+    # tidak boleh mengisi dua kolom, jadi `{'nama':'Andi','kelas':'Andi'}`
+    # tetap hanya mengisi nama.
+    assigned: Dict[str, str] = {}
+    for _slot_name, _slot_val in result.items():
+        if isinstance(_slot_val, str):
+            assigned.setdefault(_slot_val, f"canonical:{_slot_name}")
     claimed = {
         str(k) for k, v in canonical_candidates.items() for _key, _v in v
     }
+    filled_by_key: Dict[str, int] = {}
     for std_key, _tiers in _SLOT_TIERS:
         if std_key in result:
             continue
         candidates = []
         for key, val in items:
-            if not str(val if val is not None else "").strip():
-                # M5: nilai kosong bukan nilai. Go melompatinya, jadi kalau
-                # tidak dilompat di sini kunci dan server berbeda.
+            if not isinstance(val, str) or not val.strip():
+                # M5: nilai kosong bukan nilai, dan nilai non-teks bukan
+                # identitas. Go melompat keduanya di lapisan kanonik maupun
+                # lapisan dispatch (`student_key.go`) — angka `12345` di sana
+                # TIDAK menjadi nomor ujian, jadi client yang memaksanya
+                # menjadi kunci siswa membuat dua sisi tidak sepakat.
                 continue
             rank = _slot_candidates(key).get(std_key)
             if rank is None:
@@ -342,12 +385,14 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
         for _tier, _pos, _gen, key_str, val in sorted(
             candidates, key=lambda c: c[:4]
         ):
-            # (c) Nilai yang sudah diklaim slot lain tidak dipakai ulang.
-            if val in assigned:
+            # (c) Nilai yang sudah diklaim KUNCI LAIN tidak dipakai ulang.
+            owner = assigned.get(val)
+            if owner is not None and owner != key_str:
                 continue
             result[std_key] = val
-            assigned.add(val)
+            assigned[val] = key_str
             claimed.add(key_str)
+            filled_by_key[key_str] = filled_by_key.get(key_str, 0) + 1
             break
 
     # 2. Sisa field yang TIDAK terpetakan TIDAK boleh dipaksakan ke slot
@@ -382,6 +427,24 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
     if unclaimed:
         _log.info(
             "kunci identitas tanpa slot standar: %s", unclaimed,
+        )
+
+    # Kunci yang mengisi LEBIH dari satu slot dicatat terpisah. Ini bukan
+    # error — `nama_kelas` ("class name") memang satu field untuk dua kolom
+    # dan sekarang keduanya terisi, bukan hanya kolom nama. Tapi ia
+    # menyiratkan sesuatu yang tidak bisa ditebak dari data: kolom "nama"
+    # akan berisi nilai yang sama dengan kolom "kelas", jadi tabel hasil
+    # publik menampilkan nama kelas di kolom nama. Guru yang tidak sadar
+    # akan melihat seluruh kelas sebagai satu orang. Level INFO, sama
+    # seperti catatan di atas: config ini sah, hanya perlu diketahui.
+    multi_slot = sorted(k for k, n in filled_by_key.items() if n > 1)
+    if multi_slot:
+        _log.info(
+            "kunci identitas mengisi 2 slot sekaligus (nilai yang sama "
+            "dipakai untuk nama dan/atau kelas): %s — kolom nama akan "
+            "berisi nilai yang sama dengan kolom kelas; ganti label kolom "
+            "identitas kalau itu bukan yang dimaksud",
+            multi_slot,
         )
 
     # Remove empty values — Go backend rejects empty student_name/number/class

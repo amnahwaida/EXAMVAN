@@ -20,9 +20,13 @@ from .. import api
 from ..models import Exam
 from ..utils import build_attempt_key, get_device_label, map_identity_to_standard
 
-
-# Lebih lama dari timeout HTTP `api.request_approval` (10 detik).
-_POLL_JOIN_TIMEOUT = 12.0
+# H4: `exam.name` dan `resp.message` dari server tidak pernah divalidasi,
+# sementara default `QLabel.textFormat()` adalah `Qt.AutoText` — markup dari
+# server jadi rich text, dan `<img src="file://...">` membuat
+# `QTextDocument` membuka berkas lokal sinkron di thread GUI. Sanitizer-nya
+# SATU-SATUNYA di repo (`congratulations`, tidak boleh diedit ronde ini):
+# di-IMPORT, bukan disalin, supaya tidak lahir dua versi yang berbeda.
+from .congratulations import _sanitize_server_text
 
 
 class WaitingApprovalDialog(QDialog):
@@ -115,11 +119,15 @@ class WaitingApprovalDialog(QDialog):
         card_layout.addWidget(self.icon_label)
 
         self.title_label = QLabel("Menunggu Persetujuan")
+        # Judul dan subtitle ditulis ulang dari teks server di bawah ini,
+        # jadi keduanya harus PlainText sejak awal (lihat catatan import).
+        self.title_label.setTextFormat(Qt.PlainText)
         self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         self.title_label.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(self.title_label)
 
-        self.subtitle_label = QLabel(f"Ujian: {self.exam.name}\nSilakan tunggu pengawas menyetujui akses Anda.")
+        self.subtitle_label = QLabel(self._pending_subtitle_text())
+        self.subtitle_label.setTextFormat(Qt.PlainText)
         self.subtitle_label.setStyleSheet("font-size: 13px; color: #6c7086;")
         self.subtitle_label.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(self.subtitle_label)
@@ -137,6 +145,18 @@ class WaitingApprovalDialog(QDialog):
 
         layout.addWidget(card, alignment=Qt.AlignHCenter)
         layout.addStretch(1)
+
+    def _pending_subtitle_text(self) -> str:
+        """Teks subtitle default — nama ujian disanitasi (H4).
+
+        Satu helper untuk `_setup_ui` dan `_retry_approval`: keduanya
+        menulis teks yang sama ke label yang sama, dan kalau hanya salah
+        satu yang disanitasi, jalur retry menjadi celahnya.
+        """
+        return _sanitize_server_text(
+            f"Ujian: {self.exam.name}\n"
+            "Silakan tunggu pengawas menyetujui akses Anda."
+        )
 
     def _start_polling(self):
         # Hanya boleh ada SATU poller. Kalau ada yang masih hidup, hentikan
@@ -293,8 +313,12 @@ class WaitingApprovalDialog(QDialog):
 
     @pyqtSlot(str, str, str)
     def _on_status_update(self, status_type: str, title: str, message: str):
-        self.title_label.setText(title)
-        self.subtitle_label.setText(message)
+        # `title`/`message` datang dari server (`resp.message` bisa juga
+        # berasal dari proxy/WAF), jadi disanitasi + PlainText — bukan
+        # hanya plain, tapi bebas karakter tersembunyi/bidi yang dipakai
+        # menyamarkan isi pesan dari mata siswa.
+        self.title_label.setText(_sanitize_server_text(title))
+        self.subtitle_label.setText(_sanitize_server_text(message))
 
         if status_type == "approved":
             self.icon_label.setText("✅")
@@ -304,8 +328,20 @@ class WaitingApprovalDialog(QDialog):
             # poller yang memicu approval ini masih yang terbaru. Tanpa
             # cek generasi, accept dari poller basi bisa menutup dialog
             # yang sudah di-retry untuk siklus berikutnya.
+            #
+            # Generasi WAJIB ditangkap DI SINI, saat penjadwalan. Versi lama
+            # menulis `self._poll_generation` di dalam lambda, jadi nilainya
+            # dibaca 1,5 detik kemudian — setelah `_retry_approval`/
+            # `reject()` menaikkan generasi — sehingga
+            # `_on_approved_delay` selalu menerima angka yang SAHAM dengan
+            # `self._poll_generation` dan penjaganya tidak pernah berarti
+            # apa pun. Poller basi pun lalu bisa menutup dialog yang sedang
+            # dipakai untuk siklus berikutnya, dan `__main__` langsung
+            # membuka jendela ujian tanpa persetujuan untuk percobaan itu.
+            _approved_generation = self._poll_generation
             QTimer.singleShot(
-                1500, lambda: self._on_approved_delay(self._poll_generation))
+                1500, lambda: self._on_approved_delay(_approved_generation),
+            )
         elif status_type == "rejected":
             self.icon_label.setText("🚫")
             self.btn_cancel.setText("Kembali")
@@ -344,7 +380,7 @@ class WaitingApprovalDialog(QDialog):
         self.btn_cancel.setText("Batal")
         self.icon_label.setText("⏳")
         self.title_label.setText("Menunggu Persetujuan")
-        self.subtitle_label.setText(f"Ujian: {self.exam.name}\nSilakan tunggu pengawas menyetujui akses Anda.")
+        self.subtitle_label.setText(self._pending_subtitle_text())
         self._start_polling()
 
     def reject(self):

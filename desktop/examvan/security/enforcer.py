@@ -644,13 +644,24 @@ class SecurityEnforcer(QObject):
     def reassert_capture_protection(self) -> None:
         """Pasang ulang proteksi capture pada window ujian (best-effort).
 
-        showFullScreen membuat ulang HWND sehingga afinitas display yang
-        dipasang fase medium hilang, dan compositor/aplikasi lain bisa
-        menimpa hint X11 kapan pun — jadi satu kali pasang saat aktivasi
-        tidak cukup. Aman dipanggil berulang: hanya berjalan saat enforcer
-        aktif dan window ada; kegagalan backend dicatat, tidak dilempar.
-        Dipanggil dari _poll_focus (kaden yang sama dengan confine_pointer)
-        dan dari viewer saat _enforce_fullscreen.
+        Afinitas display (WDA_MONITOR) disimpan per-HWND, jadi begitu HWND
+        diganti — `setWindowFlags()` di `_activate_strict` membuatnya,
+        beberapa versi DWM dan perubahan display juga — afinitas lama hilang
+        tanpa satu baris log pun. Compositor/aplikasi lain bisa menimpa hint
+        X11 kapan pun, jadi satu kali pasang saat aktivasi tidak cukup.
+        Aman dipanggil berulang: hanya berjalan saat enforcer aktif dan
+        window ada; kegagalan backend dicatat, tidak dilempar. Dipanggil dari
+        `_poll_focus` (kaden yang sama dengan `confine_pointer`) dan dari
+        viewer saat `_enforce_fullscreen`.
+
+        Koreksi (audit ronde ini): docstring versi lama menulis "showFullScreen
+        membuat ulang HWND sehingga afinitas display yang dipasang fase medium
+        hilang". Itu SALAH dan berbahaya, karena memberi alasan meyakinkan
+        untuk sesuatu yang tidak terjadi: `showFullScreen()` tidak membuat
+        ulang HWND. Yang membuatnya adalah `setWindowFlags()` di
+        `_activate_strict` — lihat catatan di `_activate_strict` dan di
+        `ExamViewerWindow._enforce_fullscreen`, yang memang sudah menyebut
+        penyebab sebenarnya.
         """
         if not self._active or self._window is None:
             return
@@ -720,6 +731,30 @@ class SecurityEnforcer(QObject):
         except Exception:
             pass
 
+        # Timer polling fokus — SATU per enforcer.
+        #
+        # `QTimer(self)` lama di-parent ke enforcer, jadi `deactivate()` yang
+        # hanya `stop()`-kan timer terakhir TIDAK menyentuhnya: timer lama
+        # tetap hidup dengan sambungan `timeout → _poll_focus`, dan setiap
+        # aktivasi tambahan menambah satu pengulangan. Efeknya `_poll_focus`
+        # berjalan dua kali per 500 ms, dan di strict itu berarti dua kali
+        # `raise_()` + `activateWindow()` + `ClipCursor` per tick.
+        #
+        # Tidak terjangkau hari ini (`_init_security` mengaktifkan sekali,
+        # `activate()` dilatch `_active`) — tapi invariant "satu timer per
+        # enforcer" harus dijaga sekarang, bukan menunggu perubahan satu
+        # baris.
+        stale = getattr(self, "_poll_timer", None)
+        if stale is not None:
+            try:
+                stale.timeout.disconnect(self._poll_focus)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                stale.stop()
+            except RuntimeError:
+                pass
+            stale.deleteLater()
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(FOCUS_POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_focus)

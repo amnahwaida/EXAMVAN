@@ -61,6 +61,24 @@ _defaults: Dict[str, Any] = {
     "exam_token_history": [],
 }
 
+# Bentuk penulisan `exam_token` yang dipakai SEKARANG (audit 2 Okt 2026,
+# HIGH H12). Token adalah kredensial SELURUH KELAS pada mode static, jadi
+# tidak boleh ada di `config.json` sebagai teks biasa — padahal
+# `exam_token_history` dan marker `submitted_*` di berkas yang sama sudah
+# ter-obfuscate sejak ronde sebelumnya. Nilainya tetap `_encode_secret`
+# (XOR + base64, kunci tetap di modul ini).
+#
+# Kenapa kunci terpisah, bukan `exam_token` berisi nilai ter-obfuscate:
+# bentuk lama (plaintext) harus dibaca apa adanya tanpa tebakan.
+# `_decode_secret` bersifat LENGAK — nilai yang "kebetulan" base64+XOR
+# valid akan diterjemahkan jadi sampah, dan pada token 8 karakter
+# alnum peluangnya sekitar 7% (diuji di test_r8_config_secret_at_rest).
+# Kalau `exam_token` yang dipaksakan ter-decode, kelas yang mendapat
+# kredensial rusak tidak bisa membuka ujian sama sekali. Dengan kunci
+# terpisah, "nilai ini sudah ter-encode atau belum" diketahui dari
+# NAMANYA, jadi tidak ada tebakan sama sekali.
+_SECRET_TOKEN_KEY = "exam_token_obf"
+
 _cache: Optional[Dict[str, Any]] = None
 
 # Penulis config bisa datang dari beberapa thread sekaligus: thread GUI
@@ -79,7 +97,25 @@ _cache: Optional[Dict[str, Any]] = None
 _save_lock = threading.RLock()
 
 # Lock untuk berkas jawaban (answers_<id>.dat + sidecar ownernya).
-_answers_lock = threading.Lock()
+# Reentrant dengan sengaja: `clear_answers_if_unchanged` memegang lock ini
+# selama read-decide-delete dan memanggil `clear_answers` di dalamnya.
+# `Lock` biasa akan menjadi deadlock yang muncul sebagai "aplikasi hang
+# setelah submit" -- sulit didiagnosis dan tidak ada test yang gagal jelas.
+_answers_lock = threading.RLock()
+
+
+# Konstanta `SECURITY_INFORMATION` Win32 (MS-DTYP), dipisah ke modul agar
+# bisa diperiksa tanpa menjalankan Win32 sama sekali.
+#
+# Koreksi audit 2 Okt 2026: PROTECTED_DACL_SECURITY_INFORMATION adalah
+# `0x80000000`. Nilai lama `0x80000` itu `WRITE_OWNER` di `ACCESS_MASK`
+# (cf. `golang/sys/windows/security_windows.go`), yang artinya "ubah
+# pemilik", BUKAN "ganti DACL dengan yang baru". Disalirkan ke
+# `SetNamedSecurityInfoW`, ACL warisan ikut ter-MERGE — persis kebalikan
+# dari yang dijanjikan docstring `_windows_restrict_to_owner`, dan tanpa
+# itu file kredensial tetap world-readable di PC lab.
+DACL_SECURITY_INFORMATION_ = 0x4
+PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
 
 
 def _restrict_to_owner(path: Path) -> None:
@@ -122,8 +158,6 @@ def _windows_restrict_to_owner(path: Path) -> bool:
 
         advapi32 = ctypes.windll.advapi32
         SE_FILE_OBJECT = 1
-        DACL_SECURITY_INFORMATION = 0x4
-        PROTECTED_DACL_SECURITY_INFORMATION = 0x80000
         GRANT_ACCESS = 1
         TRUSTEE_IS_NAME = 1
         TRUSTEE_IS_UNKNOWN = 0
@@ -196,7 +230,8 @@ def _windows_restrict_to_owner(path: Path) -> bool:
         ret = advapi32.SetNamedSecurityInfoW(
             str(path),
             SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            DACL_SECURITY_INFORMATION_
+            | PROTECTED_DACL_SECURITY_INFORMATION,
             None,
             None,
             new_dacl,
@@ -383,7 +418,19 @@ def _sanitize(config_data: Dict[str, Any]) -> Dict[str, Any]:
     # yang diedit manual tidak boleh mengalir sebagai None ke pemanggil
     # (mis. None.rstrip di WS connect, atau "None" literal sebagai token).
     config_data["server_url"] = str(config_data.get("server_url") or "")
-    config_data["exam_token"] = str(config_data.get("exam_token") or "")
+    # exam_token (H12): bentuk sekarang (ter-obfuscate, kunci terpisah)
+    # menang; bentuk lama dibaca apa adanya. Cache SELALU menyimpan token
+    # polos — semua pemanggil (`server_config`, `ws`, `api`) memakai
+    # `get("exam_token")` dan tidak boleh ikut tobakan.
+    _encoded_token = config_data.get(_SECRET_TOKEN_KEY)
+    if isinstance(_encoded_token, str) and _encoded_token:
+        config_data["exam_token"] = _decode_secret(_encoded_token)
+    else:
+        config_data["exam_token"] = str(config_data.get("exam_token") or "")
+    # Bentuk ter-obfuscate hanya bentuk di DISK; jangan ikut di-cache
+    # (kalau tidak, `get_all()` menumpahkan bentuk mentah ke pemanggil
+    # dan `_save` akan menulis dua salinan).
+    config_data.pop(_SECRET_TOKEN_KEY, None)
     _remember = config_data.get("remember_url", True)
     if _remember is True:
         config_data["remember_url"] = True
@@ -401,25 +448,146 @@ def _sanitize(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return config_data
 
 
+def _backup_corrupt_config(reason: Any) -> Optional[Path]:
+    """Salin `config.json` yang tidak terbaca ke `config.json.bak`.
+
+    Audit 2 Okt 2026 (MEDIUM): `_load()` me-reset file rusak ke default
+    dengan TANPA log dan tanpa cadangan. Yang hilang permanen bukan cuma
+    URL/token — `exam_token_history` ikut hilang, dan itu satu-satunya
+    cara membaca `answers_*.dat` versi lama (lihat
+    `_legacy_token_candidates`), begitu pula `start_time_*` dan marker
+    `submitted_*`. Setelah itu autosave berikutnya menimpa kertas yang
+    sebenarnya masih bisa dipulihkan, dan tidak ada yang tahu.
+
+    Isi cadangan apa adanya (termasuk token plaintext kalau config-nya
+    memang versi lama) — tujuannya pemulihan, bukan hal lain; file
+    cadangan dibuat 0600 supaya tidak memperluas kebocoran.
+
+    Tidak pernah melempar: dipanggil dari `_load()`, yang dipanggil dari
+    mana-mana. Kegagalan menyalin tetap dilog.
+    """
+    bak = _CONFIG_FILE.with_name(_CONFIG_FILE.name + ".bak")
+    try:
+        _fd = os.open(str(bak), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(_fd, "wb") as f:
+            f.write(_CONFIG_FILE.read_bytes())
+    except OSError as exc:
+        _log.warning(
+            "could not back up unreadable %s to %s: %s",
+            _CONFIG_FILE, bak, exc, exc_info=True,
+        )
+        bak = None
+    return bak
+
+
+def _reset_corrupt_config(reason: Any) -> None:
+    """Log keras + simpan cadangan, lalu kembalikan default.
+
+    Dipanggil hanya dari `_load()`, dan hanya saat file ADA tapi tidak
+    bisa dipakai. Melempar di sini akan mematikan seluruh app di setiap
+    peluncuran, jadi funcinya melog DAN memulihkan file yang bisa
+    dipulihkan, tidak menebak isinya.
+    """
+    bak = _backup_corrupt_config(reason)
+    _log.warning(
+        "%s is unreadable (%s); starting from defaults%s",
+        _CONFIG_FILE, reason,
+        f"; bytes kept in {bak}" if bak else "",
+        exc_info=reason if isinstance(reason, BaseException) else None,
+    )
+
+
 def _load() -> Dict[str, Any]:
     global _cache
     if _cache is not None:
         return _cache
     if _CONFIG_FILE.exists():
+        # Sentinel supaya "gagal parse" (sudah dilog + dicadangkan) tidak
+        # tertukar dengan "JSON-nya `null`" — bentuk terakhir juga tidak
+        # bisa dipakai, dan tetap harus meninggalkan jejak.
+        unreadable = object()
+        data: Any = unreadable
         try:
             with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            data = None
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # Terpotong (mati listrik di tengah tulis), byte bukan-UTF-8,
+            # atau JSON rusak. Semua itu berarti isi yang hilang tidak
+            # bisa dibaca — dan tidak akan pernah dicatat kalau diam saja.
+            _reset_corrupt_config(exc)
+        except OSError as exc:
+            # Tidak bisa dibaca (izin/OneDrive mengunci). Defaults tetap,
+            # tapi kejadian ini harus kelihatan: siswa akan mengetik token
+            # ulang dan menganggap tidak pernah masuk. Tidak ada salinan:
+            # file-nya sendiri utuh, yang tidak bisa dibuka.
+            _log.warning("could not read %s: %s", _CONFIG_FILE, exc,
+                         exc_info=True)
         # JSON valid tapi bukan object ("[]", "123", "null") juga ditolak:
         # {**defaults, **[]} melempar TypeError (repro nyata, audit 30 Sep).
-        if isinstance(data, dict):
-            _cache = _sanitize({**_defaults, **data})
-        else:
+        # Sekarang ikut dicadangkan + dilog: bentuk-bentuk ini menghapus
+        # isi yang sebenarnya masih utuh di dalam filenya.
+        if not isinstance(data, dict):
+            if data is not unreadable:
+                _reset_corrupt_config("JSON valid tapi bukan object")
             _cache = dict(_defaults)
+        else:
+            _cache = _sanitize({**_defaults, **data})
     else:
         _cache = dict(_defaults)
     return _cache
+
+
+def _save_payload() -> Dict[str, Any]:
+    """Bentuk yang benar-benar ditulis ke `config.json`.
+
+    Sama dengan cache, kecuali `exam_token` diganti `_SECRET_TOKEN_KEY`
+    berisi `_encode_secret` (H12). Cache sendiri tidak pernah diubah —
+    semua pemanggil membaca token polos dari `get("exam_token")`.
+    """
+    payload = dict(_cache or {})
+    token = str(payload.get("exam_token", "") or "")
+    payload.pop("exam_token", None)
+    payload.pop(_SECRET_TOKEN_KEY, None)
+    if token:
+        payload[_SECRET_TOKEN_KEY] = _encode_secret(token)
+    return payload
+
+
+def _fsync_dir(path: Path) -> None:
+    """`fsync` sebuah direktori supaya rename di dalamnya jadi durable.
+
+    POSIX saja: Windows tidak punya yang setara untuk direktori (dan
+    `FlushFileBuffers` pada directory handle tidak didukung), jadi di
+    sana ini no-op — bukan kegagalan, karena target durability
+    dijamin oleh mekanisme lain dari NTFS.
+
+    Best-effort: beberapa filesystem (network share tertentu) menolak
+    `fsync` pada direktori; itu bukan alasan menggagalkan penulisan yang
+    sudah berhasil, tapi harus meninggalkan jejak.
+    """
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError as exc:
+        _log.warning("could not open %s to fsync: %s", path, exc)
+        return
+    try:
+        os.fsync(fd)
+    except OSError as exc:
+        _log.warning("could not fsync %s: %s", path, exc)
+    finally:
+        os.close(fd)
+
+
+def _ensure_config_dir() -> None:
+    """Buat direktori config kalau belum ada; biarkan OSError ke pemanggil.
+
+    Sengaja dibiarkan melempar: pemanggilnya (`_save`, `save_answers`,
+    `save_answers_owner`) memanggilnya DI DALAM daerah yang dijaga, jadi
+    kegagalan mkdir ikut tertangkap dan dilog — bukan lolos ke slot Qt.
+    """
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _save() -> None:
@@ -430,18 +598,23 @@ def _save() -> None:
     # catatan `_save_lock` di atas. Lock diambil SETELAH cek cache, karena
     # cache tidak pernah ditulis oleh _save() (hanya dibaca).
     with _save_lock:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         # Nama temp UNIK per proses: dua proses EXAMVAN di PC lab yang sama
         # (double-launch) dulu berebut `config.tmp` yang sama — file rusak
         # dan replace gagal. Dalam satu proses, lock di atas cukup.
         tmp = _tmp_sibling(_CONFIG_FILE)
         try:
+            # H7: `mkdir` WAJIB di dalam try. `exist_ok=True` hanya
+            # melewati pembuatan kalau direktori sudah ada; kalau belum
+            # (%USERPROFILE% roaming yang redirected, folder OneDrive yang
+            # terkunci, image lab yang dikunci polisi) justru INI yang
+            # melempar EACCES, dan dulu dilempar di luar try.
+            _ensure_config_dir()
             # Mode 0600 sejak create: isi (token + identitas) tidak pernah
             # world-readable walau sesaat.
             _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
                 with os.fdopen(_fd, "w", encoding="utf-8") as f:
-                    json.dump(_cache, f, indent=2, ensure_ascii=False)
+                    json.dump(_save_payload(), f, indent=2, ensure_ascii=False)
                     f.flush()
                     os.fsync(f.fileno())
             except Exception:
@@ -461,15 +634,31 @@ def _save() -> None:
             # mengambil PDF, dan mengirim jawaban sebagai siapa saja.
             _restrict_to_owner(tmp)
             tmp.replace(_CONFIG_FILE)
+            # fsync DIREKTORI setelah `replace`. `fsync(file)` di atas hanya
+            # menjamin isi file; entri direktori hasil rename baru durable
+            # kalau direktorinya ikut di-fsync. Tanpa ini, mati listrik
+            # tepat setelah autosave bisa mengembalikan `config.json`
+            # versi lama — dan karena `exam_token_history` ikut terputus,
+            # `answers_*.dat` versi lama yang tadinya bisa dibaca menjadi
+            # tidak terbaca. Persis ancaman yang dicatat di docstring modul.
+            _fsync_dir(_CONFIG_DIR)
             # file bisa sudah ada dari versi lama dengan mode longgar;
             # `set()` menulis ulang berkali-kali jadi harus dijaga tiap kali.
             _restrict_to_owner(_CONFIG_FILE)
         except OSError as exc:
-            # Sama seperti clear_answers: `set()` dipanggil dari thread GUI
-            # (mis. `_connect_thread` yang menyimpan URL+token sebelum gate),
-            # dan exception dari sana mematikan seluruh app lewat qFatal.
             # Config yang gagal ditulis berarti token/URL belum tersimpan --
-            # sesuatu yang bisa diamati dan dicoba lagi, bukan crash.
+            # sesuatu yang bisa diamati (log di bawah) dan dicoba lagi.
+            #
+            # Koreksi komentar (audit 2 Okt 2026): ini dulu ditulis "exception
+            # dari sini mematikan seluruh app lewat qFatal". Itu SALAH pada
+            # PyQt5 yang dipakai (5.15.10): exception di dalam slot Qt
+            # hanya mencetak traceback (PyQt5 menghentikan propagasi
+            # exception lewat virtual machine), app terus berjalan. Dan
+            # pada build PyInstaller `--windowed` stderr dibuang, jadi
+            # hasil nyatanya adalah KEHENINGAN, bukan abort. Jadi yang
+            # harus tercatat di sini adalah kegagalannya sendiri: tanpa warning
+            # + traceback, config yang gagal ditulis tidak terlihat sama
+            # sekali.
             try:
                 tmp.unlink()
             except OSError:
@@ -526,45 +715,63 @@ def set(key: str, value: Any) -> None:
     # dan autosave berikutnya menimpanya.
     #
     # Menyimpan nilai lama membuat kunci itu masih bisa dicoba.
-    if key == "exam_token":
+    #
+    # Audit 2 Okt 2026: read-modify-write ini sekarang DI BAWAH
+    # `_save_lock`. Sebelumnya mutate + `_save()` terpisah, dan lock hanya
+    # diambil DI DALAM `_save()` — jadi dua rotasi dari thread berbeda
+    # bisa membaca riwayat yang sama lalu menimpanya, dan satu entri
+    # hilang. Kehilangan entri itu tidak bisa dipulihkan: entri itulah
+    # satu-satunya kandidat yang masih bisa dipakai untuk membaca
+    # `answers_*.dat` versi lama, jadi jawaban siswa yang tersisa jadi
+    # tidak terbaca selamanya.
+    with _save_lock:
         store = _load()
-        previous = str(store.get("exam_token", "") or "").strip()
-        current = str(value or "").strip()
-        if previous and current and previous != current:
-            history = store.get("exam_token_history") or []
-            if not isinstance(history, list):
-                history = []
-            # Bukan arsip: hanya kandidat yang masih mungkin dipakai
-            # (maksimal 3).
-            history = [h for h in history if isinstance(h, str) and h]
-            # Bandingkan dalam bentuk tersimpan (ter-obfuscated) supaya
-            # rotasi bolak-balik token yang sama tidak menduplikasi entri.
-            encoded_previous = _encode_secret(previous)
-            if encoded_previous not in history:
-                # Audit 2 Okt 2026: riwayat dulu berisi 8 token plaintext —
-                # kredensial kelas yang lama tersusun rapi di config.json
-                # bahkan setelah token berputar. Simpan ter-obfuscated
-                # (lihat _encode_secret); pembacaannya lewat
-                # _legacy_token_candidates yang menerima kedua bentuk.
-                history.append(encoded_previous)
-            store["exam_token_history"] = history[-3:]
-    _load()[key] = value
-    _save()
+        if key == "exam_token":
+            previous = str(store.get("exam_token", "") or "").strip()
+            current = str(value or "").strip()
+            if previous and current and previous != current:
+                history = store.get("exam_token_history") or []
+                if not isinstance(history, list):
+                    history = []
+                # Bukan arsip: hanya kandidat yang masih mungkin dipakai
+                # (maksimal 3).
+                history = [h for h in history if isinstance(h, str) and h]
+                # Bandingkan dalam bentuk tersimpan (ter-obfuscated) supaya
+                # rotasi bolak-balik token yang sama tidak menduplikasi entri.
+                encoded_previous = _encode_secret(previous)
+                if encoded_previous not in history:
+                    # Riwayat dulu berisi 8 token plaintext — kredensial
+                    # kelas yang lama tersusun rapi di config.json bahkan
+                    # setelah token berputar. Simpan ter-obfuscated (lihat
+                    # _encode_secret); pembacaannya lewat
+                    # _legacy_token_candidates yang menerima kedua bentuk.
+                    history.append(encoded_previous)
+                store["exam_token_history"] = history[-3:]
+        store[key] = value
+        _save()
 
 
 def get_all() -> Dict[str, Any]:
     return dict(_load())
 
 
-def save_answers(exam_id: int, answers: Dict[str, Any]) -> None:
-    """Save answers to disk for crash recovery (obfuscated)."""
+def save_answers(exam_id: int, answers: Dict[str, Any]) -> bool:
+    """Save answers to disk for crash recovery (obfuscated).
+
+    Mengembalikan True kalau jawabannya benar-benar ada di disk. Kegagalan
+    TIDAK pernah melempar (pemanggilnya slot Qt + timer autosave), tapi juga
+    tidak pernah diam: tanpa log, autosave berhenti diam-diam sementara
+    UI tetap terlihat sehat dan siswa mengira jawabannya aman.
+    """
     path = _CONFIG_DIR / f"answers_{exam_id}.dat"
-    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     # Unik per proses DAN per panggilan: lihat `_tmp_sibling`. Nama tetap
     # membuat dua proses di PC lab yang sama saling menimpa isi jawaban,
     # dan `replace` salah satunya gagal.
     tmp = _tmp_sibling(path)
     try:
+        # H7: mkdir di dalam try — `exist_ok=True` tidak menolong kalau
+        # direktori config belum pernah dibuat (induk read-only).
+        _ensure_config_dir()
         encoded = _encode_answers(answers)
         _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
@@ -581,13 +788,70 @@ def save_answers(exam_id: int, answers: Dict[str, Any]) -> None:
         _restrict_to_owner(tmp)
         with _answers_lock:
             tmp.replace(path)
-    except Exception:
+        return True
+    except Exception as exc:
+        # Kegagalan apa pun (mkdir ditolak, `os.replace` ditolak Defender
+        # yang sedang memegang handle, ENOSPC, fsync gagal) harus KELIHATAN.
+        # Sebelumnya blok ini hanya melog kalau cleanup unlink ikut gagal,
+        # jadi praktis semua kegagalan menulis hilang tanpa jejak: autosave
+        # berhenti, `_answers_dirty` tetap dibersihkan, dan tidak ada siapa
+        # pun yang tahu jawaban menit terakhir tidak ada di disk.
+        _log.warning(
+            "could not save answers for exam %s to %s: %s",
+            exam_id, path, exc, exc_info=True,
+        )
         # If obfuscation fails, don't write anything readable
         try:
             if tmp.exists():
                 tmp.unlink()
-        except OSError as exc:
-            _log.warning("could not remove temp answers file %s: %s", tmp, exc)
+        except OSError as cleanup_exc:
+            _log.warning("could not remove temp answers file %s: %s",
+                         tmp, cleanup_exc)
+        return False
+
+
+def _decode_secret_strict(value: Any) -> Optional[str]:
+    """`_decode_secret` TANPA fallback ke nilai mentah. None kalau rusak.
+
+    Dipakai kalau kita TAHU nilai di disk sudah `_encode_secret`, jadi
+    "gagal decode" berarti isinya rusak/berubah bentuk — bukan "mungkin
+    saja plaintext versi lama". Menebak di sini berarti mengarang
+    kredensial atau kunci siswa.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(value.encode("ascii"))
+        return _xor_obfuscate(raw).decode("utf-8")
+    except Exception:
+        return None
+
+
+# Bentuk sidecar `.owner` (H12). Field `v` menandai isi yang sudah
+# ter-obfuscate: tanpa penanda ini, pembaca harus menebak apakah
+# "0812" itu plaintext atau base64+XOR, dan tebakan yang salah mengubah
+# kunci siswa jadi sampah — gerbang kepemilikan lalu menolak recovery
+# yang sah (fail-CLOSED) atau, lebih buruk, membukanya untuk orang
+# lain. Sidecar versi lama (tanpa `v`) dibaca apa adanya.
+_OWNER_FORMAT = 2
+
+
+def _owner_payload(student_key: str, label: str) -> Dict[str, Any]:
+    """Sidecar yang AMAN ditulis ke disk (H12).
+
+    `student_key` dan `label` disamarkan dengan `_encode_secret` yang
+    sama seperti `exam_token_history` dan marker `submitted_*` — bukan
+    karena sidecar ini perlu dirahasiakan dari pemiliknya, tapi karena
+    `clear_answers` tidak selalu sempat berjalan: siswa yang prosesnya
+    DIBUNUH meninggalkan sidecar ini, dan isinya adalah nomor ujian /
+    nama (lihat `utils.build_student_key`, yang nilainya apa adanya,
+    bukan hash seperti yang dulu dikira docstring fungsi ini).
+    """
+    return {
+        "v": _OWNER_FORMAT,
+        "student_key": _encode_secret(student_key),
+        "label": _encode_secret(label),
+    }
 
 
 def save_answers_owner(
@@ -602,28 +866,44 @@ def save_answers_owner(
     mengirimnya dengan identitas B yang baru saja diketik. Jawaban A
     tercatat atas nama B, nilai A hilang, dan tidak ada yang sadar.
 
-    Sidecar ini menyimpan kunci siswa (hash identitas+token, bukan data
-    pribadi — lihat `utils.build_student_key`) beserta label baca-manusia.
+    Sidecar ini menyimpan kunci siswa (hasil `utils.build_student_key`) dan
+    label baca-manusia, KEDUANYA ter-obfuscate di disk (lihat
+    `_owner_payload`; koreksi docstring lama yang menyebutnya "hash
+    identitas+token, bukan data pribadi" — `build_student_key` mengembalikan
+    nomor ujian/nama apa adanya, `.lower()` saja).
     `ServerConfigDialog._offer_pending_recovery` membandingkannya dengan
     identitas yang BARU SAJA diketik: cocok = recovery sah; tidak cocok =
     jawaban itu milik orang lain dan TIDAK boleh dikirim atas nama
     pengetik sekarang.
     """
     path = _CONFIG_DIR / f"answers_{exam_id}.owner"
-    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     # Lihat save_answers dan `_tmp_sibling`: nama temp tidak boleh sama
     # dengan temp jawaban maupun dengan milik proses lain.
     tmp = _tmp_sibling(path)
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "student_key": str(student_key or ""),
-                    "label": str(label or ""),
-                },
-                f,
-                ensure_ascii=False,
-            )
+        # H7: mkdir di dalam try (lihat save_answers).
+        _ensure_config_dir()
+        # 0600 sejak create, sama seperti save_answers: sidecar ini berisi
+        # kunci + label siswa. `open(tmp, "w")` dulu membuatnya dengan mode
+        # umask (0644 pada umask 022), jadi selama jendela antara create dan
+        # `chmod` berikutnya isinya sudah world-readable — persis celah yang
+        # save_answers sengaja tutup.
+        _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(_fd, "w", encoding="utf-8") as f:
+                json.dump(
+                    _owner_payload(student_key, label),
+                    f,
+                    ensure_ascii=False,
+                )
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception:
+            try:
+                os.close(_fd)
+            except OSError:
+                pass
+            raise
         _restrict_to_owner(tmp)
         with _answers_lock:
             tmp.replace(path)
@@ -638,9 +918,15 @@ def save_answers_owner(
 def load_answers_owner(exam_id: int) -> Optional[Dict[str, str]]:
     """Pemilik jawaban tersimpan ({student_key, label}) atau None.
 
-    None berarti berkas owner tidak ada — entri yang ditulis versi lama
-    tanpa sidecar. Pemanggil memutuskan sendiri kebijakan fail-open/closed
+    None berarti sidecar tidak ada (entri versi lama tanpa sidecar) atau
+    isinya rusak — untuk yang kedua tidak ada tebakan yang aman, jadi
+    dikembalikan None + warning, sama dengan policy fail-open pemanggil
     (lihat `ServerConfigDialog._offer_pending_recovery`).
+
+    Nilai yang dikembalikan SELALU bentuk polos: konsumennya
+    (`exam_viewer`, `server_config`, `resolve_submit_answers`) membandingkan
+    `student_key` dengan hasil `utils.build_student_key` yang baru dihitung,
+    jadi yang dikembalikan harus bisa dibandingkan, bukan hash.
     """
     path = _CONFIG_DIR / f"answers_{exam_id}.owner"
     try:
@@ -650,10 +936,22 @@ def load_answers_owner(exam_id: int) -> Optional[Dict[str, str]]:
         return None
     if not isinstance(data, dict):
         return None
-    return {
-        "student_key": str(data.get("student_key", "") or ""),
-        "label": str(data.get("label", "") or ""),
-    }
+    if data.get("v") != _OWNER_FORMAT:
+        # Sidecar versi lama: plaintext, dibaca apa adanya.
+        return {
+            "student_key": str(data.get("student_key", "") or ""),
+            "label": str(data.get("label", "") or ""),
+        }
+    student_key = _decode_secret_strict(data.get("student_key", ""))
+    if student_key is None:
+        _log.warning(
+            "answers owner marker for exam %s is corrupt; "
+            "owner treated as unknown",
+            exam_id,
+        )
+        return None
+    label = _decode_secret_strict(data.get("label", "")) or ""
+    return {"student_key": student_key, "label": label}
 
 
 def load_answers(exam_id: int) -> Optional[Dict[str, Any]]:
@@ -696,7 +994,18 @@ def clear_answers(exam_id: int) -> None:
 
     NEVER melempar. Panggilan ini berjalan di `_cleanup_after_submit`, yaitu
     statement pertama setelah submit sukses, dan pemanggilnya adalah slot
-    Qt -- exception apa pun di sini jadi `qFatal()` lalu SIGABRT.
+    Qt.
+
+    Koreksi komentar (audit 2 Okt 2026): dua alasan salah yang lalu dipakai
+    di sini dihapus.
+    (1) "exception apa pun jadi `qFatal()` lalu SIGABRT" — tidak benar pada
+    PyQt5 5.15.10 yang dipakai: exception di dalam slot hanya mencetak
+    traceback dan app lanjut. (2) Konsekuensinya, pada build PyInstaller
+    `--windowed` stderr dibuang, jadi kegagalan di sini yang nyata adalah
+    KEHENINGAN, bukan abort. Yang tetap benar: config/berkas yang gagal
+    dibersihkan setelah jawaban sudah sampai server berarti siswa tidak
+    melihat konfirmasi dan tetap tampil ONLINE di dashboard pengawas --
+    makanya setiap kegagalan di bawah WAJIB meninggalkan jejak di log.
 
     `PermissionError` bukan hipotesis: jawaban ditulis ulang tiap ~500ms,
     Defender sering memindai file tepat setelah ditulis dan memegang handle
@@ -758,6 +1067,81 @@ def clear_answers(exam_id: int) -> None:
     except OSError:
         _log.warning("could not remove answers owner marker: %s", owner,
                      exc_info=True)
+
+
+def clear_answers_if_unchanged(
+    exam_id: int, expected: Optional[Dict[str, Any]]
+) -> bool:
+    """Hapus jawaban `exam_id` HANYA kalau isinya masih `expected`.
+
+    Mengembalikan True kalau pemanggil boleh menganggap jawapannya sudah
+    dibersihkan (file tidak ada, atau isinya persis `expected`).
+
+    Kenapa ini bukan `if answers_match_disk(...)` lalu `clear_answers(...)`
+    di luar (audit ronde 8, H9)
+    -----------------------------------------------------
+    Pasangan "baca → putuskan → hapus" itu raced: `clear_answers()` sendiri
+    TIDAK memegang `_answers_lock`, jadi di antara pembacaan dan
+    `unlink()` Autosave percobaan berikutnya bisa menimpa `answers_<id>.dat`
+    beserta sidecar owner-nya. Terverifikasi dengan interleaving sungguhan:
+
+        [B] menulis answers {'1':'X','2':'Y'} + owner=studentB
+        [A] clear_answers() berjalan untuk exam 77
+        => file jawaban: False,  sidecar: False   (jawaban B hilang)
+
+    Jadi pasangan itu harus_atomik_ terhadap penulis jawaban, dan lock yang
+    benar hidup di modul ini — `save_answers`/`save_answers_owner` sudah
+    memakainya. Karena itu helper-nya di sini, bukan di lapisan UI: ketiga
+    call site (auto-submit, cleanup manual, recovery) memakai aturan yang
+    sama, dan `server_config` ikut memakainya tanpa perlu tahu detail
+    lock-nya.
+
+    Fail-closed di semua arah: lock tidak bisa diambil, `load_answers`
+    melempar, atau isinya berbeda ⇒ TIDAK menghapus. Menghapus jawaban yang
+    bukan milik percobaan yang sedang selesai jauh lebih merusak daripada
+    membiarkannya (jawaban siswa berikutnya hilang tanpa jejak).
+
+    `RLock`, bukan `Lock`: helper ini memanggil `clear_answers`, dan suatu
+    saat `clear_answers` sendiri bisa butuh lock yang sama. `Lock` biasa
+    akan menjadi deadlock, dan itu akan muncul sebagai "aplikasi hang
+    setelah submit" — sulit didiagnosis dan tidak ada test yang gagal
+    jelas. Reentrant lock membuat salah urus lock menjadi error cepat,
+    bukan hang.
+    """
+    try:
+        _answers_lock.acquire()
+    except Exception:  # pragma: no cover - lock ini tidak pernah gagal
+        _log.warning(
+            "could not take answers lock; keeping answers for exam %s",
+            exam_id, exc_info=True,
+        )
+        return False
+    try:
+        if expected is None:
+            # Tidak tahu apa yang di disk: JANGAN hapus.
+            return False
+        try:
+            current = load_answers(exam_id)
+        except Exception:
+            _log.warning(
+                "could not read answers for exam %s before clearing; "
+                "keeping them", exam_id, exc_info=True,
+            )
+            return False
+        if current is None:
+            # Sudah tidak ada (percobaan sebelumnya yang membersihkannya).
+            # True: pemanggil boleh lanjut, tidak ada yang perlu dihapus.
+            return True
+        if current != expected:
+            _log.warning(
+                "answers for exam %s changed underneath this submit; "
+                "NOT deleting them", exam_id,
+            )
+            return False
+        clear_answers(exam_id)
+        return True
+    finally:
+        _answers_lock.release()
 
 
 def _submitted_raw(exam_id: int) -> dict:
@@ -1019,7 +1403,17 @@ def clear_identity() -> None:
     tidak boleh terbaca. Ketiganya sekarang dibersihkan dalam satu
     `_save()`.
 
-    Tidak pernah melempar: pemanggilnya slot Qt (`qFatal` → SIGABRT).
+    SENGAJA TIDAK menyentuh `answers_<id>.owner`: fungsi ini juga dipanggil
+    saat jendela ujian ditutup, yaitu saat ujian SISWA itu masih berjalan.
+    Sidecar yang masih menopangi jawaban yang ada justru satu-satunya
+    penjaga answers milik-siapa (lihat `load_answers_owner`), jadi
+    menghapusnya di sini membuka jawaban siswa A untuk recovery siswa B.
+    Sapuan sidecar ada di `clear_stale_identity_on_startup` (H12).
+
+    Tidak pernah melempar: pemanggilnya slot Qt. Exception dari slot Qt
+    tidak mematikan app — PyQt5 mencetak traceback lalu melanjutkan
+    (koreksi komentar: dulu ditulis "qFatal → SIGABRT"; pada build
+    `--windowed` stderr justru dibuang, jadi hasilnya keheningan).
     """
     try:
         store = _load()
@@ -1030,6 +1424,52 @@ def clear_identity() -> None:
     except Exception:
         _log.warning("could not clear persisted identity",
                      exc_info=True)
+
+
+def _sweep_orphan_owner_markers() -> int:
+    """Hapus `answers_<id>.owner` yang jawabannya sudah tidak ada. Jumlahnya.
+
+    H12: `clear_answers` menghapus owner HANYA kalau berkas jawabannya
+    benar-benar hilang, dan proses yang DIBUNUH (listrik mati, task
+    manager, crash) tidak menjalankan satu pun jalur keluar bersih. Hasilnya
+    sidecar berisi identitas siswa menetap tanpa ada jawaban yang
+    menopanginya — tidak berguna, dan tetap data pribadi.
+
+    Yang TIDAK boleh disapu: owner yang jawabannya masih ada. Sidecar itu
+    masih benar-benar dipakai (gerbang restore + gerbang recovery), dan
+    menghapusnya membuat keduanya gagal-TERBUKA — jawaban siswa yang
+    dibunuh di tengah ujian lalu bisa dikirim atas nama siswa berikutnya.
+    Jadi syaratnya persis kebalikan dari `clear_answers`: hapus hanya yang
+    sudah yatim.
+
+    Hanya dipanggil saat start (tidak ada ujian yang hidup pada saat itu),
+    jadi "sedang dipakai" tidak mungkin terjadi di tengah operasi.
+
+    Tidak pernah melempar; kegagalan per berkas dilog.
+    """
+    removed = 0
+    try:
+        owners = sorted(_CONFIG_DIR.glob("answers_*.owner"))
+    except OSError as exc:
+        _log.warning("could not list owner markers: %s", exc, exc_info=True)
+        return 0
+    for owner in owners:
+        stem = owner.name[: -len(".owner")]
+        survivors = [
+            _CONFIG_DIR / f"{stem}.dat",
+            # Warisan plaintext sebelum obfuscation; `load_answers` masih
+            # memakainya kalau `.dat` tidak ada.
+            _CONFIG_DIR / f"{stem}.json",
+        ]
+        try:
+            if any(p.exists() for p in survivors):
+                continue
+            owner.unlink()
+            removed += 1
+        except OSError:
+            _log.warning("could not remove orphan owner marker: %s", owner,
+                         exc_info=True)
+    return removed
 
 
 def clear_stale_identity_on_startup() -> bool:
@@ -1051,9 +1491,21 @@ def clear_stale_identity_on_startup() -> bool:
     memanggilnya di `import` akan menghapus prefill yang sah untuk
     recovery yang masih berjalan.
 
+    H12: sekalian menyapu `answers_<id>.owner` yang sudah yatim. Ini
+    jalur start, jadi tidak ada ujian yang sedang hidup — maka "sapu"
+    di sini tidak mungkin menyentuh sidecar yang sedang dipakai. Jalur
+    `clear_identity()` (dipanggil saat jendela ditutup, yaitu saat ujian
+    masih berjalan) sengaja TIDAK menyapunya.
+
     Idempoten dan tidak pernah melempar. `True` berarti ada identitas sisa
     yang dibersihkan (berguna untuk logging).
     """
+    swept = 0
+    try:
+        swept = _sweep_orphan_owner_markers()
+    except Exception:
+        _log.warning("could not sweep orphan owner markers",
+                     exc_info=True)
     try:
         store = _load()
         session = store.get("identity_session")
@@ -1062,9 +1514,17 @@ def clear_stale_identity_on_startup() -> bool:
         else:
             had = bool(store.get("identity_data"))
         if not had and not store.get("identity_context"):
+            if swept:
+                _log.info(
+                    "%s sidecar owner yatim dibersihkan saat start", swept,
+                )
             return False
         clear_identity()
         _log.info("identitas sisa dari proses sebelumnya dibersihkan saat start")
+        if swept:
+            _log.info(
+                "%s sidecar owner yatim dibersihkan saat start", swept,
+            )
         return True
     except Exception:
         _log.warning("could not clear stale identity on startup",
