@@ -897,8 +897,64 @@ class SecurityEnforcer(QObject):
         else:
             self._on_app_state_changed(Qt.ApplicationActive)
 
+    def _window_gone(self) -> bool:
+        """True kalau objek C++ jendela sudah dihapus.
+
+        `SecurityEnforcer` di构造 tanpa `parent=` pada jalur lama, jadi
+        `QTimer(self)` ter-induk ke enforcer dan BUKAN ke jendela. Ketika
+        objek C++ jendela dihapus (`WA_DeleteOnClose`, `deleteLater`,
+        viewport sekali pakai) timer masih berdetak dan setiap
+        `self._window.isActiveWindow()` melempar `RuntimeError`.
+
+        `RuntimeError` di dalam slot Qt = `qFatal` = SIGABRT: inilah yang
+        membuat CI berakhir `Aborted (core dumped)` exit 134, dan di PC
+        siswa aplikasi hilang tanpa pesan sama sekali di tengah atau
+        setelah ujian. Parenting (lihat `_init_security`) sudah
+        menghilangkan akar masalahnya; pemeriksaan ini adalah belt-and-braces
+        untuk urutan teardown apa pun — termasuk viewer yang dibangun lewat
+        `__new__` di test, yang tidak punya induk sama sekali.
+        """
+        window = self._window
+        if window is None:
+            return True
+        try:
+            from PyQt5 import sip
+
+            if sip.isdeleted(window):
+                return True
+        except Exception:  # pragma: no cover - sip selalu ada di PyQt5
+            pass
+        return False
+
+    def _safe_window_call(self, what: str):
+        """Jalankan `what()` pada jendela; None kalau jendela sudah mati."""
+        if self._window_gone():
+            log.info("skip %s: objek jendela sudah dihapus", what)
+            return None
+        try:
+            return what()
+        except RuntimeError as exc:
+            # Jendela bisa hilang di antara pemeriksaan dan pemanggilan.
+            log.info("skip %s: %s", what, exc)
+            return None
+
     def _poll_focus(self) -> None:
         if not self._active or not self._window or self._focus_guard_paused:
+            return
+        # Jendela sudah tidak ada: hentikan timer supaya tidak menembak ke
+        # objek mati setiap 500 ms, dan jangan sentuh jendela sama sekali.
+        if self._window_gone():
+            # `getattr` karena polling TIDAK selalu ada: level low tidak
+            # membuat timer ini, dan `deactivate()` sudah memakai pola yang
+            # sama. Menyeret atribut yang belum ada di sini hanya
+            # menggantikan RuntimeError dengan AttributeError.
+            for name in ("_poll_timer", "_focus_timer"):
+                timer = getattr(self, name, None)
+                if timer is not None:
+                    try:
+                        timer.stop()
+                    except RuntimeError:
+                        pass
             return
 
         # Sabuk pengaman H3/F-1: episode focus-loss yang tidak kunjung
@@ -958,8 +1014,8 @@ class SecurityEnforcer(QObject):
             return
 
         if self._strict:
-            self._window.raise_()
-            self._window.activateWindow()
+            self._safe_window_call(lambda: self._window.raise_())
+            self._safe_window_call(lambda: self._window.activateWindow())
             # Re-assert confinement pointer (murah — satu panggilan Win32):
             # aplikasi lain boleh me-reset ClipCursor kapan pun, jadi tanpa
             # ulangan ini kunci pointer lepas tanpa jejak. Lihat
@@ -978,7 +1034,7 @@ class SecurityEnforcer(QObject):
             # dijalankan sampai selesai. Re-aktivasi oleh KITA sendiri tidak
             # membatalkannya (episode flag); hanya interaksi nyata siswa
             # (eventFilter: klik/ketik di window) yang mengakhirinya.
-            if not self._window.isActiveWindow():
+            if not self._safe_window_call(lambda: self._window.isActiveWindow()):
                 if not self._focus_timer.isActive():
                     log.warning("Poll: window not active — starting 3s countdown")
                     if not self._strict_focus_episode:
@@ -994,7 +1050,7 @@ class SecurityEnforcer(QObject):
                 self._focus_episode_start = None
             return
 
-        if not self._window.isActiveWindow():
+        if not self._safe_window_call(lambda: self._window.isActiveWindow()):
             if not self._focus_timer.isActive():
                 log.warning("Poll: window not active — starting 3s countdown")
                 if not self._strict_focus_episode:

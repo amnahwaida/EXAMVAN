@@ -801,6 +801,14 @@ class ExamViewerWindow(QMainWindow):
             strict_mode=self._exam.is_strict,
             window=self,
             kiosk_mode=self._kiosk_mode,
+            # WAJIB: enforcer harus ANAK dari jendela. Tanpa `parent=` ia
+            # QObject tanpa induk, jadi `QTimer(self)` (polling fokus 500 ms,
+            # sapuan clipboard, countdown) ter-induk ke enforcer dan tetap
+            # hidup setelah objek C++ jendela dihapus — lalu `_poll_focus`
+            # menyentuh objek mati dan melempar RuntimeError. Di dalam slot
+            # Qt itu `qFatal` = SIGABRT: aplikasi hilang tanpa pesan di tengah
+            # ujian (regresi yang ditemukan di CI ronde 9, exit 134).
+            parent=self,
         )
         self._security.auto_submit.connect(self._auto_submit)
         self._security.activate()

@@ -48,6 +48,16 @@ _MODULE_RE = re.compile(rb"(?<![\w.])examvan(?:\.[A-Za-z_]\w*)*")
 # entri NUL-terminated di CArchive, jadi cukup dibaca dari nama file itu.
 _NATIVE_RE = re.compile(rb"[\w.\-]+\.(?:dll|pyd|so|dylib|zip|manifest)(?![\w.])")
 
+# Paket PYTHON pihak ketiga (PyMuPDF -> `fitz`, Pillow, ...). Entri CArchive
+# PyInstaller untuk sebuah paket bernama `<pkg>/__init__.pyc` (atau `<pkg>.pyd`
+# untuk yang native). Regex modul di atas HANYA menangkap `examvan.*`, jadi
+# tanpa fungsi ini jarum "fitz" tidak pernah bisa cocok -- pemeriksaan
+# "stack PDF ter-bundle" di build-windows.yml akan selalu gagal meski
+# PyMuPDF benar-benar ikut terpaket.
+_PY_PKG_RE = re.compile(
+    rb"(?<![\w.\\/])([A-Za-z_]\w*)(?:[\\/][A-Za-z_]\w*)*[\\/]__init__\.pyc(?![\w.])"
+)
+
 _CHUNK = 8 * 1024 * 1024
 
 
@@ -71,6 +81,21 @@ def native_names(blob: bytes) -> list[str]:
     for m in _NATIVE_RE.finditer(blob):
         try:
             out.add(m.group(0).decode("ascii"))
+        except UnicodeDecodeError:
+            continue
+    return sorted(out)
+
+
+def package_names(blob: bytes) -> list[str]:
+    """Nama paket python pihak ketiga yang tercatat di arsip.
+
+    Hanya paket TOP-LEVEL (`fitz/__init__.pyc` -> `fitz`), karena itulah yang
+    dipakai sebagai kandidat jarum di build-windows.yml.
+    """
+    out: set[str] = set()
+    for m in _PY_PKG_RE.finditer(blob):
+        try:
+            out.add(m.group(1).decode("ascii"))
         except UnicodeDecodeError:
             continue
     return sorted(out)
@@ -136,7 +161,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if raw:
-        for name in modules + native_names(blob):
+        # Paket pihak ketiga ikut dicetak: `--raw` dipakai workflow hanya
+        # untuk pencarian jarum, dan `--require` tetap memakai `modules`
+        # sehingga daftar wajib tidak ikut berubah.
+        for name in modules + package_names(blob) + native_names(blob):
             print(name)
     else:
         for name in modules:
