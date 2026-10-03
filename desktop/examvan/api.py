@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -307,6 +308,22 @@ def _pdf_opener():
     return _PDF_OPENER
 
 
+def _pdf_tmp_path(dest_path: str) -> str:
+    """Nama file sementara unduhan PDF, unik per proses DAN per panggilan.
+
+    `dest_path` comes from the caller as a fixed per-exam name
+    (`examvan_exam_<id>.pdf` in %TEMP%), so two EXAMVAN processes on one
+    lab PC share it. With a shared temp name the failure is NOT a
+    leftover file: one process's cleanup `unlink` deletes the OTHER
+    process's in-progress download, whose `os.replace` then raises
+    FileNotFoundError -- and the student sees "download failed" for a
+    file that was never actually bad.
+
+    Mirrors `config._tmp_sibling`, which does the same for answers.
+    """
+    return f"{dest_path}.tmp.{os.getpid()}.{threading.get_ident()}"
+
+
 def download_pdf(
     base_url: str,
     exam_id: int,
@@ -338,7 +355,7 @@ def download_pdf(
         headers=headers,
     )
 
-    tmp_path = dest_path + ".tmp"
+    tmp_path = _pdf_tmp_path(dest_path)
     try:
         # 0600 sejak create: PDF berisi naskah ujian, tidak boleh
         # world-readable walau sesaat di PC lab.

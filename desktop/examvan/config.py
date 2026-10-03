@@ -17,6 +17,31 @@ _log = logging.getLogger(__name__)
 
 
 _CONFIG_DIR = Path.home() / ".config" / "examvan"
+
+
+def _tmp_sibling(path: Path) -> Path:
+    """Nama file sementara milik SATU proses, di samping `path`.
+
+    Dua proses EXAMVAN di PC lab yang sama akan berebut nama temp yang
+    sama kalau nama itu tetap. Yang terjadi bukan "file sementara
+    tertinggal", tapi jawaban TERTIMPA: proses A menulis ke tmp, proses
+    B menulis ke tmp yang sama, lalu proses A `replace()`-kan isi
+    milik B ke `answers_<id>.dat`. Untuk jawaban siswa itu berarti
+    jawaban satu siswa hilang dan milik siswa lain, dan `os.replace`
+    proses kedua melempar FileNotFoundError yang tertelan `except`.
+
+    Satu PID membuat nama temp unik antar proses; satu proses membuat
+    nama temp unik antar PANGGILAN (dua `save_answers` untuk ujian yang
+    sama bisa saling tumpang tindih juga). `threading.get_ident()`
+    menutup keduanya tanpa perlu lock tambahan.
+
+    Nama file penuh ikut dipertahankan: `answers_<id>.dat` dan
+    `answers_<id>.owner` tidak boleh berbagi nama temp.
+    """
+    return path.with_name(
+        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}"
+    )
+
 _CONFIG_FILE = _CONFIG_DIR / "config.json"
 
 _defaults: Dict[str, Any] = {
@@ -409,7 +434,7 @@ def _save() -> None:
         # Nama temp UNIK per proses: dua proses EXAMVAN di PC lab yang sama
         # (double-launch) dulu berebut `config.tmp` yang sama — file rusak
         # dan replace gagal. Dalam satu proses, lock di atas cukup.
-        tmp = _CONFIG_FILE.with_suffix(f".tmp.{os.getpid()}")
+        tmp = _tmp_sibling(_CONFIG_FILE)
         try:
             # Mode 0600 sejak create: isi (token + identitas) tidak pernah
             # world-readable walau sesaat.
@@ -535,10 +560,10 @@ def save_answers(exam_id: int, answers: Dict[str, Any]) -> None:
     """Save answers to disk for crash recovery (obfuscated)."""
     path = _CONFIG_DIR / f"answers_{exam_id}.dat"
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    # Nama temp BERBEDA dari save_answers_owner: with_suffix(".tmp") membuat
-    # keduanya "answers_<id>.tmp" dan saling menimpa (jawaban hilang atau
-    # sidecar korup). Suffix ditempel di belakang nama penuh.
-    tmp = path.with_name(path.name + ".tmp")
+    # Unik per proses DAN per panggilan: lihat `_tmp_sibling`. Nama tetap
+    # membuat dua proses di PC lab yang sama saling menimpa isi jawaban,
+    # dan `replace` salah satunya gagal.
+    tmp = _tmp_sibling(path)
     try:
         encoded = _encode_answers(answers)
         _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -586,9 +611,9 @@ def save_answers_owner(
     """
     path = _CONFIG_DIR / f"answers_{exam_id}.owner"
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    # Lihat save_answers: suffix ditempel di belakang nama penuh supaya
-    # tidak tabrakan dengan temp jawaban.
-    tmp = path.with_name(path.name + ".tmp")
+    # Lihat save_answers dan `_tmp_sibling`: nama temp tidak boleh sama
+    # dengan temp jawaban maupun dengan milik proses lain.
+    tmp = _tmp_sibling(path)
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(

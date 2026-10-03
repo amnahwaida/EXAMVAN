@@ -215,6 +215,82 @@ def _sweep_stale_exam_pdfs() -> None:
         log.debug("sweep PDF ujian basi gagal", exc_info=True)
 
 
+# Modul Qt yang di-hard-import oleh aplikasi.
+#
+# `examvan.ws` melakukan `from PyQt5.QtWebSockets import QWebSocket` di
+# level modul tanpa fallback, dan `exam_viewer` meng-import `ws` di level
+# modul juga -- jadi modul yang hilang berarti proses MATI dengan
+# traceback, bukan degrade ke mode tanpa websocket.
+#
+# Distribution PyQt5 dari PyPI (yang dipakai `install.ps1` dan CI) selalu
+# menyertakan QtWebSockets, jadi ini bukan masalah di jalur install
+# resmi. Yang bermasalah adalah paket distro yang memecah PyQt5 jadi
+# beberapa paket: Debian/Ubuntu menyediakan `python3-pyqt5.qtwebsockets`
+# sebagai paket TERPISAH, dan mirror lab yang hanya menyajikan PyQt5 inti
+# akan menghasilkan PC dengan gejala "klik shortcut, tidak terjadi
+# apa-apa".
+_REQUIRED_QT_MODULES = (
+    ("PyQt5.QtCore", "pyqtcore"),
+    ("PyQt5.QtWidgets", "pyqt5"),
+    ("PyQt5.QtWebSockets", "pyqt5"),
+)
+
+_MISSING_QT_HELP = (
+    "EXAMVAN tidak bisa berjalan di PC ini.\n\n"
+    "Modul Python berikut tidak ditemukan: {modules}\n\n"
+    "Perbaikan untuk siswa: hubungi pengawas.\n\n"
+    "Perbaikan untuk teknisi PC lab:\n"
+    "  .venv\\Scripts\\python -m pip install -r desktop\\requirements.txt\n\n"
+    "Kalau PC ini memakai paket PyQt5 dari distro (Debian/Ubuntu), "
+    "modul QtWebSockets ada di paket terpisah dan perlu dipasang "
+    "juga: python3-pyqt5.qtwebsockets"
+)
+
+
+def _missing_qt_modules():
+    """Nama modul Qt yang tidak bisa di-import, atau () kalau semua ada.
+
+    Dipisah dari `main()` supaya bisa diuji tanpa menjalankan app --
+    logika startup seharusnya punya test, bukan hanya dicoba di lapangan.
+    """
+    import importlib.util
+
+    missing = []
+    for name, _package in _REQUIRED_QT_MODULES:
+        try:
+            if importlib.util.find_spec(name) is None:
+                missing.append(name)
+        except (ImportError, ValueError):
+            # ValueError: modul induk ada tapi bukan package -- sama
+            # saja tidak bisa dipakai.
+            missing.append(name)
+    return tuple(missing)
+
+
+def _abort_on_missing_qt(app) -> None:
+    """Tampilkan pesan yang bisa dibaca lalu keluar dengan kode != 0.
+
+    Tanpa guard ini, `from .ui.exam_viewer import ...` di bawah melempar
+    ModuleNotFoundError: proses mati, tidak ada jendela, tidak ada
+    message box -- siswa hanya melihat shortcut yang tidak pernah
+    membuka apa pun.
+    """
+    missing = _missing_qt_modules()
+    if not missing:
+        return
+    names = ", ".join(missing)
+    log.error("Modul Qt hilang: %s -- EXAMVAN tidak bisa jalan", names)
+    from PyQt5.QtWidgets import QMessageBox
+
+    QMessageBox.critical(
+        None,
+        "EXAMVAN - tidak bisa dijalankan",
+        _MISSING_QT_HELP.format(modules=names),
+    )
+    # 2 = "environment salah", bukan crash. Berguna untuk log lab.
+    sys.exit(2)
+
+
 def main() -> None:
     _setup_logging()
 
@@ -314,11 +390,33 @@ def main() -> None:
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName("EXAMVAN")
 
+    # `config` WAJIB di-import di scope `main()` ini, bukan hanya di dalam
+    # badan tempat config dipakai: `_after_viewer_gone` dan `_back_to_config`
+    # adalah closure di dalam `main()` yang memanggil `config.clear_identity()`
+    # dan `config.set("identity_context", {})`, dan closure hanya melihat
+    # nama yang terikat di scope `main()`.
+    #
+    # Import ini pernah hilang saat refactor tema (yang mengganti
+    # `is_system_dark` dengan `app_theme_dark` dan kelewatan menghapus
+    # baris `from . import config`). Akibatnya `NameError: name 'config' is
+    # not defined` di kedua closure — dan `NameError` itu tertelan
+    # `except Exception` + `log.warning`, jadi tidak terlihat: identitas
+    # siswa sebelumnya TIDAK PERNAH dibersihkan dan siswa berikutnya
+    # mendapat form terisi nama orang itu. Lihat
+    # `tests/test_r7_main_config_binding.py`.
+    from . import config
+
     # Apply theme. Tema aplikasi dikunci gelap (lihat `styles.app_theme_dark`),
     # bukan mengikuti Pengaturan Windows: ruang kelas sering punya PC dengan
     # tema sistem berbeda-beda, dan tampilan harus sama di semua layar.
     from .ui.styles import app_theme_dark, apply_theme
     apply_theme(dark=app_theme_dark())
+
+    # WAJIB sebelum import di bawah: `examvan.ws` hard-import
+    # PyQt5.QtWebSockets, dan `exam_viewer` meng-import `ws` di level
+    # modul. Tanpa cek ini, PC tanpa modul tersebut mati dengan
+    # traceback tanpa jendela sama sekali.
+    _abort_on_missing_qt(app)
 
     # Launch server config dialog
     from .ui.server_config import ServerConfigDialog

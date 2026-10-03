@@ -1,3 +1,16 @@
+# PyQt5 wajib menyediakan PyQt5.QtWebSockets: `examvan/ws.py` melakukan
+# hard-import `QWebSocket` di level modul tanpa fallback, dan
+# `examvan/ui/exam_viewer.py` meng-import `ws` di level modul juga. Wheel
+# PyPI di bawah sudah selalu memuatnya, jadi tidak ada paket tambahan yang
+# perlu diinstal.
+#
+# Yang TIDAK memuatnya adalah paket distro yang memecah PyQt5 menjadi
+# beberapa paket (Debian/Ubuntu: `python3-pyqt5.qtwebsockets` terpisah).
+# PC lab yang memang provisioned begitu akan gagal start; `__main__` sudah
+# menampilkan pesan yang bisa dibaca lalu berhenti, bukan traceback.
+#
+# Verifikasi cepat di PC mana pun:
+#   python -c "from PyQt5.QtWebSockets import QWebSocket"
 PyQt5>=5.15
 PyMuPDF>=1.23
 # Windows only (optional, for pywin32 alternative):
