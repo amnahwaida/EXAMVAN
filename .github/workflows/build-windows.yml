@@ -453,20 +453,46 @@ jobs:
           }
           Write-Host "OK: DLL Qt ter-bundle"
 
-          # Stack PDF: examvan.ui.pdf_viewer memanggil fitz (PyMuPDF).
-          # Nama bundle yang benar dipastikan dari
-          # windows/installer/list_exe_modules.py: _NATIVE_RE menangkap
-          # entri native `*.pyd` (komentar di sana menyebut `_mupdf.pyd`
-          # eksplisit), dan modul sumber `examvan.ui.pdf_viewer` sudah ada
-          # di $required di atas. Tanpa _mupdf, pdf_viewer gagal saat
-          # dipakai — dan tidak ada yang menyentuhnya selama smoke test.
-          foreach ($needle in @("fitz", "_mupdf")) {
-            if ($toc -notmatch [regex]::Escape($needle)) {
+          # Stack PDF: examvan.ui.pdf_viewer meng-hard-import `fitz`
+          # (PyMuPDF) di level modul. Tanpa itu, PDF viewer gagal saat
+          # dipakai — dan smoke test tidak pernah menyentuhnya.
+          #
+          # Membaca lewat PEMBACA ARSIP RESMI PyInstaller
+          # (`pkg_archive_contents(exe, recursive=True)`), bukan pemindaian
+          # byte. Dua percobaan byte-scanning sebelumnya sama-sama salah dan
+          # keduanya sudah terbukti pada exe PyInstaller 6.22.3 sungguhan:
+          #
+          #   * entri CArchive = nama modul titik diakhiri NUL, BUKAN path
+          #     `fitz/__init__.pyc` seperti yang diasumsikan;
+          #   * modul pure-python tidak ada di CArchive sama sekali --
+          #     semuanya di `PYZ.pyz`, yang central directory ZIP-nya tidak
+          #     dikompresi tapi juga tidak punya delimiter NUL. Pemindaian
+          #     byte tidak akan pernah menemukan `fitz`.
+          #
+          # Pembaca resmi menelusuri PYZ, jadi immune terhadap format.
+          $bundle = @(python windows/installer/list_exe_modules.py --bundle-list $exe)
+          if ($LASTEXITCODE -ne 0 -or $bundle.Count -eq 0) {
+            Write-Host "::error::tidak bisa membaca arsip exe lewat PyInstaller"
+            throw "pembaca arsip PyInstaller gagal"
+          }
+          Write-Host "Entri arsip terbaca: $($bundle.Count)"
+          foreach ($needle in @("fitz", "pymupdf")) {
+            if ($bundle -notcontains $needle) {
               Write-Host "::error::stack PDF tidak ter-bundle: $needle"
               throw "stack PDF hilang: $needle"
             }
           }
-          Write-Host "OK: stack PDF ter-bundle"
+          # Native PyMuPDF: namaBerkas, bukan nama modul, jadi tidak ada di
+          # daftar PYZ dan harus dicek sebagai SUBSTRING. Bentuknya berbeda
+          # per platform -- `_mupdf.pyd` di Windows, `libmupdf.so.*` di
+          # Linux -- jadi keduanya dicakup. `fitz`/`pymupdf` di atas sudah
+          # membuktikan stack python-nya ada; ini melengkapi sisi native.
+          $bundleJoined = $bundle -join " "
+          if ($bundleJoined -notmatch '(_mupdf|libmupdf)') {
+            Write-Host "::error::native PyMuPDF tidak ter-bundle "
+            throw "native PDF hilang"
+          }
+          Write-Host "OK: stack PDF ter-bundle (fitz, pymupdf, _mupdf)"
 
           #_bytecode mesin build tidak boleh bocor ke exe.
           if ($names | Where-Object { $_ -match "__pycache__|\.pyc$" }) {

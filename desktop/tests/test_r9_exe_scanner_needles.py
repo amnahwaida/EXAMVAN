@@ -37,6 +37,8 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+from unittest import mock
+import sys
 import unittest
 from pathlib import Path
 
@@ -188,14 +190,70 @@ class RequireListUnaffectedTest(unittest.TestCase):
         self.assertEqual(rc.returncode, 1, "modul wajib hilang harus gagal")
 
 
-class WorkflowUsesReachableNeedlesTest(unittest.TestCase):
-    def test_workflow_checks_the_pdf_stack(self):
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn('foreach ($needle in @("fitz", "_mupdf"))', text)
+class OfficialReaderIsUsedTest(unittest.TestCase):
+    """Workflow WAJIB memakai pembaca arsip resmi, bukan memindai byte.
 
-    def test_workflow_reads_raw_output(self):
+    Ini yang membuat pemeriksaan build benar secara struktural. Empat versi
+    pemeriksaan yang tried-salah sebelum arriving di sini:
+
+      1. asumsi path `fitz/__init__.pyc` ada di CArchive  -> tidak pernah ada
+         di PyInstaller modern; entri TOC-nya `\x00fitz\x00m`;
+      2. asumsi ada NUL SEBELUM nama entri                -> tidak pernah ada,
+         typecode yang mendahului nama;
+      3. asumsi modul python bisa dipindai dari blob      -> tidak bisa sama
+         sekali, semuanya ada di `PYZ.pyz` yang tidak punya delimiter;
+      4. parsing ZIP secara struktural                     -> tetap salah pada
+         exe PyInstaller 6.22.3 sungguhan.
+
+    Yang benar: `PyInstaller.archive.readers.pkg_archive_contents(exe,
+    recursive=True)`, yang membaca CArchive lalu MENELUSURI PYZ. Diverifikasi
+    pada exe onefile PyInstaller 6.22.3 yang benar-benar dibangun:
+    `fitz` ada di daftar resmi, dan tidak pernah muncul lewat pemindaian byte.
+    """
+
+    def test_the_scanner_exposes_a_bundle_list_mode(self):
+        self.assertTrue(
+            hasattr(lem, "bundle_module_names"),
+            "scanner harus punya jalur baca arsip resmi",
+        )
+
+    def test_bundle_module_names_returns_none_without_pyinstaller(self):
+        # Di luar lingkungan build PyInstaller tidak ada; jalur itu harus
+        # melapor terus terang, bukan diam-diam memakai tebakan byte.
+        with mock.patch.dict(
+            sys.modules, {"PyInstaller": None, "PyInstaller.archive": None}
+        ):
+            self.assertIsNone(
+                lem.bundle_module_names(Path(__file__)),
+                "tanpa PyInstaller, jalur resmi harus mengembalikan None "
+                "supaya pemanggil tidak mengira hasilnya otoritatif",
+            )
+
+    def test_workflow_uses_the_official_bundle_list(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("list_exe_modules.py --raw", text)
+        self.assertIn(
+            "list_exe_modules.py --bundle-list", text,
+            "workflow masih memindai byte; itu sudah tiga kali terbukti salah",
+        )
+        self.assertIn(
+            'foreach ($needle in @("fitz", "pymupdf"))', text,
+            "workflow harus memeriksa modul python PyMuPDF via pembaca resmi",
+        )
+
+    def test_workflow_checks_the_native_as_a_substring(self):
+        # NamaBerkas native tidak ada di daftar PYZ dan berbeda per platform
+        # (`_mupdf.pyd` vs `libmupdf.so.*`), jadi harus substring + alternasi.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("_mupdf|libmupdf", text)
+
+    def test_workflow_no_longer_claims_fitz_is_a_fitz_pyd(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn(
+            '@("fitz", "_mupdf")',
+            text,
+            "jarum lama menguji nama file yang tidak pernah ada sebagai entri "
+            "TOC; sekarang native dicek terpisah sebagai substring",
+        )
 
 
 def _tempdir():

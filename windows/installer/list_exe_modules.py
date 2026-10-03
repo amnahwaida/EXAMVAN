@@ -158,6 +158,35 @@ def zip_entry_names(blob: bytes) -> list[str]:
     return sorted(out)
 
 
+def bundle_module_names(exe: Path) -> list[str] | None:
+    """Nama modul dari arsip PyInstaller, DIBACA DENGAN PEMBACA RESMI.
+
+    Pendekatan byte-scanning di file ini adalah tebakan format: entri
+    CArchive berupa nama titik yang diakhiri NUL, sedangkan modul pure-python
+    ada di `PYZ.pyz` yang central directory ZIP-nya tidak dikompresi tapi juga
+    tidak punya delimiter. Dua-duanya sudah terbukti salah di build-windows.
+
+    PyInstaller sendiri menyediakannya: `pkg_archive_contents(exe,
+    recursive=True)` membuka CArchive lalu MENELUSURI PYZ dan mengembalikan
+    seluruh nama modul. Itu pembaca otoritatif -- immune terhadap perubahan
+    format, dan tidak bisa salah karena "nama modul tak pernah punya
+    delimiter".
+
+    Mengembalikan None kalau PyInstaller tidak bisa di-import (mis. saat
+    pemeriksa ini dijalankan lokal di luar lingkungan build), supaya pemanggil
+    bisa jatuh ke pemindaian byte dan tetap melihat sesuatu.
+    """
+    try:
+        from PyInstaller.archive.readers import pkg_archive_contents
+    except Exception:
+        return None
+    try:
+        return sorted(set(pkg_archive_contents(str(exe), recursive=True)))
+    except Exception as exc:
+        print(f"pembaca arsip PyInstaller gagal: {exc}", file=sys.stderr)
+        return None
+
+
 def read_blob(exe: Path) -> bytes:
     # Exe PyInstaller onefile 60-90 MB; ini alat verifikasi sekali jalan,
     # jadi seluruh file dibaca ke memori sekaligus supaya tidak ada seek yang
@@ -168,14 +197,39 @@ def read_blob(exe: Path) -> bytes:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     raw = False
+    bundle = False
     require: list[str] = []
+    if argv and argv[0] == "--bundle-list":
+        bundle = True
+        argv = argv[1:]
+        if not argv:
+            print(
+                "pemakaian: list_exe_modules.py --bundle-list <path-to-exe>",
+                file=sys.stderr,
+            )
+            return 2
+        exe_path = Path(argv[0])
+        if not exe_path.exists():
+            print(f"tidak ada: {exe_path}", file=sys.stderr)
+            return 2
+        names = bundle_module_names(exe_path)
+        if names is None:
+            print(
+                "PyInstaller tidak tersedia; --bundle-list hanya bisa jalan "
+                "di lingkungan build",
+                file=sys.stderr,
+            )
+            return 3
+        for name in names:
+            print(name)
+        return 0
     if argv and argv[0] == "--raw":
         raw = True
         argv = argv[1:]
     if argv and argv[0] == "--require":
         if len(argv) < 3:
             print(
-                "pemakaian: list_exe_modules.py [--raw] "
+                "pemakaian: list_exe_modules.py [--raw|--bundle-list] "
                 "[--require mod1,mod2,...] <path-to-exe>",
                 file=sys.stderr,
             )
