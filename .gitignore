@@ -59,3 +59,8 @@ webui/examvan-server
 
 # Database backups — never commit production dumps
 backups/
+
+# Scratch file milik tooling AI — `oc` berisi session ID, bukan kode.
+# Muncul sebagai untracked di root repo dan hanya bisa membingungkan
+# `git status` / diff review.
+oc
