@@ -55,15 +55,29 @@ def _load():
 lem = _load()
 
 # Blob tiruan sepotong CArchive PyInstaller: entri NUL-terminated.
-# Bentuk mengikuti CArchive PyInstaller sungguhan: modul murni disimpan
-# sebagai NAMA BERPIKAT (`examvan.api`), sedangkan paket memakai path
-# (`fitz/__init__.pyc`) — itulah alasan `module_names` bisa membaca modul
-# `examvan` tapi tidak pernah membaca paket pihak ketiga.
-BLOB = (
+# Dua bentuk arsip, keduanya harus ditangani karena build memakai PyInstaller
+# modern (entri TOC berbasis NUL) sementara exe lama bisa bergaya path:
+#
+#   * CArchive/path : b"fitz/__init__.pyc\x00..."
+#   * CArchive/TOC  : b"\x00fitz\x00m"  (NUL + nama modul titik + NUL + typecode;
+#                     typecode 's' modul, 'm' paket, 'b' native, 'z' zip)
+#
+# PyInstaller 6 TIDAK lagi menyimpan path `.pyc` di TOC, jadi hanya mencocokkan
+# bentuk pertama akan selalu salah UNLESS sebuah exe dibuat dengan versi lama.
+BLOB_PATH_STYLE = (
     b"fitz\x00fitz/__init__.pyc\x00fitz/fitz.py\x00"
     b"examvan.api\x00examvan.ui.pdf_viewer\x00examvan/ui/__init__.pyc\x00"
     b"_mupdf.pyd\x00Qt5Core.dll\x00PyQt5/QtCore.pyd\x00"
 )
+BLOB_TOC_STYLE = (
+    b"PYZ-00.pyz\x00"
+    b"\x00fitz\x00m\x00fitz.table\x00s\x00pymupdf\x00m\x00pymupdf.utils\x00s"
+    b"\x00examvan.api\x00s\x00examvan.ui.pdf_viewer\x00s\x00examvan\x00m"
+    b"\x00_mupdf.pyd\x00b\x00Qt5Core.dll\x00b"
+)
+# Blob yang dipakai sebagai basis pemeriksaan jarum: bentuk TOC, karena itu
+# yang dipakai build-windows.yml sungguhan.
+BLOB = BLOB_TOC_STYLE
 
 
 class PackageNameExtractionTest(unittest.TestCase):
@@ -95,8 +109,30 @@ class PackageNameExtractionTest(unittest.TestCase):
             "kehilangan artinya",
         )
 
+    def test_both_archive_layouts_yield_the_package(self):
+        # PyInstaller 6 tidak menyimpan path `.pyc`; kalau hanya salah satu
+        # bentuk yang dicocokkan, pemeriksaan build gagal untuk semua exe
+        # yang dibangun versi modern -- persis yang terjadi di ronde 9.
+        for label, blob in (("path", BLOB_PATH_STYLE), ("toc", BLOB_TOC_STYLE)):
+            with self.subTest(layout=label):
+                self.assertIn("fitz", lem.package_names(blob))
+
+    def test_typecode_letters_are_not_reported_as_packages(self):
+        # Typecode "s"/"m"/"b"/"z" berdiri sendiri di antara dua NUL dan
+        # hanya menambah derau, bukan informasi.
+        for noise in ("s", "m", "b", "z"):
+            with self.subTest(typecode=noise):
+                self.assertNotIn(noise, lem.package_names(BLOB))
+
     def test_a_plain_module_without_init_is_not_a_package(self):
-        self.assertEqual(lem.package_names(b"examvan.api\x00sys.pyc\x00"), [])
+        # Blob bergaya PATH: modul datar TIDAK punya `__init__.pyc`, jadi
+        # tidak ada paket yang bisa ditemukan. (Di gaya TOC, `sys.pyc`
+        # memang akan muncul sebagai root modul — dan itu benar, karena
+        # entri TOC-nya memang bernama `sys`.)
+        self.assertEqual(
+            lem.package_names(b"examvan.api\x00examvan/ui/pdf_viewer.py\x00"),
+            [],
+        )
 
 
 class NeedleReachabilityTest(unittest.TestCase):

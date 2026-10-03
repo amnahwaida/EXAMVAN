@@ -58,6 +58,19 @@ _PY_PKG_RE = re.compile(
     rb"(?<![\w.\\/])([A-Za-z_]\w*)(?:[\\/][A-Za-z_]\w*)*[\\/]__init__\.pyc(?![\w.])"
 )
 
+# Bentuk KEDUA yang dipakai PyInstaller: sejak CArchive tidak lagi menyimpan
+# pathBerkas `.pyc`, entri tabelnya adalah NAMA MODUL titik yang diakhiri NUL,
+# disusul typecode ('s' modul, 'm' paket, 'b' native, 'z' zip). Itu sebabnya
+# `fitz/__init__.pyc` tidak pernah ada di exe PyInstaller 6 -- yang ada
+# `\x00fitz\x00`. Keduanya harus dicocokkan supaya pemeriksaan "stack PDF
+# ter-bundle" bekerja pada kedua format.
+# `\w{2,}`: typecode CArchive ("s", "m", "b", "z") juga berdiri sendiri
+# di antara dua NUL, dan ikutnya hanya menambah derau — nama modul
+# satu huruf tidak pernah ada.
+_TOC_NAME_RE = re.compile(
+    rb"\x00([A-Za-z_]\w{1,}(?:\.[A-Za-z_]\w+)*)(?=\x00)"
+)
+
 _CHUNK = 8 * 1024 * 1024
 
 
@@ -87,17 +100,24 @@ def native_names(blob: bytes) -> list[str]:
 
 
 def package_names(blob: bytes) -> list[str]:
-    """Nama paket python pihak ketiga yang tercatat di arsip.
+    """Nama paket python yang tercatat di arsip (level teratas).
 
-    Hanya paket TOP-LEVEL (`fitz/__init__.pyc` -> `fitz`), karena itulah yang
-    dipakai sebagai kandidat jarum di build-windows.yml.
+    Dua sumber, karena formatnya berbeda antar versi:
+
+    * path `<pkg>/__init__.pyc` (CArchive lama);
+    * entri TOC berbasis NUL, `\x00fitz\x00` (PyInstaller 4+, termasuk 6).
+
+    Hanya level teratas yang dikembalikan karena itulah yang dipakai sebagai
+    jarum di build-windows.yml.
     """
     out: set[str] = set()
-    for m in _PY_PKG_RE.finditer(blob):
-        try:
-            out.add(m.group(1).decode("ascii"))
-        except UnicodeDecodeError:
-            continue
+    for regex, group in ((_PY_PKG_RE, 1), (_TOC_NAME_RE, 1)):
+        for m in regex.finditer(blob):
+            try:
+                name = m.group(group).decode("ascii")
+            except UnicodeDecodeError:
+                continue
+            out.add(name.split(".", 1)[0])
     return sorted(out)
 
 
