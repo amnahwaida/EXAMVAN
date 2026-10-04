@@ -57,9 +57,12 @@ function makeEl(id) {
     // parsed markup. Without that, any assertion reading textContent after the
     // code sets innerHTML sees '' and the stub silently hides the code's output.
     const el = {
-        id, textContent: '', value: '', dataset: {}, style: {},
+        id, textContent: '', value: '', dataset: {}, _listeners: {}, style: {},
         classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-        addEventListener() {}, removeEventListener() {}, appendChild() {},
+        addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); },
+        removeEventListener() {},
+        /** test-only: fire a recorded listener like a real DOM event would. */
+        __dispatch(type, ev) { for (const fn of (this._listeners[type] || [])) fn.call(this, ev || {}); }, appendChild() {},
         removeChild() {}, querySelector: () => null, querySelectorAll: () => [],
         setAttribute() {}, getAttribute: () => null, remove() {}, closest: () => null,
         focus() {}, click() {}, contains: () => false, children: [], childNodes: [],
@@ -814,6 +817,101 @@ test('a hung repeat-grants request cannot block the initial table load', async (
         'rows must render from the submissions payload even when grants hang: ' +
         els.submissionBody.innerHTML.slice(0, 200)
     );
+});
+
+// ---------------------------------------------------------------------------
+// Rapid filter changes must converge on the CURRENT filter, never flash stale
+// rows, and never churn one heavy request per keystroke.
+// ---------------------------------------------------------------------------
+
+test('a response for a superseded filter is never rendered', async () => {
+    // Reproduced against the live logic: three rapid status changes with a slow
+    // server. Request A (filter=submitted) resolved last and painted its rows
+    // over the table the user had already moved to not_started — and each
+    // completion queued another rerun, so the table churned through wrong
+    // states instead of settling. From the supervisor\'s chair that reads as
+    // "hanging".
+    const mkResp = (name, total) => ({
+        ok: true, status: 200,
+        json: () => Promise.resolve(detailPayload({
+            submissions: name ? [{ ...SUBMISSION_ROW, student_name: name }] : [],
+            stats: { total, active: 0, submitted: total, not_started: 0 },
+            total, total_pages: 1,
+        })),
+    });
+    const w = await runScriptWithTimeout({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        hang: true,
+        preset: { statusFilter: { value: '' } },
+    });
+    for (const t of w.timeouts) t.fn();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+
+    // Three rapid changes; only the first starts a request, the rest coalesce.
+    const parked = w.pending.length;
+    w.els.statusFilter.value = 'submitted';
+    vm.runInContext('loadDetail(1)', w.ctx);
+    w.els.statusFilter.value = 'in_progress';
+    vm.runInContext('loadDetail(1)', w.ctx);
+    w.els.statusFilter.value = 'not_started';
+    vm.runInContext('loadDetail(1)', w.ctx);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(w.pending.length, parked + 1, 'rapid changes must coalesce to one request');
+
+    // A (filter=submitted) resolves slowly with its rows.
+    w.pending[parked](mkResp('STALE-submitted', 1));
+    for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(
+        !/STALE-submitted/.test(w.els.submissionBody.innerHTML),
+        'stale rows for a superseded filter were painted: ' +
+        w.els.submissionBody.innerHTML.slice(0, 220)
+    );
+
+    // The queued rerun fetches the CURRENT filter and renders it.
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    const rerun = w.pending[w.pending.length - 1];
+    assert.ok(rerun, 'a rerun for the current filter must be queued');
+    rerun(mkResp('FRESH-not_started', 1));
+    for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(
+        /FRESH-not_started/.test(w.els.submissionBody.innerHTML),
+        'the table must converge on the current filter: ' +
+        w.els.submissionBody.innerHTML.slice(0, 220)
+    );
+});
+
+test('rapid status changes collapse to a single request', async () => {
+    // The search box debounces at 300ms; the status dropdown fired instantly,
+    // so machine-gunning it issued one heavy 6-query request per change. With
+    // hot reload removed to SAVE server load, filter churn must not spend it back.
+    const w = await runScriptWithTimeout({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        hang: true,
+        preset: { statusFilter: { value: '' } },
+    });
+    for (const t of w.timeouts) t.fn();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    const base = w.fetches.filter((u) => /submissions/.test(u)).length;
+
+    w.els.statusFilter.value = 'submitted';
+    w.els.statusFilter.__dispatch('change', {});
+    w.els.statusFilter.value = 'in_progress';
+    w.els.statusFilter.__dispatch('change', {});
+    w.els.statusFilter.value = 'not_started';
+    w.els.statusFilter.__dispatch('change', {});
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+
+    // The debounce timer is pending; nothing may have been sent yet.
+    const before = w.fetches.filter((u) => /submissions/.test(u)).length;
+    assert.equal(before, base, 'a burst must not send immediately');
+
+    for (const t of w.timeouts) t.fn();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    const sent = w.fetches.filter((u) => /submissions[^]*status=not_started/.test(u));
+    assert.equal(sent.length, 1,
+        `burst collapsed to ${sent.length} requests, want exactly 1 for the final filter`);
 });
 
 // ---------------------------------------------------------------------------

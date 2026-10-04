@@ -1663,6 +1663,18 @@ function restoreSubsFocus(key) {
     }
 }
 
+// Builds the device-table request URL from the CURRENT filter state. The single
+// place the URL is assembled, so the request-time capture and the
+// response-time comparison below can never drift apart.
+function currentDetailUrl() {
+    var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
+    var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
+    var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=' + ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20);
+    if (search) url += '&search=' + encodeURIComponent(search);
+    if (status) url += '&status=' + encodeURIComponent(status);
+    return url;
+}
+
 function loadDetail(page, silent) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
@@ -1687,19 +1699,37 @@ function loadDetail(page, silent) {
     // On silent auto-refresh, keep the current rows in place (no loading flash).
     if (!silent) tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">Memuat data...</td></tr>';
 
+    // The exact URL this call is about to fetch, captured BEFORE the request.
+    // On response we rebuild it from the CURRENT DOM and compare: with rapid
+    // filter changes an older response routinely arrives after the supervisor
+    // moved on, and painting it would flash the previous filter's rows over the
+    // table (reading as "hanging" when it churns). A skipped render is always
+    // safe: the signature can only diverge through an interaction, and every
+    // interaction during a flight sets detailRerunPending — so the rerun for
+    // the current state is already queued by the time we skip.
+    //
+    // search/status are ALSO read here for the empty-state wording below. They
+    // are identical to the request-time values whenever we reach the render
+    // (the signature check above guarantees it), so the message always names
+    // the filter the supervisor is actually looking at.
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
-    var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=' + ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20);
-    if (search) url += '&search=' + encodeURIComponent(search);
-    if (status) url += '&status=' + encodeURIComponent(status);
+    var myUrl = currentDetailUrl();
 
-    apiFetch(url, { headers: { 'Accept': 'application/json' } })
+    apiFetch(myUrl, { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             // A response that arrives after a newer request started is stale
             // by definition: rendering it would paint the previous filter's
             // rows over the current view.
             if (myGeneration !== detailGeneration) return;
+            // Same for a filter the supervisor already moved past: compare the
+            // request-time URL against the CURRENT filter state. Painting it
+            // would flash the superseded filter's rows, and with rapid changes
+            // each completion would queue another rerun — churning through
+            // wrong states instead of settling. Skipping is always safe (see
+            // currentDetailUrl): the rerun for the current state is queued.
+            if (typeof myUrl === 'string' && myUrl !== currentDetailUrl()) return;
             if (!res || !res.success) {
                 // Auto-refresh senyap (12 dtk) TIDAK boleh menghapus isi tabel
                 // yang masih known-good: supervisor kehilangan konteks (siapa
@@ -2706,8 +2736,22 @@ loadAAStatus();
         // reset menghasilkan tabel kosong palsu.
         initLiveSearch(document.getElementById('pengawasSearch'), function() { loadDetail(1); });
     }
+    // Status changes are debounced like the search box (which uses 300ms in
+    // initLiveSearch): machine-gunning the dropdown issued one heavy 6-query
+    // request per change, and with hot reload removed to SAVE server load the
+    // filter must not spend it back. The chip updates immediately so the
+    // control still feels responsive; only the fetch waits.
+    var statusFilterTimer = null;
+    function onStatusFilterChange() {
+        renderActiveFilterChip();
+        if (statusFilterTimer !== null) clearTimeout(statusFilterTimer);
+        statusFilterTimer = setTimeout(function() {
+            statusFilterTimer = null;
+            loadDetail(1);
+        }, 250);
+    }
     var statusFilterEl = document.getElementById('statusFilter');
-    if (statusFilterEl) statusFilterEl.addEventListener('change', function() { loadDetail(1); });
+    if (statusFilterEl) statusFilterEl.addEventListener('change', onStatusFilterChange);
 
     // Izin mengulang dimuat sebelum tabel pertama, supaya tombol di baris
     // yang sudah Terkumpul langsung tampil dalam keadaan benar dan tidak
