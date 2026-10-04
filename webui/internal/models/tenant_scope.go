@@ -101,7 +101,12 @@ func InstansiMatchSQL(col string, startIdx int, s InstansiScope) (string, []inte
 //
 //   - both rows carry the same non-null instansi_id (canonical), or
 //   - both are legacy rows without an id whose names match
-//     case-insensitively and are not a system bucket.
+//     case-insensitively (trimmed, mirroring sameInstansi) and are not a
+//     system bucket.
+//
+// The bucket guard is LOWER(BTRIM(...)) — a byte-exact NOT IN misses case
+// variants ('Personal') and padded values ('personal '), and LOWER() alone
+// then matches them against the whole shared bucket. Mirrors IsBucket().
 //
 // A row WITH an id never matches a legacy row, even by name: once a school has
 // a canonical id, that id — not the mutable name — is the tenant boundary, and
@@ -111,7 +116,7 @@ func InstansiMatchSelfSQL(me, owner string) string {
 	return `(
 		(` + me + `.instansi_id IS NOT NULL AND ` + me + `.instansi_id = ` + owner + `.instansi_id)
 		OR (` + me + `.instansi_id IS NULL AND ` + owner + `.instansi_id IS NULL
-		    AND ` + me + `.instansi NOT IN ('', 'personal')
-		    AND LOWER(` + me + `.instansi) = LOWER(` + owner + `.instansi))
+		    AND LOWER(BTRIM(` + me + `.instansi)) NOT IN ('', 'personal', 'owner')
+		    AND LOWER(BTRIM(` + me + `.instansi)) = LOWER(BTRIM(` + owner + `.instansi)))
 	)`
 }

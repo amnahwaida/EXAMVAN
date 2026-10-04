@@ -118,6 +118,16 @@ func SubmissionsPage() gin.HandlerFunc {
 			examFilter, _ = strconv.Atoi(examFilterStr)
 		}
 
+		// Tenant gate FIRST — before any data is read. Without it, a forged
+		// ?exam_id=N forces a full count + row scan of another tenant's
+		// submissions (and questions_json) before the authorisation decision.
+		// The exam-info card below re-checks the same predicate before
+		// rendering, so this early gate changes no observable behaviour.
+		if examFilter > 0 && !models.UserCanAccessExam(ctx, pool, userID, isSuper, examFilter) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak")
+			return
+		}
+
 		// Count total submissions within scope (only rows that actually
 		// submitted answers — heartbeat placeholders excluded).
 		var total int
@@ -142,7 +152,11 @@ func SubmissionsPage() gin.HandlerFunc {
 
 		err = pool.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
 		if err != nil {
+			// Fail closed: rendering rows with total=0 breaks pagination
+			// ("0 dari 0 hasil" with rows shown) and hides the failure.
 			log.Printf("submissions count error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data")
+			return
 		}
 
 		totalPages := int(math.Max(1, float64((total+perPage-1)/perPage)))
@@ -294,11 +308,12 @@ func SubmissionsPage() gin.HandlerFunc {
 		// Exam info for filter
 		var examInfo gin.H
 		if examFilter > 0 {
-			// Tenant gate FIRST — mirrors ExportSubmissions: without it, any
-			// operator/guru could enumerate ?exam_id=N to read another
-			// tenant's exam name, exam token, creator/delegate/pengawas
-			// usernames, submission count and schedule from the info card
-			// even though the submission list itself is scoped below.
+			// Tenant gate (re-check of the early gate above, kept next to the
+			// data it guards): without it, any operator/guru could enumerate
+			// ?exam_id=N to read another tenant's exam name, exam token,
+			// creator/delegate/pengawas usernames, submission count and
+			// schedule from the info card even though the submission list
+			// itself is scoped below.
 			if !models.UserCanAccessExam(ctx, pool, userID, isSuper, examFilter) {
 				errorResponse(c, http.StatusForbidden, "Akses ditolak")
 				return
@@ -400,23 +415,28 @@ func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]
 	if isSuper {
 		// No filter
 	} else if isOp {
-		// Fail-closed: an operator whose instansi cannot be resolved aborts the
-		// query; an empty/"personal" instansi is NOT a tenant, so it must never
-		// widen the scope to other tenants — fall back to own-created exams only.
-		opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+		// Fail-closed, canonical tenant identity (instansi_id-first): an
+		// operator whose scope cannot be resolved aborts the query; a bucket
+		// scope (""/"personal"/"owner", any casing) is NOT a tenant, so it
+		// must never widen the scope to other tenants — fall back to
+		// own-created exams only. Name-only matching is wrong here because
+		// instansi.name is not unique: two schools may share a name with
+		// different instansi_ids, and LOWER() would bleed one's students
+		// into the other's Hasil Ujian.
+		scope, err := getInstansiScopeForOperator(ctx, pool, userID)
 		if err != nil {
 			return nil, false, err
 		}
-		if opInstansi != "" && opInstansi != "personal" {
-			conditions = append(conditions,
-				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`,
-					argIdx))
-			args = append(args, opInstansi)
-			argIdx++
-		} else {
+		if scope.IsBucket() {
 			conditions = append(conditions, fmt.Sprintf(`e.created_by = $%d`, argIdx))
 			args = append(args, userID)
 			argIdx++
+		} else {
+			frag, fargs := models.InstansiMatchSQL("", argIdx, scope)
+			conditions = append(conditions,
+				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE %s)`, frag))
+			args = append(args, fargs...)
+			argIdx += len(fargs)
 		}
 	} else {
 		conditions = append(conditions,
@@ -447,25 +467,29 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 	if isSuper {
 		// all
 	} else if isOp {
-		// Fail-closed: same canonical resolver as buildScopeConditions /
-		// exportAllXLSX. Error → empty dropdown (better than an unscoped list);
-		// ""/"personal" → own-created exams only, so an empty instansi never
-		// widens the filter to every account that shares the empty bucket.
-		opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+		// Fail-closed, canonical tenant identity (instansi_id-first) — same
+		// contract as buildScopeConditions: unresolved scope → empty
+		// dropdown; bucket scope (""/"personal"/"owner", any casing) →
+		// own-created exams only, so an empty instansi never widens the
+		// filter. The created_by reference MUST be qualified (e.created_by):
+		// both exams and admin_users expose the column, and the unqualified
+		// form errors with 42702 "ambiguous", silently emptying the dropdown
+		// for every operator.
+		scope, err := getInstansiScopeForOperator(ctx, pool, userID)
 		if err != nil {
 			log.Printf("fetch filter exams scope error: %v", err)
 			return nil
 		}
-		if opInstansi != "" && opInstansi != "personal" {
-			conditions = append(conditions,
-				fmt.Sprintf(`created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`,
-					argIdx))
-			args = append(args, opInstansi)
-			argIdx++
-		} else {
-			conditions = append(conditions, fmt.Sprintf(`created_by = $%d`, argIdx))
+		if scope.IsBucket() {
+			conditions = append(conditions, fmt.Sprintf(`e.created_by = $%d`, argIdx))
 			args = append(args, userID)
 			argIdx++
+		} else {
+			frag, fargs := models.InstansiMatchSQL("", argIdx, scope)
+			conditions = append(conditions,
+				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE %s)`, frag))
+			args = append(args, fargs...)
+			argIdx += len(fargs)
 		}
 	} else {
 		conditions = append(conditions,
@@ -862,25 +886,27 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	conditions = append(conditions, submittedOnlyCondition)
 
 	if isOp {
-		// Fail-closed: resolve instansi via the canonical resolver instead of
-		// a raw QueryRow whose error is swallowed. An operator with ""/"personal"
-		// instansi falls back to own-created exams only — never an unscoped,
-		// whole-system export of every tenant's student data.
-		opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+		// Fail-closed, canonical tenant identity (instansi_id-first) — same
+		// contract as buildScopeConditions: unresolved scope → 500; bucket
+		// scope (""/"personal"/"owner", any casing) → own-created exams only,
+		// never an unscoped, whole-system export of every tenant's student
+		// data. Name-only matching is wrong here: instansi.name is not unique.
+		scope, err := getInstansiScopeForOperator(ctx, pool, userID)
 		if err != nil {
 			log.Printf("export all xlsx scope error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
 			return
 		}
-		if opInstansi != "" && opInstansi != "personal" {
-			conditions = append(conditions,
-				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, argIdx))
-			args = append(args, opInstansi)
-			argIdx++
-		} else {
+		if scope.IsBucket() {
 			conditions = append(conditions, fmt.Sprintf(`e.created_by = $%d`, argIdx))
 			args = append(args, userID)
 			argIdx++
+		} else {
+			frag, fargs := models.InstansiMatchSQL("", argIdx, scope)
+			conditions = append(conditions,
+				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE %s)`, frag))
+			args = append(args, fargs...)
+			argIdx += len(fargs)
 		}
 	} else if !isSuper {
 		conditions = append(conditions,

@@ -125,10 +125,13 @@ func Dashboard() gin.HandlerFunc {
 			// all — no filter
 		} else if isOp {
 			// Fail-closed operator scope (mirrors the list path above): empty
-			// or "personal" instansi falls back to own-created — never global.
+			// or bucket instansi falls back to own-created — never global.
+			// The fallback matches the ListExams UserID branch (created_by
+			// OR delegated_to) so delegated exams count here exactly as in
+			// the table.
 			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
 			if err != nil || scope.IsBucket() {
-				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by = $%d`, statsArgIdx))
+				statsWheres = append(statsWheres, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d)`, statsArgIdx, statsArgIdx))
 				statsArgs = append(statsArgs, userID)
 				statsArgIdx++
 			} else {
@@ -500,10 +503,13 @@ func Stats() gin.HandlerFunc {
 			// all — no filter
 		} else if isOp {
 			// Fail-closed operator scope (mirrors the list path above): empty
-			// or "personal" instansi falls back to own-created — never global.
+			// or bucket instansi falls back to own-created — never global.
+			// The fallback matches the ListExams UserID branch (created_by
+			// OR delegated_to) so delegated exams count here exactly as in
+			// the table.
 			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
 			if err != nil || scope.IsBucket() {
-				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by = $%d`, statsArgIdx))
+				statsWheres = append(statsWheres, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d)`, statsArgIdx, statsArgIdx))
 				statsArgs = append(statsArgs, userID)
 				statsArgIdx++
 			} else {

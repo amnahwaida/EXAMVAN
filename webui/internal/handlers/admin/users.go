@@ -482,15 +482,16 @@ func ListUsers() gin.HandlerFunc {
 
 		if isOp {
 			// Fail CLOSED: an operator whose instansi cannot be resolved (DB
-			// error) or an anomalous empty-instansi row must not silently drop
-			// the scope filter — that would hand the user every tenant's
-			// accounts. A healthy operator always has an instansi, so an
-			// unresolvable one is a defect, not a data state. Scoped
+			// error) or whose scope is a shared system bucket (""/"personal"/
+			// "owner", any casing — a bucket is never a tenant) must not
+			// silently drop the scope filter — that would hand the user every
+			// tenant's accounts. A healthy operator always has a real school
+			// scope, so a bucket scope is a defect, not a data state. Scoped
 			// ID-first (canonical tenant identity) with a name fallback for
 			// legacy id-less rows (mirrors operatorScopeMatches, so the list
 			// shows exactly the accounts the operator may manage).
 			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
-			if err != nil || strings.TrimSpace(scope.Name) == "" {
+			if err != nil || scope.IsBucket() {
 				log.Printf("list users: operator instansi unresolved (user %d, scope=%+v, err=%v)", userID, scope, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar user")
 				return
@@ -556,7 +557,7 @@ func GetUser() gin.HandlerFunc {
 
 		if isOperator(c) {
 			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
-			if err != nil || strings.TrimSpace(opScope.Name) == "" {
+			if err != nil || opScope.IsBucket() {
 				log.Printf("get user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat data user")
 				return
@@ -1186,7 +1187,7 @@ func EditUser() gin.HandlerFunc {
 		// Operator restrictions
 		if isOp {
 			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
-			if err != nil || strings.TrimSpace(opScope.Name) == "" {
+			if err != nil || opScope.IsBucket() {
 				log.Printf("edit user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 				return
@@ -1333,7 +1334,7 @@ func EditUser() gin.HandlerFunc {
 			// Operator tidak boleh mengubah instansi user
 			if isOp {
 				opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
-				if err != nil || strings.TrimSpace(opScope.Name) == "" {
+				if err != nil || opScope.IsBucket() {
 					log.Printf("edit user: operator instansi unresolved (user %d, err=%v)", userID, err)
 					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 					return
@@ -1757,7 +1758,7 @@ func ToggleUserStatus() gin.HandlerFunc {
 
 		if isOp {
 			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
-			if err != nil || strings.TrimSpace(opScope.Name) == "" {
+			if err != nil || opScope.IsBucket() {
 				log.Printf("toggle user status: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status user")
 				return
@@ -1914,7 +1915,7 @@ func VerifyUser() gin.HandlerFunc {
 
 		if isOp {
 			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
-			if err != nil || strings.TrimSpace(opScope.Name) == "" {
+			if err != nil || opScope.IsBucket() {
 				log.Printf("verify user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi user")
 				return
@@ -2181,7 +2182,7 @@ func DeleteUser() gin.HandlerFunc {
 			// super admin can delete anyone
 		} else if isOp {
 			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
-			if err != nil || strings.TrimSpace(opScope.Name) == "" {
+			if err != nil || opScope.IsBucket() {
 				log.Printf("delete user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menghapus user")
 				return

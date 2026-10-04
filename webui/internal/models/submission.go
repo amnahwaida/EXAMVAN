@@ -706,7 +706,11 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 		subs = []Submission{}
 	}
 
-	// Compute stats across all submissions (ignoring search/pagination).
+	// Stats are deliberately aggregated over the FULL set for the exam,
+	// ignoring Search/Status/pagination: the monitoring stat cards are a
+	// stable exam-level header (same contract as the public HasilAPI stats),
+	// while the list itself stays filterable. Pinned by
+	// TestListSubmissionsStatsAreFilterIndependent.
 	stats, err := GetSubmissionStats(ctx, pool, opts.ExamID)
 	if err != nil {
 		stats = SubmissionStats{}

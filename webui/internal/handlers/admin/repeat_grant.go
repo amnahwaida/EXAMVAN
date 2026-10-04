@@ -153,6 +153,12 @@ func RevokeStudentRepeat() gin.HandlerFunc {
 
 // ListStudentRepeats mengembalikan izin yang berlaku untuk satu ujian, supaya
 // tombol di halaman pengawas bisa menandai mana yang sudah aktif.
+//
+// Authorization: the same exam-access predicate as grant/revoke
+// (UserCanAccessExam) — without it any authenticated account of any tenant
+// could enumerate another exam's student keys. Deliberately NOT the full
+// authorizeRepeatExam: the active-exam requirement there is for MUTABLE
+// decisions, while this read must also render on ended exams (history view).
 func ListStudentRepeats() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		examID, err := strconv.Atoi(c.Param("exam_id"))
@@ -160,8 +166,18 @@ func ListStudentRepeats() gin.HandlerFunc {
 			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
 			return
 		}
-		grants, err := models.ListRepeatGrants(
-			c.Request.Context(), getPool(c), examID)
+		pool := getPool(c)
+		ctx := c.Request.Context()
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !models.UserCanAccessExam(ctx, pool, getCurrentUserID(c), isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden,
+				"Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+		grants, err := models.ListRepeatGrants(ctx, pool, examID)
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar izin")
 			return

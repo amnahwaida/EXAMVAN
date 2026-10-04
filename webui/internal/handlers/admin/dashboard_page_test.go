@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -873,5 +874,87 @@ func TestDashboardShowsAutoApproveIndicator(t *testing.T) {
 	// vacuously on a broken/empty page.
 	if !strings.Contains(body, `class="stat-card stat-storage"`) {
 		t.Error("storage card missing — page did not render fully")
+	}
+}
+
+// TestDashboardBucketStatsIncludeDelegatedExams pins the stats/list contract
+// for bucket-scoped operators: the own-created fallback also backs the exam
+// TABLE (ListExams UserID branch counts created_by OR delegated_to), so an
+// exam delegated TO the operator must count in the "Total Ujian" header card
+// too. RED before the fix: the stats fallback counts created_by only, so the
+// card undercounts the table by every delegated exam.
+func TestDashboardBucketStatsIncludeDelegatedExams(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+	uniq := fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
+
+	mk := func(username, name, instansi string, roles ...string) int {
+		u, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username:     username,
+			Name:         name,
+			Instansi:     instansi,
+			PasswordHash: "pass-" + username,
+			Status:       models.UserStatusActive,
+			Role:         models.SerializeRoles(roles),
+		})
+		if err != nil {
+			t.Fatalf("create user %s: %v", username, err)
+		}
+		return u.ID
+	}
+	// Id-less 'personal' operator → IsBucket → own-created fallback.
+	opID := mk("db-op"+uniq, "DB Operator", "personal", models.RoleOperator)
+	guruID := mk("db-guru"+uniq, "DB Guru", "SMA DB", models.RoleGuru)
+
+	mkExam := func(ownerID int, name, token string) int {
+		var id int
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, created_by)
+			VALUES ($1, '/tmp/db.pdf', 1024, $2, $2, 'active', $3)
+			RETURNING id`, name, token, ownerID).Scan(&id); err != nil {
+			t.Fatalf("seed exam %s: %v", name, err)
+		}
+		return id
+	}
+	mkExam(opID, "Ujian Milik Operator", "DBO"+uniq)
+	delegID := mkExam(guruID, "Ujian Delegasi", "DBD"+uniq)
+	if _, err := pool.Exec(ctx, `UPDATE exams SET delegated_to = $1 WHERE id = $2`, opID, delegID); err != nil {
+		t.Fatalf("delegate exam: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-dash-bucket")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(opID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("login operator: err=%v", err)
+	} else {
+		resp.Body.Close()
+	}
+	status, body := getDashboardPage(t, client, srv)
+	if status != http.StatusOK {
+		t.Fatalf("dashboard: status=%d, want 200", status)
+	}
+	if !strings.Contains(body, "Ujian Milik Operator") || !strings.Contains(body, "Ujian Delegasi") {
+		t.Fatalf("dashboard table must list both the owned and the delegated exam")
+	}
+	// The "Total Ujian" header card (keseluruhan) must agree with the table.
+	idx := strings.Index(body, "Total Ujian")
+	if idx < 0 {
+		t.Fatalf("Total Ujian card missing — page did not render fully")
+	}
+	start := idx - 300
+	if start < 0 {
+		start = 0
+	}
+	if !strings.Contains(body[start:idx], ">2</span>") {
+		t.Errorf("Total Ujian card must count the delegated exam too (want 2 in %q)", body[start:idx])
 	}
 }
