@@ -225,6 +225,10 @@
          (supervisor masih boleh menelusuri data). Yang dimatikan hanya aksi
          mutasi — dan alasannya ditulis di sini, bukan dibiarkan sebagai toast
          penolakan setelah supervisor membuang satu ketukan. -->
+    <!-- Filter aktif: kartu statistik sengaja filter-independent, jadi tanpa
+         penanda ini angka "Total Perangkat 12 / Terkumpul 3" bisa dibaca
+         sebagai jumlah baris di tabel—even saat tabel sedang disempitkan. -->
+    <span id="activeFilterChip" style="display:none;align-self:center;gap:6px;align-items:center;background:var(--glass-bg-strong);border:1px solid var(--color-glass-border);border-radius:8px;padding:4px 8px;"></span>
     <span id="examLivenessNote" role="status" aria-live="polite" style="display:none;flex-basis:100%;font-size:0.72rem;color:var(--color-warning-light);background:rgba(var(--rgb-warning),0.12);border:1px solid rgba(var(--rgb-warning),0.3);border-radius:8px;padding:6px 10px;margin-top:4px;"></span>
     <!-- S85 (ronde 8): region live TERPISAH untuk perubahan jumlah antrean.
          Stempel jam di atas sengaja VISUAL-ONLY (tanpa aria-live) — jam polling
@@ -1688,6 +1692,7 @@ function loadDetail(page, silent) {
                     msg = 'Belum ada perangkat terdaftar.';
                 }
                 subsLastHtml = null;
+                renderActiveFilterChip();
                 tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">' + escapeHtml(msg) + '</td></tr>';
                 renderSubPagination(res);
                 return;
@@ -1736,9 +1741,25 @@ function loadDetail(page, silent) {
                 // "Cari nama", tapi baris hanya menunjukkan MAC — supervisor
                 // bisa mencari siswa lalu tidak bisa melihat namanya, dan harus
                 // membuka modal satu per baris untuk tahu siapa siapa.
-                var studentCell = s.student_name
-                    ? escapeHtml(s.student_name)
-                    : '<span style="color:var(--color-text-muted);">—</span>';
+                // Kelas dan nomor ujian ikut ditampilkan, bukan hanya di modal:
+                // dua siswa bisa sama-sama bernama "Budi Santoso" di kelas
+                // berbeda, dan tanpa itu keduanya tidak dapat dibedakan di
+                // tabel. Lebih jauh, pencarian MEMATCH kolom kelas dan nomor
+                // ujian — jadi bisa mencari berdasarkan keduanya tetapi tidak
+                // bisa memverifikasi hasilnya.
+                var studentCell;
+                if (s.student_name) {
+                    var ident = [];
+                    if (s.student_class) ident.push('Kelas ' + escapeHtml(s.student_class));
+                    if (s.exam_number) ident.push('No. ' + escapeHtml(s.exam_number));
+                    studentCell = '<div style="font-weight:600;">' + escapeHtml(s.student_name) + '</div>' +
+                        (ident.length
+                            ? '<div style="font-size:0.7rem;color:var(--color-text-muted);font-weight:400;">' +
+                              ident.join(' · ') + '</div>'
+                            : '');
+                } else {
+                    studentCell = '<span style="color:var(--color-text-muted);">—</span>';
+                }
 
                 html += '<tr>' +
                     '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20) + i + 1) + '</td>' +
@@ -1755,6 +1776,8 @@ function loadDetail(page, silent) {
                     '</div></td>' +
                     '</tr>';
             }
+            renderActiveFilterChip();
+
             // Modal akses yang terbuka mengikuti poll yang sama: access_logs
             // tidak ikut di HTML baris, jadi render baris bisa di-skip sementara
             // snapshot sudah terbaru — modal harus tetap disegarkan dari
@@ -1789,6 +1812,32 @@ function loadDetail(page, silent) {
 // Label manusia untuk nilai filter status, dipakai pesan empty-state supaya
 // supervisor melihat "Tidak ada perangkat berstatus Terkumpul" alih-alih
 // "Belum ada perangkat terdaftar" yang bertentangan dengan kartu statistik.
+// Chip "filter aktif". Kartu statistik sengaja filter-independent (header
+// stabil tingkat ujian), jadi tanpa penanda ini supervisor bisa melihat
+// "Total Perangkat 12 / Terkumpul 3" di atas tabel yang hanya berisi satu
+// baris, tanpa tahu bahwa view-nya sedang disempitkan filter.
+function renderActiveFilterChip() {
+    var chip = document.getElementById('activeFilterChip');
+    if (!chip) return;
+    var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
+    var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
+    var parts = [];
+    if (status) parts.push('Status: ' + statusFilterLabel(status));
+    if (search) parts.push('Cari: "' + search + '"');
+    if (!parts.length) {
+        chip.style.display = 'none';
+        chip.innerHTML = '';
+        return;
+    }
+    chip.style.display = 'block';
+    chip.innerHTML = '<span style="font-size:0.7rem;color:var(--color-text-muted);">FILTER:</span> ' +
+        '<span style="font-size:0.72rem;color:var(--color-text);">' + escapeHtml(parts.join(' · ')) + '</span>' +
+        '<button type="button" data-action="clear-active-filters" ' +
+        'style="margin-left:8px;background:transparent;border:1px solid var(--color-glass-border);' +
+        'border-radius:6px;color:var(--color-text-secondary);font-size:0.68rem;padding:2px 8px;cursor:pointer;">' +
+        'Hapus filter</button>';
+}
+
 function statusFilterLabel(value) {
     switch (value) {
         case 'in_progress': return 'Sedang Mengerjakan';
@@ -2229,6 +2278,17 @@ function closeConfirmApprovalModal(event) {
     var status = el.getAttribute('data-status');
     if (!mac || !status) return;
     if (typeof showConfirmApprovalModal === 'function') showConfirmApprovalModal(mac, status);
+  });
+  Actions.register('clear-active-filters', function() {
+    // Kembali ke daftar penuh dalam satu ketukan — tanpa ini supervisor harus
+    // mengosongkan kotak search DAN dropdown status secara manual.
+    var sf = document.getElementById('statusFilter');
+    if (sf) sf.value = '';
+    var sb = document.getElementById('pengawasSearch');
+    if (sb) sb.value = '';
+    SUB_PAGE = 1;
+    renderActiveFilterChip();
+    loadDetail(1);
   });
   Actions.register('refresh-access-log-modal', function() {
     // Segarkan dari snapshot terbaru. Kalau snapshot belum pernah terisi

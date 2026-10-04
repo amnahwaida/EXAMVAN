@@ -53,8 +53,11 @@ function toPlainJs(html) {
 // ---------------------------------------------------------------------------
 
 function makeEl(id) {
+    // innerHTML → textContent: the real DOM derives the flattened text from the
+    // parsed markup. Without that, any assertion reading textContent after the
+    // code sets innerHTML sees '' and the stub silently hides the code's output.
     const el = {
-        id, textContent: '', innerHTML: '', value: '', dataset: {}, style: {},
+        id, textContent: '', value: '', dataset: {}, style: {},
         classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
         addEventListener() {}, removeEventListener() {}, appendChild() {},
         removeChild() {}, querySelector: () => null, querySelectorAll: () => [],
@@ -62,6 +65,18 @@ function makeEl(id) {
         focus() {}, click() {}, contains: () => false, children: [], childNodes: [],
         parentElement: null,
     };
+    let html = '';
+    Object.defineProperty(el, 'innerHTML', {
+        get() { return html; },
+        set(v) {
+            html = String(v == null ? '' : v);
+            el.textContent = html
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/&middot;|&ndash;|&raquo;|&laquo;|&lsaquo;|&rsaquo;|&quot;/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        },
+    });
     return el;
 }
 
@@ -602,6 +617,79 @@ test('closing the modal stops it following the poll', () => {
         'closing the modal must clear the tracked device id, otherwise it keeps ' +
         're-rendering off-screen on every poll: ' + closeBlock.slice(0, 220)
     );
+});
+
+// ---------------------------------------------------------------------------
+// A supervisor must be able to tell students apart, and know a filter is on.
+// ---------------------------------------------------------------------------
+
+test('the device table shows the class so same-named students are distinct', async () => {
+    // Two candidates can share a name across classes. The table showed only the
+    // name, so they were indistinguishable — while the search DOES match class,
+    // which makes it worse: you search "XII A", get results, and see nothing
+    // that confirms the filter applied.
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            submissions: [{
+                ...SUBMISSION_ROW,
+                student_name: 'Budi Santoso',
+                student_class: 'XII A',
+                exam_number: '07',
+            }],
+        }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody.innerHTML;
+    assert.ok(
+        /XII A/.test(html),
+        'the class must be visible in the row — otherwise two "Budi Santoso" ' +
+        'from different classes are indistinguishable: ' + html.slice(0, 300)
+    );
+});
+
+test('an active filter is announced and can be cleared in one click', async () => {
+    // No indicator existed at all. The stat cards are deliberately filter-
+    // independent (a stable exam-level header), so with a filter active the page
+    // showed "Total Perangkat 12 / Terkumpul 3" above a table holding one row —
+    // with nothing saying a filter was narrowing the view.
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            submissions: [{ ...SUBMISSION_ROW, student_class: 'XII A' }],
+            stats: { total: 12, active: 0, submitted: 3, not_started: 9 },
+        }),
+        callAfter: ['loadDetail(1)'],
+        preset: {
+            statusFilter: { value: 'not_started' },
+            pengawasSearch: { value: 'budi' },
+        },
+    });
+    const chip = els.activeFilterChip;
+    assert.ok(chip, 'an active-filter chip element must exist');
+    assert.equal(chip.style.display, 'block',
+        'the chip must be visible whenever a filter is narrowing the view');
+    assert.ok(/not_started|Terkumpul|Status/i.test(chip.textContent || ''),
+        'the chip must name the active filter, got: ' + JSON.stringify(chip.textContent));
+    assert.ok(
+        /budi/.test(chip.textContent || ''),
+        'the chip must show the active search text, got: ' + JSON.stringify(chip.textContent)
+    );
+    assert.ok(
+        /data-action="clear-active-filters"/.test(chip.innerHTML),
+        'the chip must offer a one-click way back to the full list: ' + chip.innerHTML
+    );
+});
+
+test('no filter chip when nothing is filtered', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ submissions: [{ ...SUBMISSION_ROW, student_class: 'XII A' }] }),
+        callAfter: ['loadDetail(1)'],
+        preset: { statusFilter: { value: '' }, pengawasSearch: { value: '' } },
+    });
+    assert.equal(els.activeFilterChip && els.activeFilterChip.style.display, 'none',
+        'the chip must stay hidden when no filter is applied');
 });
 
 // ---------------------------------------------------------------------------
