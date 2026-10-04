@@ -210,12 +210,6 @@
     <svg class="icon-svg"><use href="#hi-device"/></svg> Monitoring Perangkat
    </h2>
    <div class="pd-table-toolbar">
-    <select id="statusFilter" class="pd-status-select" aria-label="Filter status siswa">
-     <option value="">Semua Status</option>
-     <option value="in_progress">Sedang Mengerjakan</option>
-     <option value="submitted">Terkumpul</option>
-     <option value="not_started">Belum Mulai</option>
-    </select>
     <div class="pd-search-wrap">
      <svg class="icon-svg pd-search-icon"><use href="#hi-search"/></svg>
       <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta">
@@ -1668,10 +1662,11 @@ function restoreSubsFocus(key) {
 // response-time comparison below can never drift apart.
 function currentDetailUrl() {
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
-    var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
+    // Sengaja TIDAK ada filter status: tabel selalu menampilkan semua perangkat.
+    // (Server tetap mendukung ?status= untuk API, dan kartu statistik tetap
+    // menampilkan rincian per status — hanya kontrolnya yang dihapus.)
     var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=' + ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20);
     if (search) url += '&search=' + encodeURIComponent(search);
-    if (status) url += '&status=' + encodeURIComponent(status);
     return url;
 }
 
@@ -1708,12 +1703,10 @@ function loadDetail(page, silent) {
     // interaction during a flight sets detailRerunPending — so the rerun for
     // the current state is already queued by the time we skip.
     //
-    // search/status are ALSO read here for the empty-state wording below. They
-    // are identical to the request-time values whenever we reach the render
-    // (the signature check above guarantees it), so the message always names
-    // the filter the supervisor is actually looking at.
+    // search is ALSO read here for the empty-state wording below. It is
+    // identical to the request-time value whenever we reach the render
+    // (the signature check above guarantees it).
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
-    var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
     var myUrl = currentDetailUrl();
 
     apiFetch(myUrl, { headers: { 'Accept': 'application/json' } })
@@ -1765,22 +1758,9 @@ function loadDetail(page, silent) {
             }
 
             if (subs.length === 0) {
-                // Pesan harus jujur soal APA yang kosong. Sebelumnya hanya
-                // search yang diperiksa, sehingga filter status yang tidak
-                // cocok menampilkan "Belum ada perangkat terdaftar" —
-                // padahal kartu statistik tepat di atasnya masih
-                // menampilkan perangkat. Supervisor menyimpulkan/device
-                // selesai_REGISTER hilang padahal tidak.
-                var msg;
-                if (search && status) {
-                    msg = 'Tidak ada ' + statusFilterLabel(status) + ' yang cocok dengan "' + search + '".';
-                } else if (search) {
-                    msg = 'Pencarian "' + search + '" tidak ditemukan.';
-                } else if (status) {
-                    msg = 'Tidak ada perangkat berstatus ' + statusFilterLabel(status) + '.';
-                } else {
-                    msg = 'Belum ada perangkat terdaftar.';
-                }
+                var msg = search
+                    ? 'Pencarian "' + search + '" tidak ditemukan.'
+                    : 'Belum ada perangkat terdaftar.';
                 subsLastHtml = null;
                 renderActiveFilterChip();
                 tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">' + escapeHtml(msg) + '</td></tr>';
@@ -1918,31 +1898,18 @@ function renderActiveFilterChip() {
     var chip = document.getElementById('activeFilterChip');
     if (!chip) return;
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
-    var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
-    var parts = [];
-    if (status) parts.push('Status: ' + statusFilterLabel(status));
-    if (search) parts.push('Cari: "' + search + '"');
-    if (!parts.length) {
+    if (!search) {
         chip.style.display = 'none';
         chip.innerHTML = '';
         return;
     }
     chip.style.display = 'block';
     chip.innerHTML = '<span style="font-size:0.7rem;color:var(--color-text-muted);">FILTER:</span> ' +
-        '<span style="font-size:0.72rem;color:var(--color-text);">' + escapeHtml(parts.join(' · ')) + '</span>' +
+        '<span style="font-size:0.72rem;color:var(--color-text);">Cari: "' + escapeHtml(search) + '"</span>' +
         '<button type="button" data-action="clear-active-filters" ' +
         'style="margin-left:8px;background:transparent;border:1px solid var(--color-glass-border);' +
         'border-radius:6px;color:var(--color-text-secondary);font-size:0.68rem;padding:2px 8px;cursor:pointer;">' +
         'Hapus filter</button>';
-}
-
-function statusFilterLabel(value) {
-    switch (value) {
-        case 'in_progress': return 'Sedang Mengerjakan';
-        case 'submitted': return 'Terkumpul';
-        case 'not_started': return 'Belum Mulai';
-        default: return value || '';
-    }
 }
 
 function renderSubPagination(res) {
@@ -2390,10 +2357,7 @@ function closeConfirmApprovalModal(event) {
     if (typeof showConfirmApprovalModal === 'function') showConfirmApprovalModal(mac, status);
   });
   Actions.register('clear-active-filters', function() {
-    // Kembali ke daftar penuh dalam satu ketukan — tanpa ini supervisor harus
-    // mengosongkan kotak search DAN dropdown status secara manual.
-    var sf = document.getElementById('statusFilter');
-    if (sf) sf.value = '';
+    // Kembali ke daftar penuh dalam satu ketukan.
     var sb = document.getElementById('pengawasSearch');
     if (sb) sb.value = '';
     SUB_PAGE = 1;
@@ -2736,22 +2700,8 @@ loadAAStatus();
         // reset menghasilkan tabel kosong palsu.
         initLiveSearch(document.getElementById('pengawasSearch'), function() { loadDetail(1); });
     }
-    // Status changes are debounced like the search box (which uses 300ms in
-    // initLiveSearch): machine-gunning the dropdown issued one heavy 6-query
-    // request per change, and with hot reload removed to SAVE server load the
-    // filter must not spend it back. The chip updates immediately so the
-    // control still feels responsive; only the fetch waits.
-    var statusFilterTimer = null;
-    function onStatusFilterChange() {
-        renderActiveFilterChip();
-        if (statusFilterTimer !== null) clearTimeout(statusFilterTimer);
-        statusFilterTimer = setTimeout(function() {
-            statusFilterTimer = null;
-            loadDetail(1);
-        }, 250);
-    }
-    var statusFilterEl = document.getElementById('statusFilter');
-    if (statusFilterEl) statusFilterEl.addEventListener('change', onStatusFilterChange);
+    // (Dropdown filter status dihapus — tabel selalu menampilkan semua perangkat.
+    // Kotak pencarian tetap di-debounce 300ms oleh initLiveSearch.)
 
     // Izin mengulang dimuat sebelum tabel pertama, supaya tombol di baris
     // yang sudah Terkumpul langsung tampil dalam keadaan benar dan tidak

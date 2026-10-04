@@ -96,7 +96,7 @@ async function runScript({ js, payload = {}, callAfter = [], preset = {}, apiFet
     const timeouts = [];
     const els = {};
     // preset: { elementId: { prop: value } } — seeds the stub DOM before the
-    // script runs, e.g. { statusFilter: { value: 'submitted' } }.
+    // script runs, e.g. { pengawasSearch: { value: 'budi' } }.
     for (const [id, props] of Object.entries(preset)) {
         els[id] = Object.assign(makeEl(id), props);
     }
@@ -504,33 +504,6 @@ test('BUG-8: row numbering follows the page the server actually served', async (
 // "Monitoring Perangkat" filter UX
 // ---------------------------------------------------------------------------
 
-test('empty state names the status filter instead of claiming the exam is empty', async () => {
-    // Behavioural, not a regex over the source: with a status filter that
-    // matches nothing, the table must say WHICH filter excluded everything.
-    // The old wording keyed only off the search box, so it claimed
-    // "Belum ada perangkat terdaftar" while the stat cards directly above
-    // still listed devices — the supervisor concludes the roster vanished.
-    const { els } = await runScript({
-        js: toPlainJs(readDetail()),
-        payload: detailPayload({
-            submissions: [],
-            stats: { total: 4, active: 0, submitted: 0, not_started: 4 },
-        }),
-        callAfter: ['loadDetail(1)'],
-        preset: { statusFilter: { value: 'submitted' } },
-    });
-    const html = els.submissionBody ? els.submissionBody.innerHTML : '';
-    assert.ok(html.length > 0, 'empty-state branch must render something');
-    assert.ok(
-        !/Belum ada perangkat terdaftar/.test(html),
-        'a filtered-to-empty table must not claim no devices are registered: ' + html.slice(0, 200)
-    );
-    assert.ok(
-        /Terkumpul/.test(html),
-        'the message must name the status that excluded the rows: ' + html.slice(0, 200)
-    );
-});
-
 test('empty state still reports an unfiltered empty exam plainly', async () => {
     const { els } = await runScript({
         js: toPlainJs(readDetail()),
@@ -714,7 +687,7 @@ test('a stale response cannot overwrite fresh rows or kill the new watchdog', as
         js: toPlainJs(readDetail()),
         payload: detailPayload(),
         hang: true,
-        preset: { statusFilter: { value: '' } },
+        preset: { pengawasSearch: { value: '' } },
     });
 
     // Request A goes out and hangs. (The page's own initial load already
@@ -759,7 +732,7 @@ test('a stale failure cannot wipe rows rendered by a newer request', async () =>
         js: toPlainJs(readDetail()),
         payload: detailPayload(),
         hang: true,
-        preset: { statusFilter: { value: '' } },
+        preset: { pengawasSearch: { value: '' } },
     });
     for (const t of w.timeouts) t.fn();
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
@@ -843,27 +816,29 @@ test('a response for a superseded filter is never rendered', async () => {
         js: toPlainJs(readDetail()),
         payload: detailPayload(),
         hang: true,
-        preset: { statusFilter: { value: '' } },
+        preset: { pengawasSearch: { value: '' } },
     });
     for (const t of w.timeouts) t.fn();
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
 
     // Three rapid changes; only the first starts a request, the rest coalesce.
+    // (The status dropdown is gone — the table always shows every device — so
+    // the signature chase is exercised through the surviving search filter.)
     const parked = w.pending.length;
-    w.els.statusFilter.value = 'submitted';
+    w.els.pengawasSearch.value = 'budi';
     vm.runInContext('loadDetail(1)', w.ctx);
-    w.els.statusFilter.value = 'in_progress';
+    w.els.pengawasSearch.value = 'siti';
     vm.runInContext('loadDetail(1)', w.ctx);
-    w.els.statusFilter.value = 'not_started';
+    w.els.pengawasSearch.value = 'agus';
     vm.runInContext('loadDetail(1)', w.ctx);
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
     assert.equal(w.pending.length, parked + 1, 'rapid changes must coalesce to one request');
 
-    // A (filter=submitted) resolves slowly with its rows.
-    w.pending[parked](mkResp('STALE-submitted', 1));
+    // A (search=budi) resolves slowly with its rows.
+    w.pending[parked](mkResp('STALE-budi', 1));
     for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
     assert.ok(
-        !/STALE-submitted/.test(w.els.submissionBody.innerHTML),
+        !/STALE-budi/.test(w.els.submissionBody.innerHTML),
         'stale rows for a superseded filter were painted: ' +
         w.els.submissionBody.innerHTML.slice(0, 220)
     );
@@ -872,52 +847,14 @@ test('a response for a superseded filter is never rendered', async () => {
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
     const rerun = w.pending[w.pending.length - 1];
     assert.ok(rerun, 'a rerun for the current filter must be queued');
-    rerun(mkResp('FRESH-not_started', 1));
+    rerun(mkResp('FRESH-agus', 1));
     for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
     assert.ok(
-        /FRESH-not_started/.test(w.els.submissionBody.innerHTML),
+        /FRESH-agus/.test(w.els.submissionBody.innerHTML),
         'the table must converge on the current filter: ' +
         w.els.submissionBody.innerHTML.slice(0, 220)
     );
 });
-
-test('rapid status changes collapse to a single request', async () => {
-    // The search box debounces at 300ms; the status dropdown fired instantly,
-    // so machine-gunning it issued one heavy 6-query request per change. With
-    // hot reload removed to SAVE server load, filter churn must not spend it back.
-    const w = await runScriptWithTimeout({
-        js: toPlainJs(readDetail()),
-        payload: detailPayload(),
-        hang: true,
-        preset: { statusFilter: { value: '' } },
-    });
-    for (const t of w.timeouts) t.fn();
-    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
-    const base = w.fetches.filter((u) => /submissions/.test(u)).length;
-
-    w.els.statusFilter.value = 'submitted';
-    w.els.statusFilter.__dispatch('change', {});
-    w.els.statusFilter.value = 'in_progress';
-    w.els.statusFilter.__dispatch('change', {});
-    w.els.statusFilter.value = 'not_started';
-    w.els.statusFilter.__dispatch('change', {});
-    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
-
-    // The debounce timer is pending; nothing may have been sent yet.
-    const before = w.fetches.filter((u) => /submissions/.test(u)).length;
-    assert.equal(before, base, 'a burst must not send immediately');
-
-    for (const t of w.timeouts) t.fn();
-    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
-    const sent = w.fetches.filter((u) => /submissions[^]*status=not_started/.test(u));
-    assert.equal(sent.length, 1,
-        `burst collapsed to ${sent.length} requests, want exactly 1 for the final filter`);
-});
-
-// ---------------------------------------------------------------------------
-// The device table got wedged on "Memuat data..." forever, and must not be
-// polled automatically any more.
-// ---------------------------------------------------------------------------
 
 test('a hung request cannot wedge the table on "Memuat data..." forever', async () => {
     // Reproduced: one request that never settles left detailLoading=true, so
@@ -928,7 +865,7 @@ test('a hung request cannot wedge the table on "Memuat data..." forever', async 
         js: toPlainJs(readDetail()),
         payload: detailPayload(),
         hang: true,
-        preset: { statusFilter: { value: 'in_progress' } },
+        preset: { pengawasSearch: { value: 'budi' } },
     });
     vm.runInContext('loadDetail(1)', ctx);
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
@@ -1036,17 +973,12 @@ test('an active filter is announced and can be cleared in one click', async () =
             stats: { total: 12, active: 0, submitted: 3, not_started: 9 },
         }),
         callAfter: ['loadDetail(1)'],
-        preset: {
-            statusFilter: { value: 'not_started' },
-            pengawasSearch: { value: 'budi' },
-        },
+        preset: { pengawasSearch: { value: 'budi' } },
     });
     const chip = els.activeFilterChip;
     assert.ok(chip, 'an active-filter chip element must exist');
     assert.equal(chip.style.display, 'block',
         'the chip must be visible whenever a filter is narrowing the view');
-    assert.ok(/not_started|Terkumpul|Status/i.test(chip.textContent || ''),
-        'the chip must name the active filter, got: ' + JSON.stringify(chip.textContent));
     assert.ok(
         /budi/.test(chip.textContent || ''),
         'the chip must show the active search text, got: ' + JSON.stringify(chip.textContent)
@@ -1062,7 +994,7 @@ test('no filter chip when nothing is filtered', async () => {
         js: toPlainJs(readDetail()),
         payload: detailPayload({ submissions: [{ ...SUBMISSION_ROW, student_class: 'XII A' }] }),
         callAfter: ['loadDetail(1)'],
-        preset: { statusFilter: { value: '' }, pengawasSearch: { value: '' } },
+        preset: { pengawasSearch: { value: '' } },
     });
     assert.equal(els.activeFilterChip && els.activeFilterChip.style.display, 'none',
         'the chip must stay hidden when no filter is applied');
