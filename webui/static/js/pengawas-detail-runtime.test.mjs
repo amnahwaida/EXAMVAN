@@ -343,6 +343,34 @@ test('BUG-8: row numbering follows the page the server actually served', async (
 });
 
 // ---------------------------------------------------------------------------
+// Hot reload completeness: every server-authoritative state rendered on the
+// page must be re-read by the poll, not only on manual reload.
+// ---------------------------------------------------------------------------
+
+test('BUG-9: repeat-grant state is re-read by the poller, not just on load', () => {
+    const html = readDetail();
+    // The granted/cancelled button state is baked into data-granted at render
+    // time. Without a poller entry point, a grant made by another supervisor
+    // (or another tab) never appears until a manual page reload.
+    const poller = html.slice(html.indexOf('function startPengawasPolling'));
+    assert.ok(
+        /refreshRepeatGrants\(/.test(poller),
+        'repeat-grants must be refreshed by the poller — otherwise the Izinkan / ' +
+        'Cabut Izin buttons go stale and a supervisor sees the wrong permission state'
+    );
+});
+
+test('BUG-9: auto-approve toggle state is re-read by the poller', () => {
+    const js = toPlainJs(readDetail());
+    // One payload now carries the flag, so no extra endpoint is needed.
+    assert.ok(
+        /auto_approve_enabled/.test(js),
+        'the submissions payload must drive the auto-approve toggle so hot reload ' +
+        'reflects another supervisor toggling it'
+    );
+});
+
+// ---------------------------------------------------------------------------
 // Structural invariants that keep these bugs from coming back.
 // ---------------------------------------------------------------------------
 

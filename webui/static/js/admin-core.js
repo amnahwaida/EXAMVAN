@@ -411,22 +411,28 @@ function jsEscape(str) {
 // hidup di dalam localizeUTC. Semua pemakaian internal admin.js memakai
 // helper ini; localizeUTC dipertahankan sebagai alias untuk skrip lama
 // (settings-billing, settings-voucher-audit, template pengawas_detail).
+// Formats an ISO timestamp for display. On an unparseable input it returns the
+// EM DASH placeholder, never the raw string: every caller injects the result
+// into innerHTML, so echoing the input verbatim turns one new (or legacy,
+// unvalidated) date column into a stored-XSS sink. A date we cannot parse is
+// shown as unknown rather than rendered as markup.
+const UNPARSEABLE_DATE = '—';
 function formatDateTimeID(dateStr) {
-    if (!dateStr) return '—';
+    if (!dateStr) return UNPARSEABLE_DATE;
     try {
         let iso = String(dateStr).trim();
         if (iso.includes(' ') && !iso.includes('T')) iso = iso.replace(' ', 'T');
         // Append Z only if no timezone info present
         if (!iso.endsWith('Z') && !iso.includes('+') && !(/-\d{2}:\d{2}$/.test(iso))) iso += 'Z';
         const dt = new Date(iso);
-        if (isNaN(dt.getTime())) return dateStr;
+        if (isNaN(dt.getTime())) return UNPARSEABLE_DATE;
         const year = dt.getFullYear();
         const month = String(dt.getMonth() + 1).padStart(2, '0');
         const day = String(dt.getDate()).padStart(2, '0');
         const hours = String(dt.getHours()).padStart(2, '0');
         const mins = String(dt.getMinutes()).padStart(2, '0');
         return `${year}-${month}-${day} ${hours}:${mins}`;
-    } catch (_) { return dateStr; }
+    } catch (_) { return UNPARSEABLE_DATE; }
 }
 
 // Alias kompatibilitas — jangan tambahkan pemakaian baru.

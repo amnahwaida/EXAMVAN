@@ -1273,9 +1273,9 @@ function loadApprovals() {
             if (!res.data || res.data.length === 0) {
                 announceQueueCount(0);
                 if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
-                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:var(--color-success-light);"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>');
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:var(--color-success-light);"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>', 'Auto-approve aktif — peserta disetujui otomatis di server.');
                 } else {
-                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>');
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>', 'Belum ada antrean peserta saat ini.');
                 }
                 return;
             }
@@ -1551,10 +1551,30 @@ function restoreSubsFocus(key) {
     if (!key) return;
     var tbody = document.getElementById('submissionBody');
     if (!tbody || !tbody.querySelector) return;
-    var sel = '[data-action="' + key.action + '"]';
-    if (key.mac) sel += '[data-mac="' + key.mac + '"]';
-    if (key.sid) sel += '[data-submission-id="' + key.sid + '"]';
-    var target = tbody.querySelector(sel);
+    // Temukan target dengan MENYUSURI baris dan membandingkan nilai atribut,
+    // bukan merakit CSS selector dari nilai DOM. Selector yang dirakit dari
+    // data-mac / data-action bisa menjadi tidak valid (kutip, kurung) dan
+    // querySelector lalu melempar SyntaxError — yang ditangkap catch dan
+    // MewAHKAN baris yang sudah benar dengan "Gagal menghubungi server".
+    // Perbandingan string tidak punya kelas kegagalan itu sama sekali.
+    var sel = null;
+    try {
+        var rows = tbody.querySelectorAll('tr');
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!row.querySelector) continue;
+            var btn = row.querySelector('[data-action]');
+            if (!btn) continue;
+            if (btn.getAttribute('data-action') !== key.action) continue;
+            if (key.mac && btn.getAttribute('data-mac') !== key.mac) continue;
+            if (key.sid && btn.getAttribute('data-submission-id') !== String(key.sid)) continue;
+            sel = btn;
+            break;
+        }
+    } catch (e) {
+        return; // jangan ganggu tabel
+    }
+    var target = sel;
     if (target && target.focus) {
         target.focus();
     } else {
@@ -2411,6 +2431,14 @@ loadAAStatus();
         // Antrean izin: cepat (5 dtk) — inilah antrean yang benar-benar
         // berubah karena siswa sedang menunggu izin supervisor.
         pollTimers.push(setInterval(loadApprovals, 5000));
+        // Izin mengulang ikut disegarkan di siklus yang sama. State "granted"
+        // dicetak ke data-granted saat render, jadi tanpa pemanggilan di sini
+        // izin yang diberikan supervisor lain (atau tab lain) tidak pernah
+        // muncul sampai muat ulang manual — tombolnya jadi berbohong.
+        pollTimers.push(setInterval(function() {
+            if (document.hidden) return;
+            refreshRepeatGrants(EXAM_ID).then(function() { loadDetail(SUB_PAGE, true); });
+        }, 12000));
         // Tabel perangkat + statistik + token + auto-approve: 12 dtk, senyap.
         // SATU endpoint (submissions) kini membawa token, jam rotasi, dan
         // status auto-approve — sehingga poll token 30s yang terpisah
@@ -2427,6 +2455,7 @@ loadAAStatus();
         } else {
             loadApprovals();
             loadDetail(SUB_PAGE, true);
+            refreshRepeatGrants(EXAM_ID);
             updateCountdown();
             startPengawasPolling();
         }

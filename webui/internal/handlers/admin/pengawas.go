@@ -121,6 +121,11 @@ func PengawasDetailPage() gin.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
+// statsWalkPerPage is the page size used when walking every accessible exam to
+// build the tenant-wide header stats. 100 mirrors models' own page cap, so the
+// walk costs one query per 100 exams.
+const statsWalkPerPage = 100
+
 // 3. GET /admin/api/pengawas/exams — List assigned exams (JSON)
 // ---------------------------------------------------------------------------
 
@@ -148,6 +153,9 @@ func PengawasExams() gin.HandlerFunc {
 
 		var result models.ListExamsResult
 		var err error
+		// Hoisted: the stats aggregate below re-walks the same scoped list and
+		// needs the operator's resolved tenant scope.
+		var opScope models.InstansiScope
 
 		if isSuper {
 			// SuperAdmin sees all exams.
@@ -168,6 +176,7 @@ func PengawasExams() gin.HandlerFunc {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar pengawas")
 				return
 			}
+			opScope = scope
 			if !scope.IsBucket() {
 				opts.Instansi = scope
 			} else {
@@ -311,16 +320,68 @@ func PengawasExams() gin.HandlerFunc {
 			examList[i].SubmittedCount = counts[1]
 		}
 
-		// Overall stats from batch data
-		var totalExamsCount, activeCount, totalStudents, totalSubmitted int
-		for _, e := range result.Exams {
-			totalExamsCount++
-			if e.IsActive() {
-				activeCount++
+		// Header-card stats must cover EVERY accessible exam, not the current
+		// page slice: the cards are labelled tenant-wide ("Ujian Diawasi",
+		// "Total Siswa", "Terkumpul") and sit above the pagination. Summing
+		// result.Exams made the numbers change from page to page — page 1
+		// showed 0 students, page 2 showed 3, for the same exam set.
+		//
+		// The exam IDs come from the SAME scoped ListExams call as the list, so
+		// the aggregate can never cover a wider set than the user may see. Only
+		// the page number differs, so this walks the pages (one extra query per
+		// 100 exams) instead of duplicating the tenant WHERE clause — duplicating
+		// that predicate is exactly how the submissions list drifted to
+		// name-only matching earlier.
+		accessibleIDs := make([]int, 0, len(result.Exams))
+		accessibleActive := 0
+		{
+			seen := 0
+			for p := 1; seen < result.Total; p++ {
+				var pageRes models.ListExamsResult
+				var pageErr error
+				if isSuper {
+					pageRes, pageErr = models.ListExams(ctx, pool, models.ListExamsOpts{Page: p, PerPage: statsWalkPerPage})
+				} else if isOp {
+					o := models.ListExamsOpts{Page: p, PerPage: statsWalkPerPage}
+					if opScope.IsBucket() {
+						uid := userID
+						o.CreatedBy = &uid
+					} else {
+						o.Instansi = opScope
+					}
+					pageRes, pageErr = models.ListExams(ctx, pool, o)
+				} else {
+					pageRes, pageErr = models.ListPengawasExams(ctx, pool, models.ListPengawasExamsOpts{
+						Page: p, PerPage: statsWalkPerPage, UserID: userID,
+						HasPengawasRole: hasCurrentRole(c, models.RolePengawas),
+					})
+				}
+				if pageErr != nil || len(pageRes.Exams) == 0 {
+					break
+				}
+				for _, e := range pageRes.Exams {
+					accessibleIDs = append(accessibleIDs, e.ID)
+					if e.IsActive() {
+						accessibleActive++
+					}
+				}
+				seen += len(pageRes.Exams)
 			}
-			counts := examCountMap[e.ID]
-			totalStudents += counts[0]
-			totalSubmitted += counts[1]
+		}
+
+		// One aggregate over all accessible exams (same answers_json predicate
+		// as the per-page counts, so heartbeat placeholders stay excluded).
+		var aggStudents, aggSubmitted int
+		if len(accessibleIDs) > 0 {
+			if err := pool.QueryRow(ctx,
+				`SELECT COALESCE(SUM(t),0), COALESCE(SUM(s),0) FROM (
+					SELECT COUNT(*) AS t,
+					       SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) AS s
+					FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id
+				 ) agg`, accessibleIDs).Scan(&aggStudents, &aggSubmitted); err != nil {
+				log.Printf("pengawas exam stats aggregate: %v", err)
+				aggStudents, aggSubmitted = 0, 0
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -332,10 +393,10 @@ func PengawasExams() gin.HandlerFunc {
 			"total":         result.Total,
 			"total_pages":   result.TotalPages,
 			"stats": gin.H{
-				"total_exams":     totalExamsCount,
-				"active_exams":    activeCount,
-				"total_students":  totalStudents,
-				"total_submitted": totalSubmitted,
+				"total_exams":     len(accessibleIDs),
+				"active_exams":    accessibleActive,
+				"total_students":  aggStudents,
+				"total_submitted": aggSubmitted,
 			},
 		})
 	}

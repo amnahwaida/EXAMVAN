@@ -245,3 +245,36 @@ test('apiErrorMessage prefers mapped code, then server message, then fallback', 
     assert.equal(apiErrorMessage({ message: '' }, 'fallback'), 'fallback');
 });
 
+
+// --- formatDateTimeID: unparseable input must never be echoed ---------------
+
+test('formatDateTimeID returns the placeholder, never the raw input, on bad input', () => {
+    const env = loadAdminCore(async () => makeResponse({ ok: true, status: 200 }));
+    const fmt = env.sandbox.formatDateTimeID;
+    assert.equal(typeof fmt, 'function', 'formatDateTimeID must be exposed on the sandbox');
+
+    // Every caller injects the result into innerHTML. Echoing an unparseable
+    // value verbatim turns one new (or legacy, unvalidated) date column into a
+    // stored-XSS sink, so an unparseable date must render as "unknown".
+    const payloads = [
+        '<img src=x onerror=alert(1)>',
+        'not-a-date',
+        '"><script>alert(1)</script>',
+        '2026-13-45T99:99:99Z',
+        '',
+    ];
+    for (const p of payloads) {
+        const out = fmt(p);
+        assert.ok(
+            !/[<>]/.test(out),
+            `formatDateTimeID(${JSON.stringify(p)}) leaked markup: ${JSON.stringify(out)}`
+        );
+        assert.equal(out, '—', `formatDateTimeID(${JSON.stringify(p)}) must be the em-dash placeholder`);
+    }
+
+    // Sanity: a real timestamp still formats.
+    assert.match(fmt('2026-10-04T08:30:00Z'), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    assert.equal(fmt(''), '—');
+    assert.equal(fmt(null), '—');
+    assert.equal(fmt(undefined), '—');
+});

@@ -1119,3 +1119,105 @@ func TestApprovalEndpointsInvalidExamIDReturns400(t *testing.T) {
 		})
 	}
 }
+
+// TestPengawasExamsStatsCoverEveryAccessibleExam pins the header cards'
+// contract on the pengawas LIST page: "Ujian Diawasi" / "Sedang Berlangsung"
+// / "Total Siswa" / "Terkumpul" are labelled tenant-wide totals, so they must
+// aggregate over EVERY accessible exam — not just the current page slice.
+//
+// RED before the fix: the handler summed result.Exams (the page), so a
+// pengawas with 47 exams always saw "10" in the header while the footer said
+// "dari 47 ujian", and page 2 showed a different set of numbers.
+func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	ctx := context.Background()
+	uniq := fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
+
+	// Seed submissions on the fixture exam so Total Siswa / Terkumpul are > 0.
+	startedAt := time.Now().Format(time.RFC3339)
+	for i, mac := range []string{"AA:00:00:00:00:01", "AA:00:00:00:00:02", "AA:00:00:00:00:03"} {
+		answers := "NULL"
+		if i < 2 {
+			answers = `'{"1":"A"}'`
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, answers_json, score, start_time, created_at)
+			VALUES ($1, $2, $3, '01', 'XII A', `+answers+`, 80, $4, $5)`,
+			fx.ExamID, mac, fmt.Sprintf("Siswa %d", i+1), startedAt, time.Now()); err != nil {
+			t.Fatalf("seed submission %d: %v", i, err)
+		}
+	}
+
+	// Two MORE exams for the same assigned pengawas, so the tenant total is 3
+	// while a single page (per_page=5, so all fit) is not the differentiator —
+	// use enough exams to force paging instead.
+	for i := 0; i < 7; i++ {
+		token := fmt.Sprintf("PL%s%02d", uniq, i)
+		var id int
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by)
+			VALUES ($1, 'pl.pdf', 1024, $2, $2, 'active', 'medium', $3)
+			RETURNING id`, fmt.Sprintf("Ujian Extra %d", i), token, fx.GuruID).Scan(&id); err != nil {
+			t.Fatalf("seed extra exam %d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO exam_pengawas (exam_id, user_id) VALUES ($1, $2)`, id, fx.PwID); err != nil {
+			t.Fatalf("assign extra exam %d: %v", i, err)
+		}
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(fx.PwID), "", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("login pengawas: err=%v", err)
+	} else {
+		resp.Body.Close()
+	}
+
+	get := func(query string) map[string]interface{} {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/admin/api/pengawas/exams"+query, nil)
+		req.Header.Set("Accept", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", query, err)
+		}
+		defer resp.Body.Close()
+		var out map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode %s: %v", query, err)
+		}
+		return out
+	}
+
+	first := get("?page=1&per_page=5")
+	stats, _ := first["stats"].(map[string]interface{})
+	totalExams, _ := stats["total_exams"].(float64)
+	totalStudents, _ := stats["total_students"].(float64)
+	totalSubmitted, _ := stats["total_submitted"].(float64)
+	listTotal, _ := first["total"].(float64)
+
+	if totalExams != listTotal {
+		t.Errorf("stats.total_exams = %v, want the tenant total %v — the header card "+
+			"must aggregate every accessible exam, not the current page", totalExams, listTotal)
+	}
+	if totalStudents != 3 {
+		t.Errorf("stats.total_students = %v, want 3 (all devices across the tenant)", totalStudents)
+	}
+	if totalSubmitted != 2 {
+		t.Errorf("stats.total_submitted = %v, want 2", totalSubmitted)
+	}
+
+	// Page 2 must report the SAME header numbers (stable overview), only the
+	// rows differ.
+	second := get("?page=2&per_page=5")
+	stats2, _ := second["stats"].(map[string]interface{})
+	for _, k := range []string{"total_exams", "total_students", "total_submitted"} {
+		if stats2[k] != stats[k] {
+			t.Errorf("page 2 stats.%s = %v, want %v (header must be page-independent)", k, stats2[k], stats[k])
+		}
+	}
+}
