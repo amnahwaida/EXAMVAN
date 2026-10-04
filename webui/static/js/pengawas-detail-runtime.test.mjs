@@ -485,6 +485,89 @@ test('BUG-9: auto-approve toggle state is re-read by the poller', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The device table must actually show who is being monitored, and whether the
+// device is currently present.
+// ---------------------------------------------------------------------------
+
+test('device table renders the student name, not just a MAC address', async () => {
+    // The search box invites "Cari nama, ID perangkat..." but the row only ever
+    // showed the MAC. The supervisor could find a student by name and then not
+    // see that name anywhere in the table, forcing a modal open per row.
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            submissions: [{ ...SUBMISSION_ROW, student_name: 'Rani Kusuma', is_online: true }],
+        }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody.innerHTML;
+    assert.ok(/Rani Kusuma/.test(html),
+        'the monitoring table must display the student name; got: ' + html.slice(0, 300));
+});
+
+test('device table renders the presence indicator from is_online', async () => {
+    // is_online is computed server-side (a Redis EXISTS per device) and shipped
+    // in every payload — and was never read by any template or script. The
+    // heartbeat/presence infrastructure therefore had NO visible effect on the
+    // monitoring page it exists for.
+    const online = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ submissions: [{ ...SUBMISSION_ROW, is_online: true }] }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const onlineHtml = online.els.submissionBody.innerHTML;
+    assert.ok(/pd-status-dot-on/.test(onlineHtml),
+        'an online device must render the pulsing presence dot; got: ' +
+        onlineHtml.slice(0, 300));
+
+    const offline = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ submissions: [{ ...SUBMISSION_ROW, is_online: false }] }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const offlineHtml = offline.els.submissionBody.innerHTML;
+    assert.ok(
+        !/pd-status-dot-on/.test(offlineHtml),
+        'an offline device must NOT render the pulsing presence dot: ' +
+        offlineHtml.slice(0, 300)
+    );
+    assert.ok(
+        /pd-status-dot-off/.test(offlineHtml),
+        'an offline device must still render a static muted dot, so absence of ' +
+        'presence reads as "offline", not as "no data": ' + offlineHtml.slice(0, 300)
+    );
+});
+
+test('device table shows when the device was last seen', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            submissions: [{ ...SUBMISSION_ROW, last_access_at: '2026-10-04T09:55:00Z' }],
+        }),
+        callAfter: ['loadDetail(1)'],
+    });
+    assert.ok(
+        /09:55|09:5/.test(els.submissionBody.innerHTML),
+        'the last-access stamp must be visible in the table, not only inside the ' +
+        'access-log modal: ' + els.submissionBody.innerHTML.slice(0, 300)
+    );
+});
+
+test('presence column uses design tokens, not colour literals', () => {
+    // There are token-guard tests in this repo; a literal hex/rgb in new UI
+    // markup would break the sweep.
+    const html = readDetail();
+    const at = html.indexOf('pd-status-dot');
+    assert.ok(at > 0, 'expected a presence-dot class');
+    const css = html.slice(html.indexOf('.pd-status-dot'), html.indexOf('.pd-status-dot') + 400);
+    assert.ok(
+        !/#[0-9a-f]{3,6}\b/i.test(css),
+        'presence dot must be drawn with theme tokens, found a hex literal: ' + css.slice(0, 200)
+    );
+    assert.ok(/var\(--/.test(css), 'presence dot must use var(--token)');
+});
+
+// ---------------------------------------------------------------------------
 // Poll cost: one tick, one fetch per resource.
 // ---------------------------------------------------------------------------
 

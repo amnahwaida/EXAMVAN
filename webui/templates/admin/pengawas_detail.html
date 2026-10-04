@@ -235,15 +235,18 @@
     <thead>
      <tr>
       <th>No</th>
+      <th>Siswa</th>
       <th>ID Perangkat</th>
       <th>Status</th>
+      <th>Presence</th>
       <th>Mulai</th>
+      <th>Terakhir Seen</th>
       <th>Upaya</th>
       <th>Aksi</th>
      </tr>
     </thead>
     <tbody id="submissionBody">
-     <tr><td colspan="6" class="pd-table-empty">Memuat data...</td></tr>
+     <tr><td colspan="9" class="pd-table-empty">Memuat data...</td></tr>
     </tbody>
    </table>
   </div>
@@ -318,6 +321,25 @@
   border-radius: 50%;
   background: var(--color-success-light);
   animation: pdPulse 1.6s infinite;
+}
+/* Presence dot for the device table: the heartbeat-derived online state.
+   Drawn with theme tokens only (no literals) so the token sweep stays green.
+   pd-status-dot-ON reuses the existing pulse animation; OFF is a static muted
+   dot — an offline device must not look like it is doing something. */
+.pd-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.pd-status-dot-on {
+  background: var(--color-success-light);
+  animation: pdPulse 1.6s infinite;
+}
+.pd-status-dot-off {
+  background: var(--color-text-muted);
 }
 @keyframes pdPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(var(--rgb-success),0.5); }
@@ -1598,7 +1620,7 @@ function loadDetail(page, silent) {
     detailLoading = true;
 
     // On silent auto-refresh, keep the current rows in place (no loading flash).
-    if (!silent) tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">Memuat data...</td></tr>';
+    if (!silent) tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">Memuat data...</td></tr>';
 
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
@@ -1618,12 +1640,12 @@ function loadDetail(page, silent) {
                 if (!silent) {
                     showToast(reason, 'error');
                     subsLastHtml = null;
-                    tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">' +
+                    tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty" style="color:var(--color-danger-light);">' +
                         escapeHtml(reason) + '</td></tr>';
                 } else if (!subsLastHtml) {
                     // Belum pernah ada render sukses — tidak ada yang bisa dijaga.
                     subsLastHtml = null;
-                    tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">' +
+                    tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty" style="color:var(--color-danger-light);">' +
                         escapeHtml(reason) + '</td></tr>';
                 }
                 return;
@@ -1661,7 +1683,7 @@ function loadDetail(page, silent) {
                     msg = 'Belum ada perangkat terdaftar.';
                 }
                 subsLastHtml = null;
-                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">' + escapeHtml(msg) + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">' + escapeHtml(msg) + '</td></tr>';
                 renderSubPagination(res);
                 return;
             }
@@ -1679,11 +1701,29 @@ function loadDetail(page, silent) {
                 var toneCls = sc === 'submitted' ? 'tone-success' : (sc === 'in-progress' ? 'tone-warning' : 'tone-neutral');
                 var attCount = s.attempt_count > 1 ? '<span style="background:rgba(var(--rgb-danger),0.1);color:var(--color-danger);padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + escapeHtml(String(s.attempt_count)) + 'x Mengerjakan">' + escapeHtml(String(s.attempt_count)) + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
+                // Presence diturunkan dari heartbeat (is_online) yang dikirim server —
+                // tanpa kolom ini, seluruh infrastruktur heartbeat tidak terlihat
+                // sama sekali di halaman yang justru dibuat untuk memantaunya.
+                var presence = s.is_online
+                    ? '<span class="pd-status-dot pd-status-dot-on" role="img" aria-label="Perangkat daring"></span><span style="color:var(--color-success-light);font-size:0.75rem;">Daring</span>'
+                    : '<span class="pd-status-dot pd-status-dot-off" role="img" aria-label="perangkat luring"></span><span style="color:var(--color-text-muted);font-size:0.75rem;">Luring</span>';
+                var lastSeen = s.last_access_at ? localizeUTC(s.last_access_at) : '—';
+                // Nama siswa selalu ditampilkan: kolom pencarian menawarkan
+                // "Cari nama", tapi baris hanya menunjukkan MAC — supervisor
+                // bisa mencari siswa lalu tidak bisa melihat namanya, dan harus
+                // membuka modal satu per baris untuk tahu siapa siapa.
+                var studentCell = s.student_name
+                    ? escapeHtml(s.student_name)
+                    : '<span style="color:var(--color-text-muted);">—</span>';
+
                 html += '<tr>' +
                     '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20) + i + 1) + '</td>' +
+                    '<td data-label="Siswa" style="font-weight:600;">' + studentCell + '</td>' +
                     '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
                     '<td data-label="Status"><span class="status-badge-sm ' + toneCls + '">' + sl + '</span></td>' +
+                    '<td data-label="Presence" style="white-space:nowrap;">' + presence + '</td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
+                    '<td data-label="Terakhir Seen" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + lastSeen + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
                         '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
@@ -1702,7 +1742,7 @@ function loadDetail(page, silent) {
         })
         .catch(function() {
             subsLastHtml = null;
-            tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal menghubungi server</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal menghubungi server</td></tr>';
         })
         .finally(function() {
             detailLoading = false;
