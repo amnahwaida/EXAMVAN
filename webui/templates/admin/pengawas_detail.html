@@ -1546,6 +1546,42 @@ function announceQueueCount(count) {
 // never wipes the current rows).
 var detailLoading = false;
 var detailRerunPending = false;
+// Watchdog anti-jam. Satu request yang tidak pernah selesai (koneksi putus,
+// server jenuh, Redis lambat) pernah MENJELEK tabel permanen di "Memuat
+// data...": detailLoading tetap true, sehingga setiap klik filter, tombol
+// Muat Ulang, bahkan poll 12 detik hanya menyetel detailRerunPending lalu
+// return — tidak ada yang pernah merender lagi. Satu-satunya jalan keluar
+// adalah reload penuh halaman.
+//
+// Sekarang guard-nya dilepas setelah batas waktu, dan baris yang macet
+// diganti dengan pesan jujur plus tombol coba-lagi. Penting setelah auto-poll
+// dimatikan: tidak ada lagi "jaring pengaman" yang kebetulan menutupinya.
+var detailStartedAt = 0;
+var detailWatchdog = null;
+var DETAIL_TIMEOUT_MS = 20000;
+
+function armDetailWatchdog() {
+    disarmDetailWatchdog();
+    detailWatchdog = setTimeout(function() {
+        if (!detailLoading) return;
+        detailLoading = false;
+        detailRerunPending = false;
+        var tbody = document.getElementById('submissionBody');
+        if (tbody && /Memuat data/.test(tbody.innerHTML)) {
+            tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty" style="color:var(--color-danger-light);">' +
+                'Muatan tidak selesai — server tidak menjawab.<br>' +
+                '<button type="button" class="action-link" data-action="load-detail" style="margin-top:8px;">' +
+                'Coba lagi</button></td></tr>';
+        }
+    }, DETAIL_TIMEOUT_MS);
+}
+
+function disarmDetailWatchdog() {
+    if (detailWatchdog !== null) {
+        clearTimeout(detailWatchdog);
+        detailWatchdog = null;
+    }
+}
 
 // Batch 15 (R116): interval halaman submissions dipusatkan di satu konstanta.
 // Pemakaian memakai guard typeof agar fungsi tetap hidup bila diekstrak
@@ -1625,8 +1661,20 @@ function loadDetail(page, silent) {
     if (!tbody) return;
     if (page !== undefined) SUB_PAGE = page;
 
-    if (detailLoading) { detailRerunPending = true; return; }
+    if (detailLoading) {
+        // Request yang sudah melewati batas waktu dianggap hilang: lepas
+        // guard-nya agar interaksi ini benar-benar berjalan, alih-alih
+        // digabung ke request yang sudah tersangkut.
+        if (Date.now() - detailStartedAt < DETAIL_TIMEOUT_MS) {
+            detailRerunPending = true;
+            return;
+        }
+        detailLoading = false;
+        detailRerunPending = false;
+    }
     detailLoading = true;
+    detailStartedAt = Date.now();
+    armDetailWatchdog();
 
     // On silent auto-refresh, keep the current rows in place (no loading flash).
     if (!silent) tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">Memuat data...</td></tr>';
@@ -1799,6 +1847,7 @@ function loadDetail(page, silent) {
         })
         .finally(function() {
             detailLoading = false;
+            disarmDetailWatchdog();
             if (detailRerunPending) {
                 detailRerunPending = false;
                 // Re-run silently: DOM params (page/filter/search) are read
@@ -2217,7 +2266,19 @@ function closeConfirmApprovalModal(event) {
   Actions.register('stop-pengawas-detail', function(el) { if (typeof stopExamPengawasDetail === 'function') stopExamPengawasDetail(el.getAttribute('data-exam-id')); });
   Actions.register('show-audit-log', function() { if (typeof showAuditLog === 'function') showAuditLog(); });
   Actions.register('load-approvals', function() { if (typeof loadApprovals === 'function') loadApprovals(); });
-  Actions.register('load-detail', function() { if (typeof loadDetail === 'function') loadDetail(); });
+  Actions.register('load-detail', function() {
+    if (typeof loadDetail !== 'function') return;
+    // Auto-poll tabel perangkat sudah dimatikan (beban polling), jadi Muat
+    // Ulang adalah satu-satunya jalan supervisor untuk melihat data baru.
+    // Karena itu tombol ini juga harus menyegarkan peta izin mengulang —
+    // kalau tidak, state "granted" dari supervisor lain akan basi sampai
+    // halaman di-reload penuh.
+    if (typeof refreshRepeatGrants === 'function') {
+      refreshRepeatGrants(EXAM_ID).then(function() { loadDetail(); }, function() { loadDetail(); });
+      return;
+    }
+    loadDetail();
+  });
 
   // Izinkan/Tolak antrean izin: mac & status lewat atribut data-* (bukan
   // interpolasi JS ke onclick) → modal konfirmasi dulu, POST setelah Ya.
@@ -2646,44 +2707,33 @@ loadAAStatus();
     }
     function startPengawasPolling() {
         stopPengawasPolling();
-        // Antrean izin: cepat (5 dtk) — inilah antrean yang benar-benar
-        // berubah karena siswa sedang menunggu izin supervisor.
+        // Antrean izin saja yang dipoll, tiap 5 detik.
+        //
+        // TABEL PERANGKAT TIDAK LAGI DI-POLL. Alasan: hot reload di sini
+        // berarti setiap supervisor yang membuka halaman detail menahan
+        // request ke endpoint submissions — endpoint terberat di halaman itu,
+        // sekitar 6 query (count + page + attempts + batch access-log + batch
+        // riwayat + stats) plus 1 pipeline Redis. 10 supervisor = 50 request
+        // per menit, ~300 query per menit, tanpa rate limit di route tersebut.
+        //
+        // Untuk supervisi, tombol "Muat Ulang" manual sudah cukup: yang perlu
+        // dipantau bukan setiap detak, melainkan saat siswa masuk atau izin
+        // baru perlu diputuskan. Antrean izin tetap dipoll karena itu
+        // antrean yang benar-benar menunggu tindakan supervisor, dan
+        // endpoint-nya murah.
         pollTimers.push(setInterval(loadApprovals, 5000));
-        // Tabel perangkat + statistik + token + auto-approve + izin mengulang:
-        // SATU interval 12 detik, senyap.
-        //
-        // Duaduanya dulu punya interval sendiri dan KEDUANYA memanggil
-        // loadDetail, jadi satu tick menembak endpoint submissions dua kali —
-        // beban polling berlipat begitu izin-mengulang dimasukkan ke poll.
-        // Sekarang satu siklus: segarkan dulu peta izin (kecil, berskala
-        // students), baru muat ulang tabel agar data-granted di baris ikut
-        // mencerminkan peta terbaru.
-        //
-        // Endpoint submissions juga membawa token, jam rotasi, dan status
-        // auto-approve, sehingga poll token 30s yang terpisah dihapus:
-        // sebelumnya ia memanggil endpoint yang sama dengan per_page=1 yang
-        // di-clamp ke 5 baris, lengkap dengan batch access-log +
-        // submission-history, hanya untuk membaca satu string.
-        pollTimers.push(setInterval(function() {
-            if (document.hidden) return;
-            refreshRepeatGrants(EXAM_ID).then(function() {
-                loadDetail(SUB_PAGE, true);
-            }, function() {
-                // Izin gagal dimuat — tetap segarkan tabel agar polling
-                // tombol tidak ikut mati.
-                loadDetail(SUB_PAGE, true);
-            });
-        }, 12000));
-        // Countdown: tick DISPLAY 1 detik, tanpa I/O (lihat updateCountdown).
+        // Countdown token: tick DISPLAY 1 detik, tanpa I/O.
         pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
     }
+
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
             stopPengawasPolling();
         } else {
+            // Hanya antrean izin yang disegarkan saat tab kembali terlihat.
+            // Tabel perangkat tidak: setelah auto-poll dihentikan, tabel
+            // di-refresh oleh tindakan supervisor (Muat Ulang / ganti filter).
             loadApprovals();
-            loadDetail(SUB_PAGE, true);
-            refreshRepeatGrants(EXAM_ID);
             updateCountdown();
             startPengawasPolling();
         }

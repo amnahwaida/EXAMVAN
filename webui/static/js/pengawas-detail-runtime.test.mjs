@@ -230,6 +230,67 @@ async function runScriptCapturingTimers(payload = detailPayload()) {
     return { timers, fetches, els, sandbox, ctx };
 }
 
+/**
+ * Like runScript, but captures setTimeout callbacks so a test can advance
+ * time. Needed for the request-watchdog contract: the bug only shows once a
+ * request has been in flight longer than the timeout.
+ */
+async function runScriptWithTimeout({ js, payload = {}, hang = false, preset = {} }) {
+    const timeouts = [];
+    const fetches = [];
+    const els = {};
+    for (const [id, props] of Object.entries(preset)) {
+        els[id] = Object.assign(makeEl(id), props);
+    }
+    const document = {
+        createElement: () => makeEl('new'),
+        getElementById: (id) => (els[id] ||= makeEl(id)),
+        querySelector: (s) => (els[s] ||= makeEl(s)),
+        querySelectorAll: () => [],
+        addEventListener() {},
+        body: makeEl('body'),
+        documentElement: makeEl('html'),
+        readyState: 'complete',
+    };
+    const json = () => Promise.resolve(payload);
+    const sandbox = {
+        console: { log() {}, warn() {}, error() {} },
+        setInterval: () => 0, clearInterval() {},
+        setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
+        clearTimeout() {},
+        fetch: (u) => { fetches.push(String(u)); return Promise.resolve({ ok: true, json }); },
+        requestAnimationFrame: () => 0,
+        localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+        location: { href: 'http://x/', search: '', pathname: '/admin/pengawas/1' },
+        history: { replaceState() {}, pushState() {} },
+        navigator: { clipboard: { writeText: () => Promise.resolve() } },
+        Event: class {}, CustomEvent: class {},
+        apiFetch: (u) => {
+            fetches.push(String(u));
+            if (hang) return new Promise(() => {}); // never settles
+            return Promise.resolve({ ok: true, status: 200, json });
+        },
+        escapeHtml: (s) => String(s == null ? '' : s),
+        jsEscape: (s) => String(s == null ? '' : s),
+        formatDateTimeID: (s) => String(s == null ? '' : s),
+        localizeUTC: (s) => String(s == null ? '' : s),
+        initLiveSearch() {}, showConfirm: () => Promise.resolve(true),
+        copyCode: () => Promise.resolve(), showToast() {},
+        PengawasDetailQueue: { serializeApprovals: () => 'x', computeApprovalRowOps: () => [] },
+        Actions: { register() {}, get: () => null },
+        EXAM_STATUS_LABELS: {},
+        Promise, JSON, Math, Date, Object, Array, String, Number, Boolean, Error,
+        isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent, URLSearchParams,
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    sandbox.document = document;
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext(js, ctx, { filename: 'pd.inline.js' });
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    return { timeouts, fetches, els, sandbox, ctx };
+}
+
 const SUBMISSION_ROW = {
     id: 7, student_name: 'Siswa Ritel', student_key: '01|siswa ritel|xii a',
     exam_number: '01', student_class: 'XII A', identity_data: {}, submitted: true,
@@ -269,21 +330,19 @@ test('BUG-1: inline script loads without ReferenceError (poller registration mus
     );
 });
 
-test('BUG-1: hot-reload pollers are registered on the expected cadence', async () => {
+test('poller cadence: approvals + countdown only, no device-table network poller', async () => {
     const { intervals } = await runScript({ js: toPlainJs(readDetail()) });
-    // 1s = countdown display tick (NOT a network trigger — asserted separately).
+    // 1s = countdown DISPLAY tick (no I/O — asserted separately).
     assert.ok(intervals.includes(1000), `expected the 1s countdown tick, got ${intervals}`);
-    // Device table + approval queue must stay in the multi-second range.
-    const network = intervals.filter((ms) => ms !== 1000);
-    assert.ok(network.length > 0, 'expected network pollers');
-    for (const ms of network) {
-        assert.ok(ms >= 3000,
-            `network poller at ${ms}ms is too aggressive for the submissions endpoint`);
+    // The approval queue keeps its 5s poll: it is the widget that genuinely
+    // waits on the supervisor and it hits a cheap endpoint.
+    assert.ok(intervals.includes(5000), `expected the 5s approval poll, got ${intervals}`);
+    // No slow network poller any more: hot reload on the device table was
+    // removed on request because 10 supervisors meant 50 requests/minute
+    // against the heaviest endpoint on the page.
+    for (const ms of intervals.filter((x) => x !== 1000 && x !== 5000)) {
+        assert.fail(`unexpected extra poller at ${ms}ms — ${intervals}`);
     }
-    assert.ok(
-        intervals.some((ms) => ms >= 10000),
-        `expected a device-table poll of >=10s, got ${intervals}`
-    );
 });
 
 test('BUG-4: the 1s countdown tick never triggers a network request', async () => {
@@ -476,16 +535,18 @@ test('empty state still reports an unfiltered empty exam plainly', async () => {
 // page must be re-read by the poll, not only on manual reload.
 // ---------------------------------------------------------------------------
 
-test('BUG-9: repeat-grant state is re-read by the poller, not just on load', () => {
-    const html = readDetail();
-    // The granted/cancelled button state is baked into data-granted at render
-    // time. Without a poller entry point, a grant made by another supervisor
-    // (or another tab) never appears until a manual page reload.
-    const poller = html.slice(html.indexOf('function startPengawasPolling'));
+test('BUG-9: repeat-grant state is re-read by the manual Muat Ulang, not only on load', () => {
+    const js = toPlainJs(readDetail());
+    // Auto-poll is gone, so the toolbar refresh is the supervisor's only path to
+    // fresh data. It must therefore also re-read the repeat-grant map —
+    // otherwise a grant made by another supervisor stays stale until a full
+    // page reload, and the Izinkan/Cabut Izin buttons assert something false.
+    const at = js.indexOf("Actions.register('load-detail'");
+    assert.ok(at > 0, 'load-detail action not found');
+    const block = js.slice(at, at + 700);
     assert.ok(
-        /refreshRepeatGrants\(/.test(poller),
-        'repeat-grants must be refreshed by the poller — otherwise the Izinkan / ' +
-        'Cabut Izin buttons go stale and a supervisor sees the wrong permission state'
+        /refreshRepeatGrants/.test(block),
+        'the Muat Ulang action must refresh repeat grants: ' + block.slice(0, 260)
     );
 });
 
@@ -620,8 +681,89 @@ test('closing the modal stops it following the poll', () => {
 });
 
 // ---------------------------------------------------------------------------
-// A supervisor must be able to tell students apart, and know a filter is on.
+// The device table got wedged on "Memuat data..." forever, and must not be
+// polled automatically any more.
 // ---------------------------------------------------------------------------
+
+test('a hung request cannot wedge the table on "Memuat data..." forever', async () => {
+    // Reproduced: one request that never settles left detailLoading=true, so
+    // EVERY later call (filter change, refresh, and even the 12s poll) just set
+    // detailRerunPending and returned. The table was stuck on "Memuat data..."
+    // with no way out but a full page reload.
+    const { els, timeouts, ctx } = await runScriptWithTimeout({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        hang: true,
+        preset: { statusFilter: { value: 'in_progress' } },
+    });
+    vm.runInContext('loadDetail(1)', ctx);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(/Memuat data/.test(els.submissionBody.innerHTML),
+        'precondition: the non-silent load painted the loading row');
+
+    // Fire the watchdog timers the page armed.
+    for (const t of timeouts) t.fn();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+
+    assert.ok(
+        !/Memuat data/.test(els.submissionBody.innerHTML),
+        'after the timeout the stuck row must offer a way forward instead of ' +
+        'spinning forever: ' + els.submissionBody.innerHTML.slice(0, 220)
+    );
+    assert.ok(
+        /data-action="load-detail"/.test(els.submissionBody.innerHTML),
+        'the stuck row must carry a retry control: ' + els.submissionBody.innerHTML.slice(0, 220)
+    );
+    assert.equal(vm.runInContext('detailLoading', ctx), false,
+        'the in-flight guard must be released, or the next filter change is ' +
+        'coalesced away exactly as before');
+});
+
+test('the stuck-row retry uses the existing Muat Ulang action', () => {
+    const js = toPlainJs(readDetail());
+    // Reuse the toolbar's registered action rather than inventing a second one,
+    // so the retry and the toolbar button cannot drift apart.
+    assert.ok(
+        /data-action="load-detail"/.test(js),
+        'the retry must reuse data-action="load-detail"'
+    );
+});
+
+test('the device table is NOT polled automatically', async () => {
+    // Hot reload on this table was removed on request: 10 supervisors on the
+    // detail page meant 50 requests/minute against the heaviest endpoint,
+    // ~6 queries each. The approval queue keeps its 5s poll — it is the widget
+    // that genuinely waits on the supervisor and hits a cheap endpoint.
+    //
+    // The countdown is put into its normal (not-yet-due) state first: the
+    // template placeholders flatten to a truthy-but-ancient timestamp under the
+    // harness, which would make the countdown legitimately fire a token refresh
+    // and mask what this test is about.
+    const { timers, fetches, ctx } = await runScriptCapturingTimers();
+    vm.runInContext(
+        "TOKEN_MODE = 'dynamic'; TOKEN_INTERVAL_MINUTES = 5;" +
+        "TOKEN_LAST_RESET = new Date().toISOString();", ctx);
+    fetches.length = 0;
+
+    for (const t of timers) t.fn();
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+
+    // per_page=20 is the device-table page query (SUBS_PER_PAGE); per_page=1 is
+    // the separate token refresh, which is latched and only fires when the
+    // rotation window is actually due.
+    const tablePolls = fetches.filter((u) => /submissions\?page=\d+&per_page=20/.test(u));
+    assert.equal(tablePolls.length, 0,
+        `firing every poller once produced ${tablePolls.length} device-table fetches — ` +
+        'the table must not auto-poll: ' + tablePolls.join(' | '));
+    assert.ok(
+        fetches.some((u) => /approvals/.test(u)),
+        'the approval queue must keep polling — that queue is what waits on the supervisor'
+    );
+    assert.ok(
+        !timers.some((t) => t.ms >= 10000),
+        `no slow network poller may remain, got ${timers.map((t) => t.ms)}`
+    );
+});
 
 test('the device table shows the class so same-named students are distinct', async () => {
     // Two candidates can share a name across classes. The table showed only the
@@ -805,108 +947,7 @@ test('a single attempt stays visually quiet', async () => {
 // Poll cost: one tick, one fetch per resource.
 // ---------------------------------------------------------------------------
 
-test('one 12s tick issues exactly ONE submissions fetch', async () => {
-    // Two 12s intervals both reached loadDetail (the repeat-grants poller
-    // chained into it as well as the table poller), so the heaviest endpoint on
-    // the page was hit twice per tick — the load doubled the moment repeat
-    // grants were added to the poll.
-    const { timers, fetches } = await runScriptCapturingTimers();
-    const twelve = timers.filter((t) => t.ms === 12000);
-    assert.equal(twelve.length, 1,
-        `expected exactly one 12s interval, found ${twelve.length} — duplicate ` +
-        'pollers multiply the load on the submissions endpoint');
-    assert.equal(twelve[0].fn.length >= 0, true);
-});
-
-test('firing every registered poller once produces one submissions fetch', async () => {
-    const { timers, fetches, ctx } = await runScriptCapturingTimers();
-    for (const t of timers.filter((x) => x.ms === 12000)) t.fn();
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    const subs = fetches.filter((u) => /submissions/.test(u));
-    assert.equal(subs.length, 1,
-        `one poll tick produced ${subs.length} submissions fetches, want 1: ${subs.join(' | ')}`);
-    // The repeat-grants state must still refresh on the same tick, otherwise
-    // fixing the double fetch would just re-break BUG-9.
-    assert.ok(fetches.some((u) => /repeat-grants/.test(u)),
-        'repeat-grants must still be refreshed by the poll');
-    void ctx;
-});
-
-test('the single 12s poller refreshes both the table and repeat grants', async () => {
-    const { timers, fetches } = await runScriptCapturingTimers();
-    timers.filter((t) => t.ms === 12000)[0].fn();
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    const urls = fetches.join(' | ');
-    assert.ok(/repeat-grants/.test(urls), 'repeat-grants must be polled');
-    assert.ok(/submissions/.test(urls), 'the device table must be polled');
-});
-
 // ---------------------------------------------------------------------------
-// Structural invariants that keep these bugs from coming back.
+// The device table got wedged on "Memuat data..." forever, and must not be
+// polled automatically any more.
 // ---------------------------------------------------------------------------
-
-test('repeat-grant state is declared at the script top level, not inside an IIFE', () => {
-    const js = toPlainJs(readDetail());
-    // A top-level `var`/`function` declaration is reachable from every IIFE in
-    // the same script; an IIFE-local one is not. Assert by execution instead of
-    // by brace counting, which is what let this regress in the first place.
-    assert.ok(
-        /\bfunction\s+refreshRepeatGrants\s*\(/.test(js),
-        'refreshRepeatGrants must exist'
-    );
-    const { threw, error } = vmTest(js);
-    assert.equal(threw, false,
-        `refreshRepeatGrants is not reachable from the poller IIFE: ${error && error.message}`);
-});
-
-test('no admin page script polls the network faster than every 3s', async () => {
-    for (const [name, html] of [['pengawas_detail', readDetail()], ['pengawas', readList()]]) {
-        const { intervals } = await runScript({ js: toPlainJs(html) });
-        // 1000ms is the token-countdown DISPLAY tick; it must not perform I/O
-        // (asserted separately for the detail page).
-        for (const ms of intervals.filter((x) => x !== 1000)) {
-            assert.ok(ms >= 3000, `${name}.html registers a ${ms}ms network poller`);
-        }
-    }
-});
-
-// Small helper for the synchronous reachability assertion above.
-function vmTest(js) {
-    const sandbox = {
-        console: { log() {}, warn() {}, error() {} },
-        setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {},
-        requestAnimationFrame: () => 0,
-        localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-        location: { href: 'http://x/', search: '', pathname: '/admin/pengawas/1' },
-        history: { replaceState() {}, pushState() {} },
-        navigator: {}, Event: class {}, CustomEvent: class {},
-        apiFetch: () => Promise.resolve({}),
-        escapeHtml: (s) => String(s ?? ''), jsEscape: (s) => String(s ?? ''),
-        formatDateTimeID: (s) => String(s ?? ''), localizeUTC: (s) => String(s ?? ''),
-        initLiveSearch() {}, showConfirm: () => Promise.resolve(true), copyCode: () => Promise.resolve(),
-        showToast() {}, PengawasDetailQueue: { serializeApprovals: () => 'x', computeApprovalRowOps: () => [] },
-        Actions: { register() {}, get: () => null }, EXAM_STATUS_LABELS: {},
-        fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
-        Promise, JSON, Math, Date, Object, Array, String, Number, Boolean, Error,
-        isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent, URLSearchParams,
-    };
-    sandbox.window = sandbox; sandbox.globalThis = sandbox;
-    sandbox.document = {
-        createElement: () => makeEl('new'),
-        getElementById: () => makeEl('x'),
-        querySelector: () => makeEl('x'),
-        querySelectorAll: () => [], addEventListener() {},
-        body: makeEl('body'), documentElement: makeEl('html'), readyState: 'complete',
-    };
-    const ctx = vm.createContext(sandbox);
-    try {
-        vm.runInContext(js, ctx, { filename: 'inline.js' });
-        return { threw: false, error: null, ctx };
-    } catch (e) {
-        return { threw: true, error: e, ctx };
-    }
-}
