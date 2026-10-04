@@ -38,25 +38,33 @@ def _suppress_mupdf_warnings():
     # kalau `mupdf_display_errors(False)` sendiri melempar SETELAH previous
     # terbaca, menimpanya dengan None akan membuat finally me-restore
     # "tidak tahu" dan peringatan MuPDF mati selamanya untuk proses ini.
+    toggler = None
     previous = None
     try:
         import fitz as _fitz
 
         tools = getattr(_fitz, "TOOLS", None)
-        if tools is not None:
-            previous = getattr(tools, "mupdf_display_errors", None)
-            tools.mupdf_display_errors(False)
+        candidate = getattr(tools, "mupdf_display_errors", None)
+        if callable(candidate):
+            toggler = candidate
+            # Baca NILAI sekarang dengan memanggilnya TANPA argumen.
+            # Sebelumnya yang diambil adalah fungsi-nya (`getattr(...)`),
+            # sehingga restore memanggil `mupdf_display_errors(<fungsi>)`;
+            # argumen truthy non-int itu selalu dipaksa menjadi True oleh
+            # binding, jadi state sebelumnya yang `False` tidak pernah
+            # dipulihkan. `previous is not None` tetap menjaga guard "tidak
+            # tahu jangan diubah".
+            previous = bool(candidate())
+            toggler(False)
     except Exception:
-        pass
+        toggler = None
+        previous = None
     try:
         yield
     finally:
         try:
-            import fitz as _fitz
-
-            tools = getattr(_fitz, "TOOLS", None)
-            if tools is not None and previous is not None:
-                tools.mupdf_display_errors(previous)
+            if toggler is not None and previous is not None:
+                toggler(previous)
         except Exception:
             pass
 

@@ -308,14 +308,16 @@ class ServerConfigDialog(QDialog):
         self.input_token = QLineEdit()
         self.input_token.setPlaceholderText("8 karakter (contoh: ABCD1234)")
         self.input_token.setMaxLength(8)
-        # DISAMARKAN. `remember_url` bawaannya menyala, jadi token kelas
-        # sesi sebelumnya ada di kotak ini — dan dialog ini tetap
-        # terbuka di antara dua siswa. Kode di repo ini sendiri
-        # memperlakukan token itu sebagai kredensial: `_present_result_page`
-        # memanggil `protect_window_capture` tepat karena halaman
-        # hasil memuatnya. `text()` tetap mengembalikan nilai aslinya,
-        # jadi masking tidak mengubah alur apa pun.
-        self.input_token.setEchoMode(QLineEdit.Password)
+        # TAMPILKAN APA-ADANYA, bukan disamarkan. Token ujian bukan
+        # password: itu 8 karakter yang tercetak di Amplop Lembar
+        # Jawaban, sering diketik ulang oleh siswa, dan server MENOLAKnya
+        # kalau satu karakter salah — huruf O vs angka 0 tidak bisa
+        # dipastikan dari deretan titik, dan token juga harus tetap
+        # terbaca dari layar ruang ujian. Masking tidak menambah
+        # keamanan apa pun di sini: `text()` selalu mengembalikan nilai
+        # aslinya, jadi alur validasi token tidak pernah bergantung
+        # padanya.
+        self.input_token.setEchoMode(QLineEdit.Normal)
         card_layout.addWidget(lbl_token)
         card_layout.addWidget(self.input_token)
 
@@ -455,7 +457,11 @@ class ServerConfigDialog(QDialog):
         log.warning(
             "server yang dipakai bukan server sekolah: %s (disetujui)", url,
         )
-        config.set("trusted_server_url", url)
+        # Hanya disimpan kalau siswa memang memilih "Simpan URL & Token".
+        # Kalau tidak, host tetap ditanyakan lagi pada peluncuran berikutnya —
+        # konsisten dengan janji checkbox bahwa tidak ada yang ditulis.
+        if self.chk_remember.isChecked():
+            config.set("trusted_server_url", url)
         return True
 
     def _load_saved(self) -> None:
@@ -638,7 +644,12 @@ class ServerConfigDialog(QDialog):
             # itu. Yang membaca token dari config adalah jalur "Kirim
             # Lagi", dan jalur itu sekarang menerimanya dari UI thread
             # (`_show_recovery`), bukan dari disk.
-            config.set("server_url", url)
+            #
+            # URL ikut di-gate (audit ronde 10): dulu komentar di atas
+            # menjanjikan "URL tidak ditulis" tapi `server_url` selalu
+            # ditulis, jadi janji privasinya tidak ditepati.
+            if remember_url:
+                config.set("server_url", url)
             config.set("remember_url", remember_url)
             config.set("exam_token", token if remember_url else "")
 
@@ -719,10 +730,25 @@ class ServerConfigDialog(QDialog):
 
     # --- Slots (run on UI thread, connected via signals) ---
 
+    def closeEvent(self, event) -> None:
+        """X / Alt+F4: terima close event, JANGAN panggil `reject()`.
+
+        Bawaan `QDialog.closeEvent` memanggil `reject()`. Sejak `reject()`
+        di bawah memanggil `self.close()` (supaya `lastWindowClosed` menutup
+        aplikasi, bukan sekadar `hide()` yang meninggalkan zombie tanpa
+        jendela), keduanya saling mengunci: `close()` -> `closeEvent` ->
+        `reject()` -> `close()` -> saat kembali, `isVisible()` masih True ->
+        bawaan men-`ignore()` event-nya. Hasilnya tombol X seolah mati dan
+        siswa membunuh proses lewat Task Manager. Menerima event di sini
+        memutus lingkaran itu.
+        """
+        event.accept()
+
     def reject(self) -> None:
-        # Escape/X MENUTUP window, bukan menyembunyikannya: dialog ini
-        # satu-satunya window (quitOnLastWindowClosed) — hide diam-diam
-        # meninggalkan aplikasi zombie tanpa jendela.
+        # Escape: tutup jendela betulan, bukan hanya hide(). Dialog ini
+        # satu-satunya window (quitOnLastWindowClosed); hide diam-diam
+        # meninggalkan aplikasi zombie tanpa jendela. `closeEvent` kita
+        # menerima event-nya, jadi tidak ada rekursi.
         self.close()
 
     def enable_connect(self) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Optional
@@ -27,6 +28,8 @@ from ..utils import build_attempt_key, get_device_label, map_identity_to_standar
 # SATU-SATUNYA di repo (`congratulations`, tidak boleh diedit ronde ini):
 # di-IMPORT, bukan disalin, supaya tidak lahir dua versi yang berbeda.
 from .congratulations import _sanitize_server_text
+
+log = logging.getLogger(__name__)
 
 
 class WaitingApprovalDialog(QDialog):
@@ -273,6 +276,26 @@ class WaitingApprovalDialog(QDialog):
                 self._sig_status.emit("error", "Koneksi Terganggu", f"Mencoba menghubungkan ulang...\n{resp.message}")
             else:
                 if resp.status == "approved":
+                    # Segarkan koreksi waktu server SETELAH persetujuan, SEBELUM
+                    # siswa diberi tahu ujian dimulai.
+                    #
+                    # `skew` dihitung sekali saat tombol Hubungkan. Di antara
+                    # Hubungkan dan titik ini ada dialog identitas + menunggu
+                    # persetujuan (bisa menit), dan selama itu belum ada
+                    # keyboard hook / fullscreen yang menahan siswa — jadi
+                    # memundurkan jam OS di fase ini menggeser deadline awal
+                    # yang dipinjam viewer (monotonic) menjadi lebih panjang.
+                    # `/api/health` menghitung ulang skew terhadap jam
+                    # PERANGKAT SEKARANG, sehingga penundaan itu netral.
+                    # Best-effort: kegagalan tidak boleh menahan ujian, dan
+                    # server tetap menegakkan deadline lewat 403 pada submit.
+                    try:
+                        api.check_health(self.server_url)
+                    except Exception:
+                        log.warning(
+                            "gagal menyegarkan skew waktu server saat approval",
+                            exc_info=True,
+                        )
                     self._sig_status.emit("approved", "Disetujui!", "Akses Anda telah disetujui. Memulai ujian...")
                     break
                 elif resp.status == "rejected":

@@ -498,8 +498,12 @@ begin
                 PwDir + #13#10 +
                 '  -> password admin exit' + #13#10#13#10 +
                 LogDir + #13#10 +
-                '  -> jawaban ujian yang belum terkirim, config (URL server,' + #13#10 +
-                '     token, identitas), app.log, windows_state.json' + #13#10#13#10 +
+                '  -> jawaban ujian yang belum terkirim, app.log,' + #13#10 +
+                '     windows_state.json' + #13#10#13#10 +
+                'CATATAN: berkas kredensial (admin_password.txt dan' + #13#10 +
+                'config.json berisi token ujian) SELALU dihapus saat' + #13#10 +
+                'uninstall, apa pun pilihan di bawah. Yang ditawarkan di' + #13#10 +
+                'sini hanya data siswa di atas.' + #13#10#13#10 +
                 'Pertahankan KEDUA folder ini?' + #13#10#13#10 +
                 'Pilih Yes bila masih ada jawaban yang belum terkirim.',
                 mbConfirmation, MB_YESNO) = IDNO then

@@ -34,11 +34,11 @@ Kebijakan yang dipilih
    muncul sebagai dialog yang harus disadari, dengan kedua sidik jari di
    dalamnya: "tidak terlihat" bukan "terlihat".
 
-Catatan lain yang ditutup file ini: kotak token tidak dimasking
-(`echoMode` masih Normal padahal token itu kredensial kelas), dan checkbox
-"Simpan" tidak menghentikan penyimpanan token sambil alasan yang
-diberikannya di komentar (`_xor_obfuscate` memakai kunci tetap, bukan
-token) memang tidak benar.
+Catatan lain yang ditutup file ini: checkbox "Simpan" tidak
+menghentikan penyimpanan token, sementara alasan yang diberikannya di
+komentar (`_xor_obfuscate` memakai kunci tetap, bukan token) memang
+tidak benar. Kotak token yang dulu dimasking kini sengaja dibuka lagi
+(ronde 10) — lihat `TokenFieldIsReadableTestCase` di bawah.
 """
 
 from __future__ import annotations
@@ -304,23 +304,29 @@ class SavedUntrustedUrlIsNotSilentTestCase(_Sandbox):
         self.assertIn("sekolah", dlg.server_url_warning_text().lower())
 
 
-class TokenFieldIsMaskedTestCase(_Sandbox):
-    """`remember_url` default-nya menyala: token kelas tersimpan."""
+class TokenFieldIsReadableTestCase(_Sandbox):
+    """Token ujian tampil apa adanya.
 
-    def test_the_token_field_does_not_show_plaintext(self):
+    Berubah dari ronde 10, atas permintaan pengguna: token itu bukan
+    password — 8 karakter dari Amplop Lembar Jawaban yang sering diketik
+    ulang, dan server menolaknya kalau satu karakter salah. Disamarkan,
+    siswa tidak bisa memastikan O vs 0 dan tidak bisa membacanya dari
+    layar ruang ujian.
+    """
+
+    def test_the_token_field_shows_plaintext(self):
         config.set("exam_token", TOKEN)
         config.set("remember_url", True)
         dlg = self._dlg()
         self.assertEqual(
-            dlg.input_token.echoMode(), QLineEdit.Password,
-            "token ujian tampil terbaca di dialog yang tetap terbuka di "
-            "antara dua siswa — halaman hasil di repo ini justru memakai "
-            "protect_window_capture tepat karena token ini kredensial "
-            "seluruh kelas",
+            dlg.input_token.echoMode(), QLineEdit.Normal,
+            "token ujian disamarkan seperti password — siswa tidak bisa "
+            "memastikan huruf O vs angka 0 dan tidak bisa membaca token "
+            "dari layar",
         )
         self.assertEqual(dlg.input_token.text(), TOKEN)
 
-    def test_the_masked_field_still_connects(self):
+    def test_the_plain_field_still_connects(self):
         dlg = self._dlg()
         recorder = _BoxRecorder(QMessageBox.No)
         with mock.patch.object(QMessageBox, "exec_", recorder.func):
