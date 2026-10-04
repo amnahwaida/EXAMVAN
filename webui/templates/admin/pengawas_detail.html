@@ -1699,7 +1699,16 @@ function loadDetail(page, silent) {
                 var sl = s.submitted ? 'Terkumpul' : (s.start_time ? 'Mengerjakan' : 'Belum Mulai');
                 var startTime = s.start_time ? localizeUTC(s.start_time) : '—';
                 var toneCls = sc === 'submitted' ? 'tone-success' : (sc === 'in-progress' ? 'tone-warning' : 'tone-neutral');
-                var attCount = s.attempt_count > 1 ? '<span style="background:rgba(var(--rgb-danger),0.1);color:var(--color-danger);padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + escapeHtml(String(s.attempt_count)) + 'x Mengerjakan">' + escapeHtml(String(s.attempt_count)) + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
+                // MORE THAN ONE ATTEMPT IS NOT AN ALARM. Fitur "Izinkan
+                // Mengulang" justru dibuat supaya supervisor bisa melepas
+                // pengerjaan ulang — menandai siswa itu merah sesudahnya
+                // mengontradiksi tindakan supervisor sendiri, dan nilainya
+                // menuduh tanpa bukti. Pakai chip netral yang memang sudah
+                // ada untuk badge dorman (tone-neutral di admin-base.css).
+                // Angka tetap tampil supaya supervisor tetap bisa melihat jumlahnya.
+                var attCount = s.attempt_count > 1
+                    ? '<span class="status-badge-sm tone-neutral" style="padding:2px 8px;font-size:0.7rem;" title="' + escapeHtml(String(s.attempt_count)) + '× percobaan (izin mengulang)">' + escapeHtml(String(s.attempt_count)) + 'x</span>'
+                    : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
                 // Presence diturunkan dari heartbeat (is_online) yang dikirim server —
                 // tanpa kolom ini, seluruh infrastruktur heartbeat tidak terlihat

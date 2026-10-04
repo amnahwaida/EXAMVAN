@@ -568,6 +568,54 @@ test('presence column uses design tokens, not colour literals', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Repeat attempts are legitimate, not suspicious.
+// ---------------------------------------------------------------------------
+
+test('multiple attempts are rendered neutrally, not as a danger badge', async () => {
+    // The repeat-grant feature exists precisely so a supervisor can let a
+    // student retake. Flagging that student in danger-red right afterwards
+    // contradicted the supervisor's own action — the table was asserting
+    // "suspicious" about a state the supervisor had explicitly approved.
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            submissions: [{ ...SUBMISSION_ROW, attempt_count: 3, student_name: 'Rani Kusuma' }],
+        }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody.innerHTML;
+    assert.ok(
+        !/rgb-danger/.test(html),
+        'a repeat attempt must not be rendered with the danger token: ' + html.slice(0, 300)
+    );
+    assert.ok(
+        !/color-danger/.test(html),
+        'a repeat attempt must not use danger colouring: ' + html.slice(0, 300)
+    );
+    assert.ok(
+        /tone-neutral/.test(html),
+        'multiple attempts should use the dormant/neutral chip already defined ' +
+        'in admin-base.css: ' + html.slice(0, 300)
+    );
+    assert.ok(
+        /3x|3×/.test(html),
+        'the attempt count itself must still be shown: ' + html.slice(0, 300)
+    );
+});
+
+test('a single attempt stays visually quiet', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ submissions: [{ ...SUBMISSION_ROW, attempt_count: 1 }] }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody.innerHTML;
+    assert.ok(!/tone-neutral/.test(html),
+        'the ordinary one-attempt case should not carry a chip at all');
+    assert.ok(/1x/.test(html), 'the attempt count must still be shown');
+});
+
+// ---------------------------------------------------------------------------
 // Poll cost: one tick, one fetch per resource.
 // ---------------------------------------------------------------------------
 
