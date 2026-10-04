@@ -347,7 +347,7 @@ func HasilAPI() gin.HandlerFunc {
 
 		// ---- Fetch submissions (only rows that actually submitted) ----
 		querySQL := `SELECT id, student_name, exam_number, student_class,
-			        answers_json, score, start_time, created_at, identity_data
+			        answers_json, score, start_time, created_at, submitted_at, identity_data
 			 FROM submissions
 			 WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`
 		queryArgs := []interface{}{exam.ID}
@@ -401,6 +401,12 @@ func HasilAPI() gin.HandlerFunc {
 			MaxScore     *float64               `json:"max_score"`
 			StartTime    interface{}            `json:"start_time"`
 			CreatedAt    string                 `json:"created_at"`
+			// SubmittedAt is the submit moment ("Waktu Kumpul"); nil for
+			// legacy rows written before the column existed, in which case the
+			// frontend falls back to created_at so the duration is not 0.
+			SubmittedAt interface{} `json:"submitted_at,omitempty"`
+			// SubmittedAtDisplay is the WIB-formatted submit time.
+			SubmittedAtDisplay string `json:"submitted_at_display,omitempty"`
 			// R66: waktu tampilan terformat WIB dari server — penonton tidak
 			// lagi melihat jam menurut zona perangkatnya (selaras kartu guru).
 			StartTimeDisplay string                             `json:"start_time_display,omitempty"`
@@ -420,15 +426,16 @@ func HasilAPI() gin.HandlerFunc {
 				studentClass string
 				answersJSON  *string
 				score        *float64
-				startTime    *string
-				createdAt    time.Time
-				identityData *string
-			)
+			startTime    *string
+			createdAt    time.Time
+			submittedAt  *time.Time
+			identityData *string
+		)
 
-			if err := rows.Scan(
-				&id, &studentName, &examNumber, &studentClass,
-				&answersJSON, &score, &startTime, &createdAt, &identityData,
-			); err != nil {
+		if err := rows.Scan(
+			&id, &studentName, &examNumber, &studentClass,
+			&answersJSON, &score, &startTime, &createdAt, &submittedAt, &identityData,
+		); err != nil {
 				log.Printf("hasil api scan submission error: %v", err)
 				continue
 			}
@@ -466,6 +473,21 @@ func HasilAPI() gin.HandlerFunc {
 				startTimeDisplay = formatWIBDisplay(st)
 			}
 
+			// Durasi diukur terhadap submitted_at (waktu kumpul), dengan
+			// created_at sebagai fallback untuk baris legacy. Memakai
+			// created_at sebagai ujung selalu gave 0 karena baris placeholder
+			// approval dibuat lebih awal daripada start_time siswa.
+			endAt := createdAt
+			if submittedAt != nil && !submittedAt.IsZero() {
+				endAt = *submittedAt
+			}
+			var submittedAtJSON interface{}
+			submittedAtDisplay := ""
+			if submittedAt != nil && !submittedAt.IsZero() {
+				submittedAtJSON = formatISOUTC(*submittedAt)
+				submittedAtDisplay = formatWIBDisplay(*submittedAt)
+			}
+
 			item := submissionItem{
 				ID:               id,
 				StudentName:      studentName,
@@ -476,8 +498,10 @@ func HasilAPI() gin.HandlerFunc {
 				MaxScore:         maxScorePtr,
 				StartTime:        formatISOUTCString(ptrString(startTime)),
 				CreatedAt:        formatISOUTC(createdAt),
+				SubmittedAt:      submittedAtJSON,
 				StartTimeDisplay: startTimeDisplay,
-				CreatedAtDisplay: formatWIBDisplay(createdAt),
+				CreatedAtDisplay: formatWIBDisplay(endAt),
+				SubmittedAtDisplay: submittedAtDisplay,
 				EvaluatedAnswers: evaluated,
 			}
 			// Raw student answers are sent only when the visitor is entitled

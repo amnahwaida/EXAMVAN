@@ -26,7 +26,13 @@ type Submission struct {
 	StartTime    *string   `json:"start_time,omitempty"`
 	MACAddress   string    `json:"mac_address"`
 	CreatedAt    time.Time `json:"created_at"`
-	IdentityData *string   `json:"identity_data,omitempty"`
+	// SubmittedAt doubles as the submission time (hasil page: "Waktu Kumpul").
+	// Pointer, not time.Time: a zero time.Time would serialise as the truthy
+	// string "0001-01-01T00:00:00Z" and defeat the client-side
+	// `submitted_at || created_at` fallback for approval placeholders and for
+	// legacy rows written before the column existed.
+	SubmittedAt  *time.Time `json:"submitted_at,omitempty"`
+	IdentityData *string    `json:"identity_data,omitempty"`
 }
 
 // SubmissionWithExam extends Submission with exam-related fields for display.
@@ -361,13 +367,16 @@ func ParseAnswersJSON(raw *string) (map[string]interface{}, error) {
 // ===== DB Operations =====
 
 const defaultSubmissionColumns = `id, exam_id, student_name, exam_number, student_class,
-answers_json, score, start_time, mac_address, created_at, identity_data`
+answers_json, score, start_time, mac_address, created_at, submitted_at, identity_data`
 
 func scanSubmission(row pgx.Row) (Submission, error) {
 	var s Submission
+	// submitted_at is NULL for approval placeholders and for legacy rows written
+	// before the column existed; callers fall back to CreatedAt.
 	err := row.Scan(
 		&s.ID, &s.ExamID, &s.StudentName, &s.ExamNumber, &s.StudentClass,
-		&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
+		&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt,
+		&s.SubmittedAt, &s.IdentityData,
 	)
 	return s, err
 }
@@ -493,18 +502,26 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 	var created Submission
 	if err == nil {
 		// Update existing row
+		// submitted_at is stamped once, on the first successful submit, and is
+		// what the results pages use as "Waktu Kumpul" (Durasi = submitted_at
+		// - start_time). The row is normally the approval placeholder, whose
+		// created_at is the APPROVAL moment (<= start_time) — using created_at
+		// as the end stamp is what made every duration clamp to 0. COALESCE
+		// keeps a retry idempotent: the original submit time survives.
 		created, err = scanSubmission(tx.QueryRow(ctx, `UPDATE submissions
-		SET answers_json = $1, score = $2, start_time = COALESCE(NULLIF($3, ''), start_time), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+		SET answers_json = $1, score = $2, start_time = COALESCE(NULLIF($3, ''), start_time), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7,
+		    submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP)
 		WHERE id = $8
 		RETURNING `+defaultSubmissionColumns,
 			s.AnswersJSON, s.Score, s.StartTime, s.StudentName, s.ExamNumber, s.StudentClass, s.IdentityData,
 			existingID,
 		))
 	} else {
-		// Insert new row
+		// Insert new row — created_at and submitted_at are both now (no
+		// placeholder existed, so this IS the submit moment).
 		created, err = scanSubmission(tx.QueryRow(ctx, `INSERT INTO submissions
-		(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data, submitted_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, CURRENT_TIMESTAMP)
 		RETURNING `+defaultSubmissionColumns,
 			s.ExamID, s.StudentName, s.ExamNumber, s.StudentClass,
 			s.AnswersJSON, s.Score, s.StartTime, s.MACAddress, s.IdentityData,
@@ -545,12 +562,13 @@ func GetLatestSubmissionByIdentity(ctx context.Context, pool *pgxpool.Pool, exam
 func GetSubmissionDetail(ctx context.Context, pool *pgxpool.Pool, id int) (SubmissionWithExam, error) {
 	var s SubmissionWithExam
 	err := pool.QueryRow(ctx, `SELECT s.id, s.exam_id, s.student_name, s.exam_number, s.student_class,
-s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.identity_data,
+s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.submitted_at, s.identity_data,
 e.name as exam_name, e.questions_json
 FROM submissions s JOIN exams e ON s.exam_id = e.id
 WHERE s.id = $1`, id).Scan(
 		&s.ID, &s.ExamID, &s.StudentName, &s.ExamNumber, &s.StudentClass,
-		&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
+		&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt,
+		&s.SubmittedAt, &s.IdentityData,
 		&s.ExamName, &s.QuestionsJSON,
 	)
 	if err != nil {

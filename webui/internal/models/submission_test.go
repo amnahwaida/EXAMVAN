@@ -116,3 +116,109 @@ func TestCreateSubmissionRetryIsIdempotent(t *testing.T) {
 		t.Errorf("score = %v, want %v", gotScore, score2)
 	}
 }
+
+// TestCreateSubmissionStampsSubmitTimeNotPlaceholderTime is the regression
+// guard for the "waktu pengerjaan selalu 0" bug: the hasil page measures the
+// work duration as submitted_at - start_time (submitted_at labelled "Waktu
+// Kumpul"), but the row is normally the approval placeholder created by
+// EnsureFreshSubmissionOnApproval, whose created_at is the APPROVAL moment
+// (<= the client's start_time) and whose submitted_at is still NULL. The submit
+// must stamp submitted_at with the submit moment; created_at must keep meaning
+// "row created" (this test pins that separation).
+func TestCreateSubmissionStampsSubmitTimeNotPlaceholderTime(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	owner, err := CreateUser(ctx, pool, &AdminUser{
+		Username: "sub-dur-guru", Name: "Guru Durasi",
+		PasswordHash: "pass", Status: UserStatusActive,
+		Role: SerializeRoles([]string{RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	examID := setupSubmissionTestExam(t, pool, owner.ID)
+
+	mac := "DEVICE:model-duration"
+	// Placeholder created at approval 10 minutes ago — the exact row
+	// EnsureFreshSubmissionOnApproval produces (start_time == created_at,
+	// submitted_at still NULL).
+	startText := time.Now().UTC().Add(-10 * time.Minute).Format("2006-01-02 15:04:05")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, start_time, created_at)
+		VALUES ($1, $2, 'Siswa Durasi', 'N1', 'XII-A', $3, $4)`,
+		examID, mac, startText, time.Now().UTC().Add(-10*time.Minute)); err != nil {
+		t.Fatalf("insert placeholder: %v", err)
+	}
+
+	answers := `{"1":"A"}`
+	created, err := CreateSubmission(ctx, pool, &Submission{
+		ExamID:       examID,
+		StudentName:  "Siswa Durasi",
+		ExamNumber:   "N1",
+		StudentClass: "XII-A",
+		AnswersJSON:  &answers,
+		StartTime:    &startText,
+		MACAddress:   mac,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubmission: %v", err)
+	}
+
+	if created.SubmittedAt == nil || created.SubmittedAt.Before(time.Now().UTC().Add(-1*time.Minute)) {
+		t.Fatalf("submitted_at = %v, ingin waktu kumpul (bukan NULL/cap waktu placeholder)", created.SubmittedAt)
+	}
+	// created_at must stay the row-creation moment — the whole point of the
+	// dedicated column.
+	if created.CreatedAt.After(time.Now().UTC().Add(-1 * time.Minute)) {
+		t.Fatalf("created_at ikut bergeser ke %s; harus tetap waktu pembuatan baris", created.CreatedAt)
+	}
+	start, err := time.Parse("2006-01-02 15:04:05", startText)
+	if err != nil {
+		t.Fatalf("parse start: %v", err)
+	}
+	if dur := created.SubmittedAt.Sub(start); dur < 9*time.Minute {
+		t.Fatalf("durasi = %v, ingin >= ~10 menit (bukan 0)", dur)
+	}
+}
+
+// TestCreateSubmissionRetryKeepsOriginalSubmitTime guards the idempotent-retry
+// contract of submitted_at: a retry of an already-submitted row must NOT move
+// the submit stamp forward, otherwise "Waktu Kumpul" drifts with every retry.
+func TestCreateSubmissionRetryKeepsOriginalSubmitTime(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	owner, err := CreateUser(ctx, pool, &AdminUser{
+		Username: "sub-retry-stamp-guru", Name: "Guru Retry Stamp",
+		PasswordHash: "pass", Status: UserStatusActive,
+		Role: SerializeRoles([]string{RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	examID := setupSubmissionTestExam(t, pool, owner.ID)
+
+	startText := time.Now().UTC().Add(-30 * time.Minute).Format("2006-01-02 15:04:05")
+	answers1 := `{"1":"A"}`
+	first, err := CreateSubmission(ctx, pool, &Submission{
+		ExamID: examID, StudentName: "Siswa Retry", ExamNumber: "N7", StudentClass: "XII-A",
+		AnswersJSON: &answers1, StartTime: &startText, MACAddress: "DEVICE:model-retry-stamp",
+	})
+	if err != nil {
+		t.Fatalf("first CreateSubmission: %v", err)
+	}
+
+	answers2 := `{"1":"B"}`
+	retry, err := CreateSubmission(ctx, pool, &Submission{
+		ExamID: examID, StudentName: "Siswa Retry", ExamNumber: "N7", StudentClass: "XII-A",
+		AnswersJSON: &answers2, StartTime: &startText, MACAddress: "DEVICE:model-retry-stamp",
+	})
+	if err != nil {
+		t.Fatalf("retry CreateSubmission: %v", err)
+	}
+	if first.SubmittedAt == nil || retry.SubmittedAt == nil || !retry.SubmittedAt.Equal(*first.SubmittedAt) {
+		t.Errorf("retry menggeser submitted_at: %v → %v (harus tetap sama)",
+			first.SubmittedAt, retry.SubmittedAt)
+	}
+}

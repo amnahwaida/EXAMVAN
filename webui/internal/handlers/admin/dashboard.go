@@ -364,8 +364,8 @@ func Dashboard() gin.HandlerFunc {
 			for i, e := range result.Exams {
 				examIDs[i] = e.ID
 			}
-			rows, err := pool.Query(ctx,
-				`SELECT exam_id, COUNT(*) FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id`, examIDs)
+		rows, err := pool.Query(ctx,
+			`SELECT exam_id, COUNT(*) FROM submissions WHERE exam_id = ANY($1) AND answers_json IS NOT NULL AND answers_json != '' GROUP BY exam_id`, examIDs)
 			if err == nil {
 				for rows.Next() {
 					var eid, cnt int

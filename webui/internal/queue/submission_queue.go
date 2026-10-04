@@ -626,10 +626,16 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 		identityPtr = &identityStr
 	}
 
-	var submissionID int
+	var submissionID int// submitted_at is the SUBMISSION time (hasil page "Waktu Kumpul";
+	// Durasi = submitted_at - start_time). The row is normally the approval
+	// placeholder from EnsureFreshSubmissionOnApproval, whose created_at is the
+	// APPROVAL moment (<= the client's start_time) — using created_at as the end
+	// stamp is what made every duration clamp to 0. COALESCE keeps the original
+	// submit time when a job is retried.
 	err := q.QueryRow(ctx, `
 		UPDATE submissions
-		SET answers_json = $1, score = $2, start_time = COALESCE(NULLIF($3, ''), start_time), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+		SET answers_json = $1, score = $2, start_time = COALESCE(NULLIF($3, ''), start_time), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7,
+		    submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP)
 		WHERE id = (
 			SELECT id FROM submissions
 			WHERE exam_id = $8 AND mac_address = $9
@@ -640,9 +646,12 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 	`, answersPtr, score, job.StartTime, job.StudentName, job.ExamNumber, job.StudentClass, identityPtr, job.ExamID, job.MACAddress, job.ExamNumber).Scan(&submissionID)
 
 	if err == pgx.ErrNoRows {
-		err = q.QueryRow(ctx, `INSERT INTO submissions
-			(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
-			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
+		// No placeholder existed — this INSERT *is* the submit, so both
+		// created_at and submitted_at are now.
+		err = q.QueryRow(ctx, `
+			INSERT INTO submissions
+			(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data, submitted_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, CURRENT_TIMESTAMP)
 			RETURNING id`,
 			job.ExamID, job.StudentName, job.ExamNumber, job.StudentClass,
 			answersPtr, score, job.StartTime, job.MACAddress, identityPtr,

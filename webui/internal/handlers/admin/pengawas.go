@@ -425,6 +425,10 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			Score             *float64               `json:"score"`
 			StartTime         string                 `json:"start_time"`
 			CreatedAt         string                 `json:"created_at"`
+			// SubmittedAt is the submit moment ("Waktu Kumpul"), empty for
+			// approval placeholders and legacy rows — the card falls back to
+			// created_at in that case.
+			SubmittedAt string `json:"submitted_at"`
 			FirstAccessAt     string                 `json:"first_access_at"`
 			LastAccessAt      string                 `json:"last_access_at"`
 			MACAddress        string                 `json:"mac_address"`
@@ -543,6 +547,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				Score:             sub.Score,
 				StartTime:         startTimeStr,
 				CreatedAt:         sub.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				SubmittedAt:       formatOptionalISOUTC(sub.SubmittedAt),
 				FirstAccessAt:     firstAccess,
 				LastAccessAt:      lastAccess,
 				MACAddress:        sub.MACAddress,
@@ -626,7 +631,7 @@ func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID
 	}
 
 	rows, err := pool.Query(ctx,
-		`SELECT mac_address, id, start_time, created_at, answers_json, score
+		`SELECT mac_address, id, start_time, created_at, submitted_at, answers_json, score
 		 FROM submissions
 		 WHERE exam_id = $1 AND mac_address = ANY($2)
 		 ORDER BY created_at ASC`, examID, macs)
@@ -640,7 +645,7 @@ func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID
 		var h models.Submission
 		var mac string
 		var created time.Time
-		if err := rows.Scan(&mac, &h.ID, &h.StartTime, &created, &h.AnswersJSON, &h.Score); err != nil {
+		if err := rows.Scan(&mac, &h.ID, &h.StartTime, &created, &h.SubmittedAt, &h.AnswersJSON, &h.Score); err != nil {
 			log.Printf("submission history scan error: %v", err)
 			continue
 		}

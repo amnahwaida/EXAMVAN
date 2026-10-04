@@ -46,6 +46,44 @@ func formatCreatedTimeWIB(t time.Time) string {
 	return t.In(jakartaLoc).Format("2006-01-02 15:04")
 }
 
+// submissionEnd picks the timestamp the work duration is measured against:
+// submitted_at (the moment answers were persisted) when present, else created_at
+// (row creation — the approval moment for placeholders, and the only stamp
+// legacy rows have). Falling back keeps pre-migration results rendering a real
+// duration instead of collapsing to 0.
+func submissionEnd(createdAt time.Time, submittedAt *time.Time) time.Time {
+	if submittedAt != nil && !submittedAt.IsZero() {
+		return *submittedAt
+	}
+	return createdAt
+}
+
+// submissionEndOf is submissionEnd for a scanned models.Submission (SubmittedAt
+// is nil when the column is NULL).
+func submissionEndOf(s models.Submission) time.Time {
+	return submissionEnd(s.CreatedAt, s.SubmittedAt)
+}
+
+// submittedOnlyCondition keeps heartbeat/monitoring placeholder rows out of
+// Hasil Ujian surfaces. The heartbeat flusher (and approval bookkeeping)
+// inserts placeholder rows into `submissions` with NULL/empty answers_json so
+// the device shows up on the Monitoring Perangkat page — those rows are
+// presence tracking, NOT submitted answers, so every "hasil" query (page,
+// count, export) must exclude them. Same predicate as the public hasil page.
+const submittedOnlyCondition = `s.answers_json IS NOT NULL AND s.answers_json != ''`
+
+// appendSQLCondition appends a raw SQL condition to *query, using WHERE when
+// no WHERE clause exists yet and AND otherwise. Returns true (a WHERE clause
+// now exists) so callers can chain further conditions.
+func appendSQLCondition(query *string, hasWhere bool, cond string) bool {
+	if hasWhere {
+		*query += " AND " + cond
+	} else {
+		*query += " WHERE " + cond
+	}
+	return true
+}
+
 func SubmissionsPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		isSuper := isSuperAdmin(c)
@@ -80,10 +118,11 @@ func SubmissionsPage() gin.HandlerFunc {
 			examFilter, _ = strconv.Atoi(examFilterStr)
 		}
 
-		// Count total submissions within scope
+		// Count total submissions within scope (only rows that actually
+		// submitted answers — heartbeat placeholders excluded).
 		var total int
 		countQuery := `SELECT COUNT(*) FROM submissions s JOIN exams e ON s.exam_id = e.id`
-		countArgs, _, err := buildScopeConditions(c, pool, &countQuery)
+		countArgs, countHasWhere, err := buildScopeConditions(c, pool, &countQuery)
 		if err != nil {
 			log.Printf("submissions scope error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data")
@@ -91,9 +130,15 @@ func SubmissionsPage() gin.HandlerFunc {
 		}
 
 		if examFilter > 0 {
-			countQuery += ` AND s.exam_id = $` + strconv.Itoa(len(countArgs)+1)
+			if countHasWhere {
+				countQuery += ` AND s.exam_id = $` + strconv.Itoa(len(countArgs)+1)
+			} else {
+				countQuery += ` WHERE s.exam_id = $` + strconv.Itoa(len(countArgs)+1)
+			}
 			countArgs = append(countArgs, examFilter)
+			countHasWhere = true
 		}
+		appendSQLCondition(&countQuery, countHasWhere, submittedOnlyCondition)
 
 		err = pool.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
 		if err != nil {
@@ -108,7 +153,7 @@ func SubmissionsPage() gin.HandlerFunc {
 
 		// Fetch submissions
 		dataQuery := `SELECT s.id, s.exam_id, s.student_name, s.exam_number, s.student_class,
-	s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.identity_data,
+	s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.submitted_at, s.identity_data,
 	e.name as exam_name, e.questions_json
 	FROM submissions s JOIN exams e ON s.exam_id = e.id`
 		dataArgs, hasWhere, err := buildScopeConditions(c, pool, &dataQuery)
@@ -125,7 +170,11 @@ func SubmissionsPage() gin.HandlerFunc {
 				dataQuery += ` WHERE s.exam_id = $` + strconv.Itoa(len(dataArgs)+1)
 			}
 			dataArgs = append(dataArgs, examFilter)
+			hasWhere = true
 		}
+		// Only rows that actually submitted answers (heartbeat placeholders
+		// excluded — same predicate as the count query above).
+		appendSQLCondition(&dataQuery, hasWhere, submittedOnlyCondition)
 
 		dataQuery += ` ORDER BY s.created_at DESC LIMIT $` + strconv.Itoa(len(dataArgs)+1) +
 			` OFFSET $` + strconv.Itoa(len(dataArgs)+2)
@@ -154,7 +203,11 @@ func SubmissionsPage() gin.HandlerFunc {
 			HasScore     bool                   `json:"has_score"`
 			StartTime    *string                `json:"start_time"`
 			CreatedAt    time.Time              `json:"created_at"`
-			MACAddress   string                 `json:"mac_address"`
+			// EndAt is the timestamp the work duration is measured against:
+			// submitted_at (the submit moment) with created_at as the fallback
+			// for approval placeholders and legacy rows that predate the column.
+			EndAt      string `json:"end_at"`
+			MACAddress string `json:"mac_address"`
 		}
 
 		subData := make([]subItem, 0)
@@ -167,12 +220,13 @@ func SubmissionsPage() gin.HandlerFunc {
 				startTime                             *string
 				macAddress                            string
 				createdAt                             time.Time
+				submittedAt                           *time.Time
 				examName, questionsJSON               *string
 			)
 			err := rows.Scan(
 				&id, &examID, &studentName, &examNumber, &studentClass,
-				&answersJSON, &score, &startTime, &macAddress, &createdAt, &identityDataRaw,
-				&examName, &questionsJSON,
+				&answersJSON, &score, &startTime, &macAddress, &createdAt, &submittedAt,
+				&identityDataRaw, &examName, &questionsJSON,
 			)
 			if err != nil {
 				log.Printf("scan submission row: %v", err)
@@ -223,9 +277,10 @@ func SubmissionsPage() gin.HandlerFunc {
 				MaxScore:   maxScore,
 				ScorePct:   scorePct,
 				HasScore:   hasScore,
-				StartTime:  startTime,
-				CreatedAt:  createdAt,
-				MACAddress: macAddress,
+			StartTime: startTime,
+			CreatedAt: createdAt,
+			EndAt:     formatISOUTC(submissionEnd(createdAt, submittedAt)),
+			MACAddress: macAddress,
 			})
 		}
 		rows.Close()
@@ -251,8 +306,8 @@ func SubmissionsPage() gin.HandlerFunc {
 			exam, err := models.GetExamByID(ctx, pool, examFilter)
 			if err == nil {
 				_, _ = models.ParseQuestionsJSON(exam.QuestionsJSON)
-				var subCount int
-				pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, examFilter).Scan(&subCount)
+			var subCount int
+			pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`, examFilter).Scan(&subCount)
 
 				// Creator name
 				var creatorName string
@@ -713,7 +768,7 @@ func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Contex
 		col++
 		_ = f.SetCellStr(summarySheet, cellRef(col, row), startTimeStr)
 		col++
-		_ = f.SetCellStr(summarySheet, cellRef(col, row), localizeExportTime(sub.CreatedAt, tzOffset))
+		_ = f.SetCellStr(summarySheet, cellRef(col, row), localizeExportTime(submissionEndOf(sub), tzOffset))
 		col++
 		_ = f.SetCellStr(summarySheet, cellRef(col, row), sub.MACAddress)
 
@@ -758,10 +813,12 @@ func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Contex
 }
 
 func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int) ([]models.Submission, error) {
+	// Only rows that actually submitted answers: heartbeat/monitoring
+	// placeholders (empty answers_json) must not appear in the export.
 	rows, err := pool.Query(ctx,
 		`SELECT id, exam_id, student_name, exam_number, student_class,
-		 answers_json, score, start_time, mac_address, created_at, identity_data
-		 FROM submissions WHERE exam_id = $1 ORDER BY student_class, student_name`, examID)
+		 answers_json, score, start_time, mac_address, created_at, submitted_at, identity_data
+		 FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != '' ORDER BY student_class, student_name`, examID)
 	if err != nil {
 		return nil, err
 	}
@@ -770,9 +827,11 @@ func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int)
 	var subs []models.Submission
 	for rows.Next() {
 		var s models.Submission
+		var submittedAt *time.Time
 		err := rows.Scan(
 			&s.ID, &s.ExamID, &s.StudentName, &s.ExamNumber, &s.StudentClass,
-			&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
+			&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt,
+			&submittedAt, &s.IdentityData,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan submission: %w", err)
@@ -790,13 +849,17 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	userID int, isSuper, isOp bool, tzOffset *int) {
 
 	query := `SELECT s.id, s.exam_id, s.student_name, s.exam_number, s.student_class,
-	s.identity_data, s.score, s.start_time, s.mac_address, s.created_at,
+	s.identity_data, s.score, s.start_time, s.mac_address, s.created_at, s.submitted_at,
 	e.name as exam_name
 	FROM submissions s JOIN exams e ON s.exam_id = e.id`
 
 	var conditions []string
 	var args []interface{}
 	argIdx := 1
+
+	// Always exclude heartbeat/monitoring placeholders (empty answers_json):
+	// the export must contain only students who actually submitted answers.
+	conditions = append(conditions, submittedOnlyCondition)
 
 	if isOp {
 		// Fail-closed: resolve instansi via the canonical resolver instead of
@@ -851,6 +914,7 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		startTime    string
 		macAddress   string
 		createdAt    time.Time
+		submittedAt  *time.Time
 		examName     string
 	}
 
@@ -869,13 +933,15 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 			score                        *float64
 			startTime, macAddress        *string
 			createdAt                    time.Time
+			submittedAt                  *time.Time
 			examName                     string
 		)
-		// NOTE: scan targets must match the 11 selected columns exactly. A
+		// NOTE: scan targets must match the 12 selected columns exactly. A
 		// previous mismatch (12 targets / identity_data scanned as *float64)
 		// made every row fail the scan and produced an empty export.
 		if err := rows.Scan(&id, &examID, &studentName, &examNumber, &cls,
-			&identityDataRaw, &score, &startTime, &macAddress, &createdAt, &examName); err != nil {
+			&identityDataRaw, &score, &startTime, &macAddress, &createdAt, &submittedAt,
+			&examName); err != nil {
 			log.Printf("export all scan error: %v", err)
 			continue
 		}
@@ -897,7 +963,7 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		data = append(data, allRow{
 			id: id, examID: examID, studentName: studentName, examNumber: examNumber,
 			cls: cls, identityData: idData, score: score, startTime: startTimeStr,
-			macAddress: macStr, createdAt: createdAt, examName: examName,
+			macAddress: macStr, createdAt: createdAt, submittedAt: submittedAt, examName: examName,
 		})
 		examIDs[examID] = true
 	}
@@ -951,7 +1017,7 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		col++
 		_ = f.SetCellStr(sheet, cellRef(col, row), localizeExportTimeStr(r.startTime, tzOffset))
 		col++
-		_ = f.SetCellStr(sheet, cellRef(col, row), localizeExportTime(r.createdAt, tzOffset))
+		_ = f.SetCellStr(sheet, cellRef(col, row), localizeExportTime(submissionEnd(r.createdAt, r.submittedAt), tzOffset))
 		col++
 		_ = f.SetCellStr(sheet, cellRef(col, row), r.macAddress)
 	}
@@ -1237,7 +1303,7 @@ func writeStudentDetailSheet(f *excelize.File, sheet, examName string, sub model
 		{"Nomor Ujian", sub.ExamNumber},
 		{"Kelas", sub.StudentClass},
 		{"Waktu Mulai", startTimeStr},
-		{"Waktu Kumpul", localizeExportTime(sub.CreatedAt, tzOffset)},
+		{"Waktu Kumpul", localizeExportTime(submissionEndOf(sub), tzOffset)},
 		{"ID Perangkat", sub.MACAddress},
 		{"Total Nilai", scoreStr},
 	}

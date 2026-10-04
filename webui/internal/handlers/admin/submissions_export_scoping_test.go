@@ -553,3 +553,49 @@ func TestCheckExamOwnershipUsesCanonicalInstansiMatch(t *testing.T) {
 		t.Errorf("cross-tenant operator must not manage the exam")
 	}
 }
+
+// TestSubmissionsExportExcludesHeartbeatPlaceholders pins the export side of
+// the heartbeat-leak fix: placeholder rows (NULL/empty answers_json) written
+// by the heartbeat flusher must not appear in either the specific-exam export
+// ("Rekapitulasi" sheet) or the all-exams export ("Semua Hasil" sheet).
+func TestSubmissionsExportExcludesHeartbeatPlaceholders(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createExportExamAccessFixture(t, pool)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, start_time, created_at, identity_data)
+		VALUES ($1, 'AA:BB:CC:DD:EE:00', 'Siswa Heartbeat', '02', 'XII A', $2, $3, '{}')`,
+		fix.ExamID, time.Now().Format(time.RFC3339), time.Now()); err != nil {
+		t.Fatalf("seed heartbeat placeholder: %v", err)
+	}
+
+	r := newSubmissionsExportRouter(pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	ec := newExportScopeClient(t, srv.URL)
+	ec.login(fix.GuruOwnerID)
+
+	if status, body := ec.exportExam(fix.ExamID); status != http.StatusOK {
+		t.Fatalf("specific-exam export: status=%d, want 200", status)
+	} else {
+		if !exportSheetContainsStudent(t, body, "Rekapitulasi", fix.StudentName) {
+			t.Errorf("submitted student %q missing from Rekapitulasi sheet", fix.StudentName)
+		}
+		if exportSheetContainsStudent(t, body, "Rekapitulasi", "Siswa Heartbeat") {
+			t.Error("heartbeat placeholder must NOT appear in Rekapitulasi sheet")
+		}
+	}
+
+	if status, body := ec.exportAll(); status != http.StatusOK {
+		t.Fatalf("all-exams export: status=%d, want 200", status)
+	} else {
+		if !exportContainsStudent(t, body, fix.StudentName) {
+			t.Errorf("submitted student %q missing from Semua Hasil sheet", fix.StudentName)
+		}
+		if exportContainsStudent(t, body, "Siswa Heartbeat") {
+			t.Error("heartbeat placeholder must NOT appear in Semua Hasil sheet")
+		}
+	}
+}

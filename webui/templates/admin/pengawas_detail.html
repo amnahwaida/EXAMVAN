@@ -1724,7 +1724,10 @@ function showAccessLog(subId) {
             var shTone = shSubmitted ? 'tone-success' : (sh.start_time ? 'tone-warning' : 'tone-neutral');
             var shScore = (sh.score != null && shSubmitted) ? sh.score : "—";
             var shStart = sh.start_time ? localizeUTC(sh.start_time) : "—";
-            var shEnd = shSubmitted ? localizeUTC(sh.created_at) : "—";
+            // Waktu Terkumpul memakai submitted_at (momen jawaban tersimpan), fallback
+            // created_at untuk baris placeholder/legacy — memakai created_at
+            // selalu memberi waktu yang lebih awal dari mulai mengerjakan.
+            var shEnd = shSubmitted ? localizeUTC(sh.submitted_at || sh.created_at) : "—";
             
             tl += '<div style="padding:14px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.02);">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--color-glass-border);padding-bottom:10px;">' +

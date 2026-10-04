@@ -308,8 +308,11 @@
  {{end}}
  </td>
  <td data-label="Durasi">
+ {{/* EndAt = submitted_at (waktu kumpul), fallback created_at — bukan
+ created_at mentah, yang untuk baris placeholder approval bernilai lebih awal
+ dari start_time sehingga durasi selalu terklempar 0. */}}
  {{if .StartTime}}
- <span class="duration-cell" data-start="{{.StartTime}}" data-end="{{.CreatedAt}}">—</span>
+ <span class="duration-cell" data-start="{{.StartTime}}" data-end="{{.EndAt}}">—</span>
  {{else}}
  —
  {{end}}

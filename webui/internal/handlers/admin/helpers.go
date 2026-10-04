@@ -266,6 +266,16 @@ func formatNullableISOUTC(t *time.Time) interface{} {
 	return formatISOUTC(*t)
 }
 
+// formatOptionalISOUTC renders an optional timestamp as an ISO string, or ""
+// when absent — for JSON fields the UI reads with a `x || fallback` check,
+// where a null/absent value must not stringify into something truthy.
+func formatOptionalISOUTC(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return formatISOUTC(*t)
+}
+
 func roundTo(val float64, decimals int) float64 {
 	pow := math.Pow(10, float64(decimals))
 	return math.Round(val*pow) / pow

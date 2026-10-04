@@ -424,3 +424,43 @@ func TestSubmissionsPageExamInfoCardGated(t *testing.T) {
 	}
 }
 
+// TestSubmissionsPageExcludesHeartbeatPlaceholders pins the heartbeat-leak
+// fix: placeholder rows written by the heartbeat flusher (NULL/empty
+// answers_json, start_time set) are presence tracking for Monitoring
+// Perangkat — they must not appear on the Hasil Ujian page, neither in the
+// table nor in the "Peserta" count card.
+func TestSubmissionsPageExcludesHeartbeatPlaceholders(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createScopeFixture(t, pool)
+	ctx := context.Background()
+
+	// A heartbeat placeholder exactly like flushHeartbeatBatch writes it:
+	// answers_json NULL, score NULL, start_time set.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, start_time, created_at, identity_data)
+		VALUES ($1, 'AA:BB:CC:DD:EE:00', 'Siswa Heartbeat', '02', 'XII A', $2, $3, '{}')`,
+		fix.ExamID, time.Now().Format(time.RFC3339), time.Now()); err != nil {
+		t.Fatalf("seed heartbeat placeholder: %v", err)
+	}
+
+	r := newSubmissionsScopeRouter(t, pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	gc := newScopeClient(t, srv.URL)
+	gc.login(fix.GuruID)
+	status, body := gc.list(fix.ExamID)
+	if status != http.StatusOK {
+		t.Fatalf("guru list: status=%d, want 200", status)
+	}
+	if !strings.Contains(body, "Siswa E2E") {
+		t.Error("submitted student must still be listed on Hasil Ujian")
+	}
+	if strings.Contains(body, "Siswa Heartbeat") {
+		t.Error("heartbeat placeholder must NOT be listed on Hasil Ujian")
+	}
+	if !strings.Contains(body, `Peserta: <strong>1</strong>`) {
+		t.Error("Peserta count must be 1 (heartbeat placeholder excluded)")
+	}
+}
+

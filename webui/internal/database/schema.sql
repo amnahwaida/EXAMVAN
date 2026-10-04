@@ -115,8 +115,25 @@ CREATE TABLE IF NOT EXISTS submissions (
     start_time    TEXT,
     mac_address   TEXT DEFAULT '',
     created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    -- submitted_at doubles as the submission time (hasil page "Waktu Kumpul").
+    -- Unlike created_at (the row creation moment), this is advanced from the
+    -- approval placeholder to the submit moment when the row transitions from
+    -- unanswered -> answered. Until set, the public page falls back to created_at
+    -- so legacy rows (the kini-fixed bug) still show a non-zero duration rather
+    -- than 0.
+    submitted_at TIMESTAMPTZ,
     identity_data TEXT
 );
+
+-- Migration: submitted_at. Wajib, bukan opsional. CREATE TABLE IF NOT EXISTS
+-- di atas adalah no-op pada database yang sudah punya tabel submissions, jadi
+-- kolom ini TIDAK pernah ada di sana kecuali migration ini yang menambahnya —
+-- sementara seluruh query hasil sudah memilihnya. Tanpa migration ini setiap
+-- halaman hasil/submissions gagal dengan "column ... submitted_at does not
+-- exist" (XMLHttpRequest GET /admin/submissions -> "Gagal memuat data").
+-- Nullable + tanpa DEFAULT: baris placeholder approval dan baris lama tetap
+-- kosong, dan UI jatuh ke created_at sebagai fallback.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
 
 -- ============================================================
 -- saas_settings

@@ -620,7 +620,7 @@
  const scoreClass = getScoreClass(sub.score, sub.max_score);
  const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '&mdash;';
  const passStatus = getPassStatus(sub.score, sub.max_score);
- const durationStr = getDurationString(sub.start_time, sub.created_at);
+ const durationStr = getDurationString(sub.start_time, sub.submitted_at || sub.created_at);
 
  tr.innerHTML = `
  <td data-label="#"><span class="rank-num ${rankClass}">${globalRank}</span></td>
@@ -749,9 +749,16 @@
   // (start_time_display / created_at_display) — sama dengan kartu guru,
   // tidak lagi mengikuti jam perangkat penonton. Fallback localizeUTC untuk
   // respons lama tanpa field display.
-  const startTimeStr = sub.start_time_display || (sub.start_time ? localizeUTC(sub.start_time) : '&mdash;');
-  const endTimeStr = sub.created_at_display || (sub.created_at ? localizeUTC(sub.created_at) : '&mdash;');
- const durationStr = getDurationString(sub.start_time, sub.created_at);
+ const startTimeStr = sub.start_time_display || (sub.start_time ? localizeUTC(sub.start_time) : '&mdash;');
+ // Waktu Kumpul = submitted_at (waktu jawaban benar-benar tersimpan), dengan
+ // created_at sebagai fallback untuk baris legacy (kolomnya belum ada saat
+ // hasil itu terkumpul). Memakai created_at sebagai ujung membuat Durasi Kerja
+ // selalu 0 karena baris placeholder approval dibuat lebih dulu dari start_time.
+ const endTimeStr = sub.submitted_at_display
+   ? sub.submitted_at_display
+   : (sub.created_at_display || (sub.created_at ? localizeUTC(sub.created_at) : '&mdash;'));
+ const durationStr = getDurationString(sub.start_time, sub.submitted_at || sub.created_at);
+
  // T3: status kelulusan eksplisit mengikuti skor RESMI (sub.score) — bukan
  // total evaluasi sisi-klien. Skor belum ada → "Belum Dikoreksi".
  const passStatus = getPassStatus(sub.score, totalMax);
