@@ -2458,21 +2458,31 @@ loadAAStatus();
         // Antrean izin: cepat (5 dtk) — inilah antrean yang benar-benar
         // berubah karena siswa sedang menunggu izin supervisor.
         pollTimers.push(setInterval(loadApprovals, 5000));
-        // Izin mengulang ikut disegarkan di siklus yang sama. State "granted"
-        // dicetak ke data-granted saat render, jadi tanpa pemanggilan di sini
-        // izin yang diberikan supervisor lain (atau tab lain) tidak pernah
-        // muncul sampai muat ulang manual — tombolnya jadi berbohong.
+        // Tabel perangkat + statistik + token + auto-approve + izin mengulang:
+        // SATU interval 12 detik, senyap.
+        //
+        // Duaduanya dulu punya interval sendiri dan KEDUANYA memanggil
+        // loadDetail, jadi satu tick menembak endpoint submissions dua kali —
+        // beban polling berlipat begitu izin-mengulang dimasukkan ke poll.
+        // Sekarang satu siklus: segarkan dulu peta izin (kecil, berskala
+        // students), baru muat ulang tabel agar data-granted di baris ikut
+        // mencerminkan peta terbaru.
+        //
+        // Endpoint submissions juga membawa token, jam rotasi, dan status
+        // auto-approve, sehingga poll token 30s yang terpisah dihapus:
+        // sebelumnya ia memanggil endpoint yang sama dengan per_page=1 yang
+        // di-clamp ke 5 baris, lengkap dengan batch access-log +
+        // submission-history, hanya untuk membaca satu string.
         pollTimers.push(setInterval(function() {
             if (document.hidden) return;
-            refreshRepeatGrants(EXAM_ID).then(function() { loadDetail(SUB_PAGE, true); });
+            refreshRepeatGrants(EXAM_ID).then(function() {
+                loadDetail(SUB_PAGE, true);
+            }, function() {
+                // Izin gagal dimuat — tetap segarkan tabel agar polling
+                // tombol tidak ikut mati.
+                loadDetail(SUB_PAGE, true);
+            });
         }, 12000));
-        // Tabel perangkat + statistik + token + auto-approve: 12 dtk, senyap.
-        // SATU endpoint (submissions) kini membawa token, jam rotasi, dan
-        // status auto-approve — sehingga poll token 30s yang terpisah
-        // dihapus: sebelumnya ia memanggil endpoint yang sama dengan
-        // per_page=1 yang di-clamp ke 5 baris, lengkap dengan batch
-        // access-log + submission-history, hanya untuk membaca satu string.
-        pollTimers.push(setInterval(function() { if (!document.hidden) loadDetail(SUB_PAGE, true); }, 12000));
         // Countdown: tick DISPLAY 1 detik, tanpa I/O (lihat updateCountdown).
         pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
     }

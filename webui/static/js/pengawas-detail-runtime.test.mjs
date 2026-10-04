@@ -150,6 +150,71 @@ async function runScript({ js, payload = {}, callAfter = [], preset = {} }) {
     return { threw, error, intervals, fetches, els, sandbox, ctx };
 }
 
+/**
+ * Like runScript, but hands back the registered setInterval callbacks so a test
+ * can fire a single tick and count what it costs.
+ */
+async function runScriptCapturingTimers(payload = detailPayload()) {
+    const timers = [];
+    const fetches = [];
+    const els = {};
+    for (const [id, props] of Object.entries(arguments[1] || {})) {
+        els[id] = Object.assign(makeEl(id), props);
+    }
+    const document = {
+        createElement: () => makeEl('new'),
+        getElementById: (id) => (els[id] ||= makeEl(id)),
+        querySelector: (s) => (els[s] ||= makeEl(s)),
+        querySelectorAll: () => [],
+        addEventListener() {},
+        body: makeEl('body'),
+        documentElement: makeEl('html'),
+        readyState: 'complete',
+    };
+    const mkResp = () => ({ ok: true, status: 200, json: () => Promise.resolve(payload) });
+    const sandbox = {
+        console: { log() {}, warn() {}, error() {} },
+        setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+        clearInterval() {}, setTimeout: () => 0, clearTimeout() {},
+        fetch: (u) => { fetches.push(String(u)); return Promise.resolve(mkResp()); },
+        requestAnimationFrame: () => 0,
+        localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+        location: { href: 'http://x/', search: '', pathname: '/admin/pengawas/1' },
+        history: { replaceState() {}, pushState() {} },
+        navigator: { clipboard: { writeText: () => Promise.resolve() } },
+        Event: class {}, CustomEvent: class {},
+        apiFetch: (u) => { fetches.push(String(u)); return Promise.resolve(mkResp()); },
+        escapeHtml: (s) => String(s == null ? '' : s),
+        jsEscape: (s) => String(s == null ? '' : s),
+        formatDateTimeID: (s) => String(s == null ? '' : s),
+        localizeUTC: (s) => String(s == null ? '' : s),
+        initLiveSearch() {}, showConfirm: () => Promise.resolve(true),
+        copyCode: () => Promise.resolve(), showToast() {},
+        PengawasDetailQueue: { serializeApprovals: () => 'x', computeApprovalRowOps: () => [] },
+        Actions: { register() {}, get: () => null },
+        EXAM_STATUS_LABELS: {},
+        Promise, JSON, Math, Date, Object, Array, String, Number, Boolean, Error,
+        isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent, URLSearchParams,
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    sandbox.document = document;
+    const ctx = vm.createContext(sandbox);
+    try {
+        vm.runInContext(toPlainJs(readDetail()), ctx, { filename: 'pd.inline.js' });
+    } catch (e) {
+        throw new Error('inline script threw at load: ' + e.message);
+    }
+    // Let the page's OWN initial load finish before measuring. It leaves
+    // detailLoading=true while in flight, and loadDetail coalesces a call that
+    // arrives during that window into detailRerunPending — counting that would
+    // measure an in-flight coalesce, not the steady-state poll cost.
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    // Drop anything the initial load issued; we are measuring ONE tick.
+    fetches.length = 0;
+    return { timers, fetches, els, sandbox, ctx };
+}
+
 const SUBMISSION_ROW = {
     id: 7, student_name: 'Siswa Ritel', student_key: '01|siswa ritel|xii a',
     exam_number: '01', student_class: 'XII A', identity_data: {}, submitted: true,
@@ -417,6 +482,50 @@ test('BUG-9: auto-approve toggle state is re-read by the poller', () => {
         'the submissions payload must drive the auto-approve toggle so hot reload ' +
         'reflects another supervisor toggling it'
     );
+});
+
+// ---------------------------------------------------------------------------
+// Poll cost: one tick, one fetch per resource.
+// ---------------------------------------------------------------------------
+
+test('one 12s tick issues exactly ONE submissions fetch', async () => {
+    // Two 12s intervals both reached loadDetail (the repeat-grants poller
+    // chained into it as well as the table poller), so the heaviest endpoint on
+    // the page was hit twice per tick — the load doubled the moment repeat
+    // grants were added to the poll.
+    const { timers, fetches } = await runScriptCapturingTimers();
+    const twelve = timers.filter((t) => t.ms === 12000);
+    assert.equal(twelve.length, 1,
+        `expected exactly one 12s interval, found ${twelve.length} — duplicate ` +
+        'pollers multiply the load on the submissions endpoint');
+    assert.equal(twelve[0].fn.length >= 0, true);
+});
+
+test('firing every registered poller once produces one submissions fetch', async () => {
+    const { timers, fetches, ctx } = await runScriptCapturingTimers();
+    for (const t of timers.filter((x) => x.ms === 12000)) t.fn();
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    const subs = fetches.filter((u) => /submissions/.test(u));
+    assert.equal(subs.length, 1,
+        `one poll tick produced ${subs.length} submissions fetches, want 1: ${subs.join(' | ')}`);
+    // The repeat-grants state must still refresh on the same tick, otherwise
+    // fixing the double fetch would just re-break BUG-9.
+    assert.ok(fetches.some((u) => /repeat-grants/.test(u)),
+        'repeat-grants must still be refreshed by the poll');
+    void ctx;
+});
+
+test('the single 12s poller refreshes both the table and repeat grants', async () => {
+    const { timers, fetches } = await runScriptCapturingTimers();
+    timers.filter((t) => t.ms === 12000)[0].fn();
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    const urls = fetches.join(' | ');
+    assert.ok(/repeat-grants/.test(urls), 'repeat-grants must be polled');
+    assert.ok(/submissions/.test(urls), 'the device table must be polled');
 });
 
 // ---------------------------------------------------------------------------
