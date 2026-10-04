@@ -494,6 +494,43 @@ func TestPersonalCaseVariantCannotAccessExam(t *testing.T) {
 	}
 }
 
+// TestAdminPagesAreNotCached pins that server-rendered admin pages (which embed
+// their JavaScript inline) must never be served cacheable. A cached copy keeps
+// running the PREVIOUS inline script after a deploy — so a supervisor who
+// opened the page before a fix keeps experiencing the fixed bug, including the
+// "Memuat data..." wedge that the watchdog was added to break. The public
+// hasil page already sends no-store; admin pages must match.
+func TestAdminPagesAreNotCached(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createScopeFixture(t, pool)
+
+	r := newSubmissionsScopeRouter(t, pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	gc := newScopeClient(t, srv.URL)
+	gc.login(fix.GuruID)
+	req, err := http.NewRequest(http.MethodGet,
+		srv.URL+"/admin/submissions?exam_id="+strconv.Itoa(fix.ExamID), nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Accept", "text/html")
+	resp, err := gc.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET submissions page: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("page status=%d, want 200", resp.StatusCode)
+	}
+	cc := resp.Header.Get("Cache-Control")
+	if !strings.Contains(cc, "no-store") {
+		t.Errorf("Cache-Control = %q, want no-store — without it browsers keep "+
+			"running the previous inline script after a deploy", cc)
+	}
+}
+
 // TestSubmissionsPageTwinTenantIsolation: an operator must not see another
 // tenant's students on the unfiltered Hasil Ujian list, even when both
 // tenants share the same school NAME. RED before the canonical-id fix:

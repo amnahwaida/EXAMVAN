@@ -1559,11 +1559,18 @@ var detailRerunPending = false;
 var detailStartedAt = 0;
 var detailWatchdog = null;
 var DETAIL_TIMEOUT_MS = 20000;
+// Monotonic request generation. loadDetail coalesces overlapping calls, so a
+// SLOW request A can still be in flight when the user retries (request B) and
+// only then resolve. Without generations, A's settlement would render STALE
+// rows over the table AND clear B's watchdog and guard in .finally — leaving a
+// hung B with no watchdog and no recovery. Every settlement path below only
+// touches shared state when its generation is still current.
+var detailGeneration = 0;
 
-function armDetailWatchdog() {
+function armDetailWatchdog(gen) {
     disarmDetailWatchdog();
     detailWatchdog = setTimeout(function() {
-        if (!detailLoading) return;
+        if (!detailLoading || gen !== detailGeneration) return;
         detailLoading = false;
         detailRerunPending = false;
         var tbody = document.getElementById('submissionBody');
@@ -1674,7 +1681,8 @@ function loadDetail(page, silent) {
     }
     detailLoading = true;
     detailStartedAt = Date.now();
-    armDetailWatchdog();
+    var myGeneration = ++detailGeneration;
+    armDetailWatchdog(myGeneration);
 
     // On silent auto-refresh, keep the current rows in place (no loading flash).
     if (!silent) tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty">Memuat data...</td></tr>';
@@ -1688,6 +1696,10 @@ function loadDetail(page, silent) {
     apiFetch(url, { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
+            // A response that arrives after a newer request started is stale
+            // by definition: rendering it would paint the previous filter's
+            // rows over the current view.
+            if (myGeneration !== detailGeneration) return;
             if (!res || !res.success) {
                 // Auto-refresh senyap (12 dtk) TIDAK boleh menghapus isi tabel
                 // yang masih known-good: supervisor kehilangan konteks (siapa
@@ -1842,10 +1854,17 @@ function loadDetail(page, silent) {
             renderSubPagination(res);
         })
         .catch(function() {
+            // Same generations rule: a stale failure must not wipe rows that a
+            // newer request already rendered (or is about to render).
+            if (myGeneration !== detailGeneration) return;
             subsLastHtml = null;
             tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal menghubungi server</td></tr>';
         })
         .finally(function() {
+            // Same generations rule as above: a stale settlement must not
+            // drop the guard, clear the watchdog, or consume a rerun that was
+            // queued for the request that is still in flight.
+            if (myGeneration !== detailGeneration) return;
             detailLoading = false;
             disarmDetailWatchdog();
             if (detailRerunPending) {

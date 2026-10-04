@@ -248,6 +248,14 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 		}
 	}
 
+	// Admin pages embed their JavaScript INLINE, so a cached copy keeps running
+	// the previous script after a deploy — the supervisor keeps experiencing
+	// bugs that were already fixed server-side (notably the "Memuat data..."
+	// wedge). Never let browsers or proxies cache them. Matches the public
+	// hasil page contract.
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+
 	c.HTML(http.StatusOK, pageTemplate, data)
 }
 

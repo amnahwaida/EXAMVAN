@@ -238,6 +238,7 @@ async function runScriptCapturingTimers(payload = detailPayload()) {
 async function runScriptWithTimeout({ js, payload = {}, hang = false, preset = {} }) {
     const timeouts = [];
     const fetches = [];
+    const pending = [];
     const els = {};
     for (const [id, props] of Object.entries(preset)) {
         els[id] = Object.assign(makeEl(id), props);
@@ -267,7 +268,10 @@ async function runScriptWithTimeout({ js, payload = {}, hang = false, preset = {
         Event: class {}, CustomEvent: class {},
         apiFetch: (u) => {
             fetches.push(String(u));
-            if (hang) return new Promise(() => {}); // never settles
+            // hang:true parks every request in `pending` so the test can settle
+            // them individually, out of order — the only way to exercise the
+            // stale-response race deterministically.
+            if (hang) return new Promise((res) => { pending.push(res); });
             return Promise.resolve({ ok: true, status: 200, json });
         },
         escapeHtml: (s) => String(s == null ? '' : s),
@@ -288,7 +292,7 @@ async function runScriptWithTimeout({ js, payload = {}, hang = false, preset = {
     const ctx = vm.createContext(sandbox);
     vm.runInContext(js, ctx, { filename: 'pd.inline.js' });
     for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
-    return { timeouts, fetches, els, sandbox, ctx };
+    return { timeouts, fetches, pending, els, sandbox, ctx };
 }
 
 const SUBMISSION_ROW = {
@@ -677,6 +681,94 @@ test('closing the modal stops it following the poll', () => {
         /openAccessLogId\s*=\s*null/.test(closeBlock),
         'closing the modal must clear the tracked device id, otherwise it keeps ' +
         're-rendering off-screen on every poll: ' + closeBlock.slice(0, 220)
+    );
+});
+
+// ---------------------------------------------------------------------------
+// A stale response must neither render nor disarm the newer request.
+// ---------------------------------------------------------------------------
+
+test('a stale response cannot overwrite fresh rows or kill the new watchdog', async () => {
+    // The race: request A hangs, the watchdog releases the guard, the user
+    // retries (request B starts, watchdog W_B armed), and THEN the stale
+    // request A finally resolves. Before the fix, A rendered its stale rows
+    // over the table AND its .finally cleared W_B and dropped the guard — so a
+    // hung B wedged the table with no watchdog and no recovery.
+    const mkResp = (name) => ({
+        ok: true, status: 200,
+        json: () => Promise.resolve(detailPayload({
+            submissions: [{ ...SUBMISSION_ROW, student_name: name }],
+        })),
+    });
+    const { els, timeouts, pending, ctx } = await runScriptWithTimeout({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        hang: true,
+        preset: { statusFilter: { value: '' } },
+    });
+
+    // Request A goes out and hangs. (The page's own initial load already
+    // parked its requests, so count relatively.)
+    const parked = pending.length;
+    vm.runInContext('loadDetail(1)', ctx);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(pending.length, parked + 1, 'request A must be in flight');
+
+    // The watchdog fires: guard released, retry offered.
+    for (const t of timeouts) t.fn();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(vm.runInContext('detailLoading', ctx), false);
+
+    // Request B starts (the retry) and hangs.
+    vm.runInContext('loadDetail(1)', ctx);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(pending.length, parked + 2, 'request B must be in flight');
+    assert.equal(vm.runInContext('detailLoading', ctx), true);
+
+    // The STALE request A finally resolves with different data.
+    pending[parked](mkResp('STALE-DATA-MUST-NOT-RENDER'));
+    for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
+
+    assert.ok(
+        !/STALE-DATA-MUST-NOT-RENDER/.test(els.submissionBody.innerHTML),
+        'the stale response rendered over the table: ' +
+        els.submissionBody.innerHTML.slice(0, 220)
+    );
+    assert.equal(vm.runInContext('detailLoading', ctx), true,
+        "a stale .finally must not drop the guard owned by the newer request — " +
+        "that is what left hung requests watch-dogless"
+    );
+});
+
+test('a stale failure cannot wipe rows rendered by a newer request', async () => {
+    // Companion to the stale-success case above: same generations rule, applied
+    // to the .catch branch. Without it, a slow request that fails after its
+    // replacement already rendered would blank good rows with "Gagal
+    // menghubungi server".
+    const w = await runScriptWithTimeout({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        hang: true,
+        preset: { statusFilter: { value: '' } },
+    });
+    for (const t of w.timeouts) t.fn();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    const parked = w.pending.length;
+    vm.runInContext('loadDetail(1)', w.ctx);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    w.pending[parked]({
+        ok: true, status: 200,
+        json: () => Promise.resolve(detailPayload({
+            submissions: [{ ...SUBMISSION_ROW, student_name: 'FRESH-ROWS' }],
+        })),
+    });
+    for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(/FRESH-ROWS/.test(w.els.submissionBody.innerHTML), 'precondition: B rendered');
+    w.pending[0]({ ok: false, status: 500, json: () => Promise.reject(new Error('boom')) });
+    for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(
+        /FRESH-ROWS/.test(w.els.submissionBody.innerHTML),
+        'a stale failure wiped fresh rows: ' + w.els.submissionBody.innerHTML.slice(0, 200)
     );
 });
 
