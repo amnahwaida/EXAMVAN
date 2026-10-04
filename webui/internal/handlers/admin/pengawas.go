@@ -637,12 +637,20 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			// perlu endpoint tambahan: tanpa ini halaman supervisor menampilkan
 			// "Terima Otomatis: ON" padahal supervisor lain sudah mematikannya.
 			"auto_approve_enabled": exam.AutoApprove,
-			"submissions":          subsData,
-			"page":                 result.Page,
-			"per_page":             result.PerPage,
-			"total":                result.Total,
-			"total_pages":          result.TotalPages,
-			"stats":                result.Stats,
+			// Liveness of the exam itself. Every mutating action on this page
+			// (approve, reject, start/stop) is refused once the exam is
+			// inactive or its window has passed, but the polled payload said
+			// nothing about it — so the supervisor kept looking at an enabled
+			// control panel and only learned the truth from a failed tap. The
+			// client uses these to disable the actions and say why.
+			"exam_active":         exam.IsActive(),
+			"exam_schedule_ended": models.ExamScheduleEnded(&exam, time.Now().UTC()),
+			"submissions":         subsData,
+			"page":                result.Page,
+			"per_page":            result.PerPage,
+			"total":               result.Total,
+			"total_pages":         result.TotalPages,
+			"stats":               result.Stats,
 		})
 	}
 }

@@ -568,6 +568,104 @@ test('presence column uses design tokens, not colour literals', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The access-log modal is the one place the heartbeat timeline is visible —
+// and it was frozen for the whole session.
+// ---------------------------------------------------------------------------
+
+test('the access-log modal refreshes while it is open', async () => {
+    const js = toPlainJs(readDetail());
+    // The modal renders once on open and has no refresh control at all — only
+    // a close button. The heartbeat timeline inside it gains an entry roughly
+    // every minute per device, so a supervisor watching a candidate for
+    // cheating stares at a frozen snapshot while the table behind it live-
+    // reloads every 12s.
+    const at = js.indexOf('function showAccessLog');
+    assert.ok(at > 0, 'showAccessLog not found');
+    const modalBlock = js.slice(at, at + 9000);
+    assert.ok(
+        /openAccessLogId|startAccessLogPoll|refreshAccessLog/.test(modalBlock),
+        'the modal must have a refresh path while open (re-render from the ' +
+        'latest snapshot, or its own poller)'
+    );
+});
+
+test('closing the modal stops it following the poll', () => {
+    const js = toPlainJs(readDetail());
+    const close = js.indexOf('function closeAccessLogModal');
+    assert.ok(close > 0, 'closeAccessLogModal not found');
+    const closeBlock = js.slice(close, close + 600);
+    // No interval is created for the modal — it reuses the table poll — so
+    // "stopping" means clearing the tracked device. Leaving it set would keep
+    // re-rendering a modal nobody can see on every tick, forever.
+    assert.ok(
+        /openAccessLogId\s*=\s*null/.test(closeBlock),
+        'closing the modal must clear the tracked device id, otherwise it keeps ' +
+        're-rendering off-screen on every poll: ' + closeBlock.slice(0, 220)
+    );
+});
+
+// ---------------------------------------------------------------------------
+// Exam liveness: the page must not look like a live control panel after the
+// exam stopped.
+// ---------------------------------------------------------------------------
+
+test('a polled payload with exam_active=false disables the mutating actions', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            exam_active: false,
+            exam_schedule_ended: false,
+            submissions: [{ ...SUBMISSION_ROW, attempt_count: 1 }],
+        }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody.innerHTML;
+    assert.ok(
+        /disabled/.test(html),
+        'approve/reject and repeat-grant buttons must be disabled once the exam is ' +
+        'stopped — the server refuses every one of them: ' + html.slice(0, 300)
+    );
+    assert.ok(els.examLivenessNote, 'a liveness note element must exist');
+    assert.ok(
+        /dihentikan|berakhir/i.test(els.examLivenessNote.textContent || ''),
+        'the note must explain why the controls are dead, got: ' +
+        JSON.stringify(els.examLivenessNote && els.examLivenessNote.textContent)
+    );
+});
+
+test('a live exam leaves the mutating actions enabled and the note hidden', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ exam_active: true, exam_schedule_ended: false }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody.innerHTML;
+    assert.ok(!/disabled/.test(html),
+        'a running exam must keep its actions usable: ' + html.slice(0, 300));
+    assert.equal(els.examLivenessNote && els.examLivenessNote.style.display, 'none',
+        'the liveness note must stay hidden while the exam is running');
+});
+
+test('an elapsed exam window disables actions even while status is active', async () => {
+    // This is the case that surprised supervisors: status still "active", yet
+    // every approval was refused because the window had passed.
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ exam_active: true, exam_schedule_ended: true }),
+        callAfter: ['loadDetail(1)'],
+    });
+    assert.ok(
+        /disabled/.test(els.submissionBody.innerHTML),
+        'a passed window must disable the actions even when the exam is active'
+    );
+    assert.ok(
+        /berakhir/i.test((els.examLivenessNote && els.examLivenessNote.textContent) || ''),
+        'the note must mention the elapsed window, got: ' +
+        JSON.stringify(els.examLivenessNote && els.examLivenessNote.textContent)
+    );
+});
+
+// ---------------------------------------------------------------------------
 // Repeat attempts are legitimate, not suspicious.
 // ---------------------------------------------------------------------------
 

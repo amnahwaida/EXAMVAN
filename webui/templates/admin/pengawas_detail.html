@@ -221,6 +221,11 @@
       <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta">
     </div>
     <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;"></span>
+    <!-- S96: walau ujian berhenti / jendela waktu lewat, tabel tetap live
+         (supervisor masih boleh menelusuri data). Yang dimatikan hanya aksi
+         mutasi — dan alasannya ditulis di sini, bukan dibiarkan sebagai toast
+         penolakan setelah supervisor membuang satu ketukan. -->
+    <span id="examLivenessNote" role="status" aria-live="polite" style="display:none;flex-basis:100%;font-size:0.72rem;color:var(--color-warning-light);background:rgba(var(--rgb-warning),0.12);border:1px solid rgba(var(--rgb-warning),0.3);border-radius:8px;padding:6px 10px;margin-top:4px;"></span>
     <!-- S85 (ronde 8): region live TERPISAH untuk perubahan jumlah antrean.
          Stempel jam di atas sengaja VISUAL-ONLY (tanpa aria-live) — jam polling
          yang berubah tiap 5–12 detik menenggelamkan pengumuman penting. -->
@@ -1706,6 +1711,16 @@ function loadDetail(page, silent) {
                 // menuduh tanpa bukti. Pakai chip netral yang memang sudah
                 // ada untuk badge dorman (tone-neutral di admin-base.css).
                 // Angka tetap tampil supaya supervisor tetap bisa melihat jumlahnya.
+                // Aksi mutasi ditolak server begitu ujian tidak aktif atau
+                // jendelannya lewat — status itu ikut dicetak di markup tombol.
+                // Dipasang lewat querySelector setelah render akan hilang saat
+                // render di-skip (payload identik), jadi statusnya harus ikut
+                // di dalam HTML baris.
+                var blocked = !examLive || examEnded;
+                var disAttr = blocked
+                    ? ' disabled style="opacity:0.45;cursor:not-allowed;" title="Tidak berlaku'
+                      + (!examLive ? ' — pengawasan dihentikan.' : ' — waktu ujian telah berakhir.') + '"'
+                    : '';
                 var attCount = s.attempt_count > 1
                     ? '<span class="status-badge-sm tone-neutral" style="padding:2px 8px;font-size:0.7rem;" title="' + escapeHtml(String(s.attempt_count)) + '× percobaan (izin mengulang)">' + escapeHtml(String(s.attempt_count)) + 'x</span>'
                     : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
@@ -1736,10 +1751,16 @@ function loadDetail(page, silent) {
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
                         '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
-                        (s.submitted ? '<button class="pd-action-btn" data-action="toggle-repeat" data-student-key="' + escapeHtml(s.student_key || '') + '" data-granted="' + (repeatGrantedKeys[s.student_key || ''] ? '1' : '0') + '" title="' + (repeatGrantedKeys[s.student_key || ''] ? 'Cabut izin mengulang untuk siswa ini' : 'Izinkan siswa ini mengerjakan ulang ujian') + '" style="border-radius:6px;font-weight:600;font-size:0.7rem;' + (repeatGrantedKeys[s.student_key || ''] ? 'color:var(--color-warning-light);border-color:rgba(var(--rgb-warning),0.45);' : '') + '">' + (repeatGrantedKeys[s.student_key || ''] ? '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Cabut Izin' : '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-refresh"/></svg> Izinkan Mengulang') + '</button>' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
+                        (s.submitted ? '<button class="pd-action-btn" data-action="toggle-repeat"' + disAttr + ' data-student-key="' + escapeHtml(s.student_key || '') + '" data-granted="' + (repeatGrantedKeys[s.student_key || ''] ? '1' : '0') + '" title="' + (repeatGrantedKeys[s.student_key || ''] ? 'Cabut izin mengulang untuk siswa ini' : 'Izinkan siswa ini mengerjakan ulang ujian') + '" style="border-radius:6px;font-weight:600;font-size:0.7rem;' + (repeatGrantedKeys[s.student_key || ''] ? 'color:var(--color-warning-light);border-color:rgba(var(--rgb-warning),0.45);' : '') + '">' + (repeatGrantedKeys[s.student_key || ''] ? '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Cabut Izin' : '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-refresh"/></svg> Izinkan Mengulang') + '</button>' : '<button class="pd-action-btn pd-action-danger"' + disAttr + ' title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
                     '</div></td>' +
                     '</tr>';
             }
+            // Modal akses yang terbuka mengikuti poll yang sama: access_logs
+            // tidak ikut di HTML baris, jadi render baris bisa di-skip sementara
+            // snapshot sudah terbaru — modal harus tetap disegarkan dari
+            // snapshot itu.
+            if (openAccessLogId !== null) renderAccessLogModal();
+
             if (subsLastHtml !== null && subsLastHtml === html) {
                 renderSubPagination(res);
                 return;
@@ -1837,21 +1858,48 @@ function esc(s) {
 // alias admin-core.js formatDateTimeID agar format tanggal seragam
 // ("YYYY-MM-DD HH:MM") di seluruh halaman admin.
 
+// Devices the access-log modal is currently showing. The modal is the ONLY
+// place the heartbeat timeline is visible (the device table shows just the
+// aggregate presence dot), and that timeline gains an entry roughly every
+// minute per device — so a modal that renders once and freezes leaves the
+// supervisor staring at a stale snapshot while the table behind it live-
+// reloads every 12s.
+//
+// The modal therefore re-renders itself from the freshest snapshot whenever the
+// table poll lands, and offers a manual refresh. It reuses the snapshot rather
+// than issuing its own request: the submissions payload already carries
+// access_logs, so an extra endpoint per open would be pure duplicate load.
+var openAccessLogId = null;
+
 function showAccessLog(subId) {
     var modal = document.getElementById('accessLogModal');
+    if (!modal) return;
+    openAccessLogId = subId;
+    renderAccessLogModal();
+    modal.style.display = 'flex';
+}
+
+// renderAccessLogModal draws the currently-open device from subsSnapshot.
+// Split out of showAccessLog so the table poll can refresh an open modal.
+function renderAccessLogModal() {
+    var modal = document.getElementById('accessLogModal');
     var body = document.getElementById('accessLogBody');
-    if (!modal || !body) return;
+    if (!modal || !body || openAccessLogId === null) return;
 
     // R113: baca snapshot dari variabel modul (dulunya atribut data-subs).
     var subs = subsSnapshot || [];
     var subData = null;
     for (var i = 0; i < subs.length; i++) {
-        if (subs[i].id === subId) { subData = subs[i]; break; }
+        if (subs[i].id === openAccessLogId) { subData = subs[i]; break; }
     }
 
     if (!subData) {
-        body.innerHTML = '<div style="text-align:center;padding:32px;color:var(--color-danger-light);">Data tidak ditemukan</div>';
-        modal.style.display = 'flex';
+        // Device went out of the current filter/page (it may have just
+        // submitted, or the supervisor searched). Say so instead of pretending
+        // there is no history.
+        body.innerHTML = '<div style="text-align:center;padding:32px;color:var(--color-text-muted);">' +
+            'Perangkat ini tidak lagi ada di halaman saat ini — mungkin sudah ' +
+            'keluar dari filter, sudah mengumpulkan jawaban, atau pindah halaman.</div>';
         return;
     }
 
@@ -1960,13 +2008,15 @@ function showAccessLog(subId) {
     }
 
     body.innerHTML = h + tl;
-    modal.style.display = 'flex';
 }
 
 function closeAccessLogModal(event) {
     if (event && event.target !== document.getElementById('accessLogModal')) return;
     var m = document.getElementById('accessLogModal');
     if (m) m.style.display = 'none';
+    // Berhenti mengikuti poll: tanpa ini setiap buka modal menambah satu
+    // render yang tetap berjalan walau modalnya sudah tertutup.
+    openAccessLogId = null;
 }
 
 // Full admin audit trail for this exam: every auto-approve toggle (who, when,
@@ -2180,6 +2230,12 @@ function closeConfirmApprovalModal(event) {
     if (!mac || !status) return;
     if (typeof showConfirmApprovalModal === 'function') showConfirmApprovalModal(mac, status);
   });
+  Actions.register('refresh-access-log-modal', function() {
+    // Segarkan dari snapshot terbaru. Kalau snapshot belum pernah terisi
+    // (mis. modal dibuka sebelum poll pertama selesai), poll 12 detik
+    // berikutnya akan mengisinya sendiri.
+    renderAccessLogModal();
+  });
   Actions.register('show-access-log', function(el) {
     var id = parseInt(el.getAttribute('data-submission-id'), 10);
     if (isNaN(id)) return;
@@ -2256,6 +2312,12 @@ var activeTokenSeq = 0;
 // Latch "sudah minta refresh di jendela Due ini" — mencegah countdown 1 dtk
 // menembak jaringan tiap detik (BUG-4).
 var tokenDueFetched = false;
+// Kelayakan ujian, dibaca dari payload yang dipoll. Semua aksi mutasi di
+// halaman ini (setujui/tolak/mulai/hentikan) ditolak server begitu ujian
+// tidak aktif atau jendela waktunya lewat — tapi UI tetap terlihat seperti
+// panel yang hidup, sehingga supervisor baru tahu lewat ketukan yang gagal.
+var examLive = true;
+var examEnded = false;
 
 function refreshActiveToken() {
     if (activeTokenLoading) return;
@@ -2296,12 +2358,32 @@ function refreshActiveToken() {
     .finally(function() { activeTokenLoading = false; });
 }
 
+// Mematikan kontrol yang pasti ditolak server, dan memberi tahu supervisor
+// kenapa — bukan membiarkan dia ketuk tombol lalu membaca toast penolakan.
+function applyExamLivenessToControls() {
+    var note = document.getElementById('examLivenessNote');
+    if (!note) return;
+    if (!examLive) {
+        note.textContent = 'Pengawasan dihentikan — persetujuan dan penolakan perangkat tidak berlaku lagi.';
+        note.style.display = 'block';
+    } else if (examEnded) {
+        note.textContent = 'Waktu ujian telah berakhir — perangkat tidak dapat disetujui atau ditolak lagi.';
+        note.style.display = 'block';
+    } else {
+        note.textContent = '';
+        note.style.display = 'none';
+    }
+}
+
 // Menerjamahkan token + jam rotasi dari payload mana pun yang keduanya
 // dibawa (poll tabel 12 dtk sudah cukup — tidak perlu endpoint token
 // terpisah). Countdown selaras dengan JAM SERVER pada setiap tick, sehingga
 // tidak pernah menampilkan hitung mundur yang basi karena jam perangkat meleset.
 function syncTokenFromPayload(res) {
     if (!res) return;
+    if (typeof res.exam_active === 'boolean') examLive = res.exam_active;
+    if (typeof res.exam_schedule_ended === 'boolean') examEnded = res.exam_schedule_ended;
+    applyExamLivenessToControls();
     if (res.exam_token_last_reset_at) TOKEN_LAST_RESET = res.exam_token_last_reset_at;
     if (res.exam_active_token) {
         var el = document.getElementById('pdActiveToken');
@@ -2575,6 +2657,7 @@ loadAAStatus();
    <div class="modal-card" style="max-width: 620px;">
    <div class="modal-header">
     <h3 id="accessLogTitle" style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
+    <button class="modal-close" data-action="refresh-access-log-modal" title="Segarkan riwayat" aria-label="Segarkan riwayat akses"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg></button>
     <button class="modal-close" data-action="close-access-log-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
    </div>
    <div class="modal-body" id="accessLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">

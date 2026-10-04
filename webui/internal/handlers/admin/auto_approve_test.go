@@ -66,6 +66,7 @@ func newAutoApproveTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	// variable named api would shadow it.
 	adminAPI := r.Group("/admin/api", middleware.AuthRequired())
 	adminAPI.GET("/pengawas/exams", PengawasExams())
+	adminAPI.GET("/pengawas/exams/:exam_id/submissions", PengawasExamSubmissions())
 	adminAPI.GET("/pengawas/exams/:exam_id/auto-approve", GetAutoApprove())
 	adminAPI.POST("/pengawas/exams/:exam_id/auto-approve", SetAutoApprove())
 	adminAPI.GET("/pengawas/exams/:exam_id/approvals", GetPendingApprovals())
