@@ -1060,6 +1060,52 @@
 var EXAM_ID = {{.exam.ID}};
 var SUB_PAGE = 1;
 
+// ===== Izin mengulang per siswa — state di level atas script =====
+// PENTING: deklarasi ini harus berada di scope script, BUKAN di dalam IIFE.
+// Script ini punya beberapa IIFE, dan row-builder loadDetail() (top-level)
+// sekaligus poller IIFE sama-sama membaca repeatGrantedKeys / memanggil
+// refreshRepeatGrants. Dua kali variabel ini sempat tersangkut di dalam IIFE
+// Actions sehingga:
+//   - loadDetail() melempar ReferenceError → tiap baris gagal dibangun dan
+//     catch menampilkan "Gagal menghubungi server" padahal server jalan
+//   - pemanggilan di statement terakhir script melempar ReferenceError →
+//     seluruh setInterval setelahnya TIDAK PERNAH terdaftar, jadi hot reload
+//     mati total tanpa error yang terlihat (node --check tetap hijau, karena
+//     identifier di luar scope itu syntax yang sah).
+// Pin: static/js/pengawas-detail-runtime.test.mjs (mengeksekusi script-nya).
+var repeatGrantedKeys = {};
+var repeatLoading = false;
+var repeatSeq = 0;
+
+// Default server: siswa yang sudah mengirim jawaban tidak bisa mengulang.
+// Tombol di halaman pengawas yang melepas. State per student_key (dihitung
+// server, urutan sama dengan client) -- bukan per mac_address, karena label
+// perangkat di client per-percobaan.
+//
+// Seq guarding: hanya respons terbaru yang boleh menulis state. Tanpa ini
+// poll lama bisa menimpa hasil grant/revoke yang baru saja selesai.
+function refreshRepeatGrants(examId) {
+  var seq = ++repeatSeq;
+  return apiFetch('/admin/api/pengawas/exams/' + examId + '/repeat-grants')
+    .then(function(res) { return res && res.json ? res.json() : null; })
+    .then(function(res) {
+      if (seq !== repeatSeq) return;
+      repeatGrantedKeys = {};
+      if (res && res.grants) {
+        for (var i = 0; i < res.grants.length; i++) {
+          repeatGrantedKeys[res.grants[i].student_key] = true;
+        }
+      }
+    })
+    .catch(function() {
+      // JANGAN mengosongkan peta saat gagal: gangguan sesaat akan menampilkan
+      // lagi tombol "Izinkan Mengulang" untuk izin yang sebenarnya masih
+      // ada, dan supervisor bisa mencabut/mengganti izin yang keliru.
+      // State terakhir yang diketahui dibiarkan apa adanya.
+      if (seq !== repeatSeq) return;
+    });
+}
+
 function startExamPengawasDetail(examId) {
     showConfirm(
         'Mulai pengawasan untuk ujian ini?',
@@ -1544,16 +1590,32 @@ function loadDetail(page, silent) {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
-                // Auto-refresh senyap (12 dtk) cukup menampilkan baris error di
-                // tabel tanpa toast agar tidak spam; aksi user langsung di-toast.
-                if (!silent) showToast((res && res.message) || 'Gagal memuat data pengawasan', 'error');
-                subsLastHtml = null;
-                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat data</td></tr>';
+                // Auto-refresh senyap (12 dtk) TIDAK boleh menghapus isi tabel
+                // yang masih known-good: supervisor kehilangan konteks (siapa
+                // yang sedang mengerjakan) hanya karena satu request gagal.
+                // Aksi user yang eksplisit tetap mengganti tabel + toast.
+                var reason = (res && res.message) || 'Gagal memuat data pengawasan';
+                if (!silent) {
+                    showToast(reason, 'error');
+                    subsLastHtml = null;
+                    tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">' +
+                        escapeHtml(reason) + '</td></tr>';
+                } else if (!subsLastHtml) {
+                    // Belum pernah ada render sukses — tidak ada yang bisa dijaga.
+                    subsLastHtml = null;
+                    tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">' +
+                        escapeHtml(reason) + '</td></tr>';
+                }
                 return;
             }
             markUpdated();
             var subs = res.submissions || [];
             subsSnapshot = subs;
+            // Server boleh mem-clamp halaman di luar jangkauan (filter/search
+            // menyusut). Ikuti nilai yang benar-benar dilayani agar nomor baris
+            // dan footer tidak berbeda pendapat (BUG-8).
+            if (typeof res.page === 'number' && res.page > 0) SUB_PAGE = res.page;
+            syncTokenFromPayload(res);
             if (res.stats) {
                 document.getElementById('statTotal').textContent = res.stats.total;
                 document.getElementById('statActive').textContent = res.stats.active;
@@ -1965,26 +2027,9 @@ function closeConfirmApprovalModal(event) {
   // Izinkan/Tolak antrean izin: mac & status lewat atribut data-* (bukan
   // interpolasi JS ke onclick) → modal konfirmasi dulu, POST setelah Ya.
   // ===== Izin mengulang per siswa =====
-  // Default server: siswa yang sudah mengirim jawaban tidak bisa mengulang.
-  // Tombol ini yang melepas. State disimpan per student_key (dihitung server,
-  // urutan sama dengan client) -- bukan per mac_address, karena label
-  // perangkat di client per-percobaan.
-  var repeatGrantedKeys = {};
-  var repeatLoading = false;
-
-  function refreshRepeatGrants(examId) {
-    return apiFetch('/api/pengawas/exams/' + examId + '/repeat-grants')
-      .then(function(res) { return res && res.json ? res.json() : null; })
-      .then(function(res) {
-        repeatGrantedKeys = {};
-        if (res && res.grants) {
-          for (var i = 0; i < res.grants.length; i++) {
-            repeatGrantedKeys[res.grants[i].student_key] = true;
-          }
-        }
-      })
-      .catch(function() { repeatGrantedKeys = {}; });
-  }
+  // repeatGrantedKeys / repeatLoading / refreshRepeatGrants sengaja TIDAK
+  // dideklarasikan di sini — semuanya di scope atas script supaya loadDetail
+  // dan poller bisa booting-nya (lihat catatan panjang di deklarasinya).
 
   Actions.register('toggle-repeat', function(el) {
     var key = el.getAttribute('data-student-key');
@@ -2006,7 +2051,7 @@ function closeConfirmApprovalModal(event) {
     ).then(function(confirmed) {
       if (!confirmed) return;
       repeatLoading = true;
-      var url = '/api/pengawas/exams/' + examId + '/repeat-grants';
+      var url = '/admin/api/pengawas/exams/' + examId + '/repeat-grants';
       var opts = granted
         ? { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({}) }
@@ -2070,12 +2115,20 @@ function regenerateActiveToken() {
         'Batal'
     ).then(function(confirmed) {
         if (!confirmed) return;
+        // Naikkan seq SUDAH di sini (bukan setelah respons): setiap poll yang
+        // masih berjalan setelah titik ini dianggap basi dan tidak boleh
+        // menimpa token baru ini ketika ia tiba.
+        activeTokenSeq++;
         apiFetch('/admin/api/exams/' + EXAM_ID + '/regenerate-token', { method: 'POST' })
             .then(function(r) { return r.json(); })
             .then(function(res) {
                 if (res.success) {
                     updateTokenDisplay(res.token);
-                    TOKEN_LAST_RESET = new Date().toISOString();
+                    // Countdown dihitung dari JAM SERVER. Menempelkan
+                    // new Date() (jam perangkat) mencampur dua domain jam dan
+                    // membuat countdown meleset atau negatif.
+                    TOKEN_LAST_RESET = (res.token_last_reset_at || new Date().toISOString());
+                    tokenDueFetched = false;
                     showToast('Token baru: ' + res.token, 'success');
                 } else {
                     showToast(res.message || 'Gagal regenerate token', 'error');
@@ -2101,25 +2154,82 @@ function updateTokenDisplay(newToken) {
 // sudah cukup: tick berikutnya (30s, atau 1s dari countdown yang masih expired)
 // yang mengambil alih.
 var activeTokenLoading = false;
+// Monotonic request sequence untuk fetch token: hanya respons terbaru yang
+// boleh menulis DOM. Lihat refreshActiveToken (BUG-5).
+var activeTokenSeq = 0;
+// Latch "sudah minta refresh di jendela Due ini" — mencegah countdown 1 dtk
+// menembak jaringan tiap detik (BUG-4).
+var tokenDueFetched = false;
 
 function refreshActiveToken() {
     if (activeTokenLoading) return;
     activeTokenLoading = true;
+    // Seq guarding (BUG-5): poll dan "Generate token baru" menulis elemen yang
+    // sama. Tanpa penomoran, poll yang berangkat SEBELUM POST selesai tetapi
+    // tiba SESUDAH-nya akan menulis kembali token lama yang sudah tidak berlaku
+    // — layar balik ke token mati tepat setelah supervisor membacanya aloud.
+    var seq = ++activeTokenSeq;
     apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=1&per_page=1', {
         headers: { 'Accept': 'application/json' }
     })
     .then(function(r) { return r.json(); })
     .then(function(res) {
-        if (res && res.exam_active_token) {
+        if (seq !== activeTokenSeq) return; // respons basi — buang
+        if (!res) return;
+        // Jam rotasi SELALU advancement dari nilai server, bahkan ketika
+        // #pdActiveToken tidak ada (ujian berhenti → blok token tidak dirender).
+        // Sebelumnya advancement hanya terjadi saat teks elemen berubah, jadi
+        // countdown negatif tidak pernah keluar dari fase "akan segera
+        // diperbarui" dan memicu fetch setiap detik.
+        if (res.exam_token_last_reset_at) {
+            TOKEN_LAST_RESET = res.exam_token_last_reset_at;
+        }
+        if (res.exam_active_token) {
             var el = document.getElementById('pdActiveToken');
             if (el && el.textContent !== res.exam_active_token) {
                 updateTokenDisplay(res.exam_active_token);
-                TOKEN_LAST_RESET = new Date().toISOString();
             }
         }
+        // JANGAN melepas latch di sini. Countdown yang masih negatif akan
+        // membuka latch lagi pada tick berikutnya dan kita kembali menembak
+        // jaringan setiap detik — persis BUG-4. Latch hanya dilepas oleh
+        // updateCountdown saat jendela sudah bergeser (remainMs > 0), atau oleh
+        // regenerateActiveToken sukses.
     })
     .catch(function() {})
     .finally(function() { activeTokenLoading = false; });
+}
+
+// Menerjamahkan token + jam rotasi dari payload mana pun yang keduanya
+// dibawa (poll tabel 12 dtk sudah cukup — tidak perlu endpoint token
+// terpisah). Countdown selaras dengan JAM SERVER pada setiap tick, sehingga
+// tidak pernah menampilkan hitung mundur yang basi karena jam perangkat meleset.
+function syncTokenFromPayload(res) {
+    if (!res) return;
+    if (res.exam_token_last_reset_at) TOKEN_LAST_RESET = res.exam_token_last_reset_at;
+    if (res.exam_active_token) {
+        var el = document.getElementById('pdActiveToken');
+        if (el && el.textContent !== res.exam_active_token) {
+            updateTokenDisplay(res.exam_active_token);
+        }
+    }
+    // Auto-approve adalah state server; tanpa ini halaman supervisor
+    // menampilkan "Terima Otomatis: ON" padahal supervisor lain sudah
+    // mematikannya, dan pesan antrean kosong mengarang perilaku server.
+    if (typeof res.auto_approve_enabled === 'boolean') {
+        var t = document.getElementById('autoAcceptToggle');
+        if (t && t.checked !== res.auto_approve_enabled) t.checked = res.auto_approve_enabled;
+    }
+}
+
+// Minta refresh token HANYA saat countdown benar-benar Due, dan paling
+// sekali per jendela Due. Countdown adalah tick 1 detik; ia tidak boleh
+// menjadi pemicu jaringan (BUG-4: 1 req/detik selamanya saat ujian dihentikan
+// atau interval rotasi tidak berlaku).
+function requestTokenRefreshIfDue() {
+    if (tokenDueFetched) return;
+    tokenDueFetched = true;
+    refreshActiveToken();
 }
 
 function updateCountdown() {
@@ -2146,9 +2256,15 @@ function updateCountdown() {
 
         if (remainMs <= 0) {
             el.innerHTML = '<span style="color:var(--color-accent-emerald);">Token akan segera diperbarui...</span>';
-            refreshActiveToken();
+            // Latch: satu percobaan per jendela Due. Setelah respons datang,
+            // refreshActiveToken() membuka latch lagi hanya bila jam server
+            // masih menunjukkan Due (mis. server menolak rotasi).
+            requestTokenRefreshIfDue();
             return;
         }
+
+        // Sudah lewat titik Due dan jamming: izinkan percobaan lagi nanti.
+        tokenDueFetched = false;
 
         var remainSec = Math.floor(remainMs / 1000);
         var m = Math.floor(remainSec / 60);
@@ -2292,11 +2408,17 @@ loadAAStatus();
     }
     function startPengawasPolling() {
         stopPengawasPolling();
+        // Antrean izin: cepat (5 dtk) — inilah antrean yang benar-benar
+        // berubah karena siswa sedang menunggu izin supervisor.
         pollTimers.push(setInterval(loadApprovals, 5000));
-        // Keep the "live" monitoring stats + student table actually live (silent
-        // refresh preserves the current page/filter and avoids a loading flash).
+        // Tabel perangkat + statistik + token + auto-approve: 12 dtk, senyap.
+        // SATU endpoint (submissions) kini membawa token, jam rotasi, dan
+        // status auto-approve — sehingga poll token 30s yang terpisah
+        // dihapus: sebelumnya ia memanggil endpoint yang sama dengan
+        // per_page=1 yang di-clamp ke 5 baris, lengkap dengan batch
+        // access-log + submission-history, hanya untuk membaca satu string.
         pollTimers.push(setInterval(function() { if (!document.hidden) loadDetail(SUB_PAGE, true); }, 12000));
-        pollTimers.push(setInterval(function() { if (!document.hidden) refreshActiveToken(); }, 30000));
+        // Countdown: tick DISPLAY 1 detik, tanpa I/O (lihat updateCountdown).
         pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
     }
     document.addEventListener('visibilitychange', function() {
@@ -2305,7 +2427,6 @@ loadAAStatus();
         } else {
             loadApprovals();
             loadDetail(SUB_PAGE, true);
-            refreshActiveToken();
             updateCountdown();
             startPengawasPolling();
         }

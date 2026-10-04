@@ -2097,10 +2097,21 @@ func RegenerateToken() gin.HandlerFunc {
 			return
 		}
 
+		// The client drives its "Berubah dalam m:ss" countdown from the server
+		// clock. Returning the rotation stamp lets it resync instead of
+		// stamping new Date() (device time), which drifts and mixed two clock
+		// domains in one comparison.
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui token")
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": fmt.Sprintf("Token ujian berhasil diperbarui: %s", newToken),
-			"token":   newToken,
+			"success":             true,
+			"message":             fmt.Sprintf("Token ujian berhasil diperbarui: %s", newToken),
+			"token":               newToken,
+			"token_last_reset_at": formatNullableISOUTC(exam.TokenLastResetAt),
 		})
 	}
 }

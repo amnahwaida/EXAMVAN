@@ -375,13 +375,18 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
-
-		// Exam-scoped authorization (operators limited to their instansi).
+		// Exam-scoped authorization FIRST. This endpoint performs a WRITE
+		// (autoResetActiveTokenIfNeeded rotates active_token and appends token
+		// history), so authorizing after it let any authenticated account of
+		// any tenant trigger a rotation on somebody else's exam and only then
+		// receive a 403 — an authz-ordering defect (CWE-863) on a mutating side
+		// effect. Every sibling endpoint in this file gates immediately after
+		// GetExamByID; this one now matches.
 		if !models.UserCanAccessExam(ctx, pool, userID, isSuper, examID) {
 			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
 			return
 		}
+		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
 
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		if page < 1 {
@@ -417,25 +422,25 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			// StudentKey dihitung server dengan urutan yang sama dengan client
 			// (helpers.StudentKey). Dihitung di JS akan berisiko karena logikanya
 			// jadi terduplikasi dan bisa melenceng tanpa ada yang memeriksa.
-			StudentKey        string                 `json:"student_key"`
-			ExamNumber        string                 `json:"exam_number"`
-			StudentClass      string                 `json:"student_class"`
-			IdentityData      map[string]interface{} `json:"identity_data"`
-			Submitted         bool                   `json:"submitted"`
-			Score             *float64               `json:"score"`
-			StartTime         string                 `json:"start_time"`
-			CreatedAt         string                 `json:"created_at"`
+			StudentKey   string                 `json:"student_key"`
+			ExamNumber   string                 `json:"exam_number"`
+			StudentClass string                 `json:"student_class"`
+			IdentityData map[string]interface{} `json:"identity_data"`
+			Submitted    bool                   `json:"submitted"`
+			Score        *float64               `json:"score"`
+			StartTime    string                 `json:"start_time"`
+			CreatedAt    string                 `json:"created_at"`
 			// SubmittedAt is the submit moment ("Waktu Kumpul"), empty for
 			// approval placeholders and legacy rows — the card falls back to
 			// created_at in that case.
-			SubmittedAt string `json:"submitted_at"`
-			FirstAccessAt     string                 `json:"first_access_at"`
-			LastAccessAt      string                 `json:"last_access_at"`
-			MACAddress        string                 `json:"mac_address"`
-			AccessLogs        []accessLogEntry       `json:"access_logs"`
-			IsOnline          bool                   `json:"is_online"`
-			AttemptCount      int                    `json:"attempt_count"`
-			SubmissionHistory []models.Submission    `json:"submission_history"`
+			SubmittedAt       string              `json:"submitted_at"`
+			FirstAccessAt     string              `json:"first_access_at"`
+			LastAccessAt      string              `json:"last_access_at"`
+			MACAddress        string              `json:"mac_address"`
+			AccessLogs        []accessLogEntry    `json:"access_logs"`
+			IsOnline          bool                `json:"is_online"`
+			AttemptCount      int                 `json:"attempt_count"`
+			SubmissionHistory []models.Submission `json:"submission_history"`
 		}
 
 		attemptCounts := make(map[string]int)
@@ -562,12 +567,21 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			"success":           true,
 			"exam_name":         exam.Name,
 			"exam_active_token": exam.ActiveToken,
-			"submissions":       subsData,
-			"page":              result.Page,
-			"per_page":          result.PerPage,
-			"total":             result.Total,
-			"total_pages":       result.TotalPages,
-			"stats":             result.Stats,
+			// Server-side token rotation clock. The client MUST derive its
+			// countdown from this instead of stamping new Date() on receipt:
+			// device clocks drift, and mixing the two domains made the countdown
+			// either hang or fire on every tick once it went negative.
+			"exam_token_last_reset_at": formatNullableISOUTC(exam.TokenLastResetAt),
+			// Auto-approve ikut di payload yang sama supaya hot reload tidak
+			// perlu endpoint tambahan: tanpa ini halaman supervisor menampilkan
+			// "Terima Otomatis: ON" padahal supervisor lain sudah mematikannya.
+			"auto_approve_enabled": exam.AutoApprove,
+			"submissions":          subsData,
+			"page":                 result.Page,
+			"per_page":             result.PerPage,
+			"total":                result.Total,
+			"total_pages":          result.TotalPages,
+			"stats":                result.Stats,
 		})
 	}
 }

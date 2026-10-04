@@ -81,6 +81,11 @@ jobs:
         run: node --check static/js/admin-core.js && node --check static/js/admin.js
       - name: Run admin-core unit tests
         run: node --test static/js/admin-core.test.mjs
+      # Template inline scripts are executed (not merely parsed) in a stubbed
+      # DOM: `node --check` cannot see an out-of-scope identifier, which once
+      # left the whole pengawas detail page dead while every check stayed green.
+      - name: Run template inline-script runtime tests
+        run: node --test static/js/pengawas-detail-runtime.test.mjs
 
   # Unit test klien desktop (Python/PyQt5, ~198 test) — offscreen Qt.
   # Selama ini suite ini tidak pernah jalan di CI sama sekali.

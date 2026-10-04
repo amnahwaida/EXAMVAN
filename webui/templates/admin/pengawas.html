@@ -153,6 +153,12 @@
 /* ===== Pengawas Monitoring ===== */
 
 var PENG_CURRENT_PAGE = 1;
+// Monotonic request sequence: hanya respons terbaru yang boleh merender.
+// Tanpa ini, query lambat yang berangkat lebih dulu tetapi tiba belakangan
+// menimpa hasil pencarian/paginasi yang baru diminta — supervisor di Wi-Fi
+// sekolah melihat daftar untuk kueri LAMA sementara kotak search sudah
+// menampilkan kueri baru, dan footer menyorot halaman yang salah.
+var PENG_SEQ = 0;
 
 function loadPengawasExams(page) {
     var el = document.getElementById('pengawasExamList');
@@ -166,9 +172,11 @@ function loadPengawasExams(page) {
     var url = '/admin/api/pengawas/exams?page=' + PENG_CURRENT_PAGE + '&per_page=10';
     if (search) url += '&search=' + encodeURIComponent(search);
 
+    var seq = ++PENG_SEQ;
     apiFetch(url, { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
+            if (seq !== PENG_SEQ) return; // respons basi — jangan render
             if (!res || !res.success) {
                 el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal memuat data' +
                     ' <div style="margin-top:12px;"><button type="button" class="btn-sm btn-primary" data-action="load-pengawas-exams">Coba Lagi</button></div></div>';
