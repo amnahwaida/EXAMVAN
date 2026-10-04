@@ -617,6 +617,15 @@ type SubmissionStats struct {
 	NotStarted int `json:"not_started"`
 }
 
+// escapeLikePattern neutralises the LIKE metacharacters so a user's search
+// string is matched literally. Without it "a_b" also matches "AXB" and a lone
+// "%" matches every device — an ordinary query returning students nobody asked
+// for. Pair with `ESCAPE '\'` on the pattern side.
+func escapeLikePattern(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
 // ListSubmissionsByExam returns paginated submissions for a specific exam.
 func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSubmissionsByExamOpts) (ListSubmissionsResult, error) {
 	if opts.Page < 1 {
@@ -624,41 +633,68 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 	}
 	perPage := clampPerPage(opts.PerPage)
 
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
+	args := []interface{}{opts.ExamID}
 
-	conditions = append(conditions, fmt.Sprintf(`exam_id = $%d`, argIdx))
-	args = append(args, opts.ExamID)
-	argIdx++
+	// Order of operations matters: the per-device dedup MUST come first, then
+	// the search and status filters.
+	//
+	// Filtering first made both filters lie. A device whose submitted attempt
+	// followed an open placeholder still had that stale placeholder match
+	// "in_progress", so an exam that was already collected showed up as still
+	// being worked on — and disagreed with the stat cards, which classify
+	// after the dedup (GetSubmissionStats). Likewise a search could surface a
+	// SUPERSEDED attempt, presenting its old name and score as the device's
+	// current state.
+	//
+	// latestSubs is therefore the single source of truth: one row per device,
+	// newest attempt, and every filter reads those rows only.
+	var filters []string
+	var filterArgs []interface{}
+	filterArgIdx := 2
 
 	if opts.Search != "" {
-		pat := "%" + opts.Search + "%"
-		conditions = append(conditions,
-			fmt.Sprintf(`(student_name ILIKE $%d OR mac_address ILIKE $%d OR student_class ILIKE $%d OR exam_number ILIKE $%d)`,
-				argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, pat, pat, pat, pat)
-		argIdx += 4
+		// LIKE metacharacters are matched literally: unescaped, "a_b" also
+		// matched "AXB" and a lone "%" matched every device, so an ordinary
+		// query could return students the supervisor never asked for. ESCAPE
+		// pins the escape character so it cannot itself be ambiguous.
+		pat := "%" + escapeLikePattern(opts.Search) + "%"
+		filters = append(filters,
+			fmt.Sprintf(`(student_name ILIKE $%[1]d ESCAPE '\' OR mac_address ILIKE $%[1]d ESCAPE '\'
+			              OR student_class ILIKE $%[1]d ESCAPE '\' OR exam_number ILIKE $%[1]d ESCAPE '\')`,
+				filterArgIdx))
+		filterArgs = append(filterArgs, pat)
+		filterArgIdx++
 	}
 
 	if opts.Status != "" {
-		if opts.Status == "submitted" {
-			conditions = append(conditions, "answers_json IS NOT NULL AND answers_json != ''")
-		} else if opts.Status == "in_progress" {
-			conditions = append(conditions, "(answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL")
-		} else if opts.Status == "not_started" {
-			conditions = append(conditions, "(answers_json IS NULL OR answers_json = '') AND start_time IS NULL")
+		switch opts.Status {
+		case "submitted":
+			filters = append(filters, "answers_json IS NOT NULL AND answers_json != ''")
+		case "in_progress":
+			filters = append(filters, "(answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL")
+		case "not_started":
+			filters = append(filters, "(answers_json IS NULL OR answers_json = '') AND start_time IS NULL")
 		}
 	}
 
-	where := " WHERE " + joinConditions(conditions, " AND ")
+	// Inner query: the per-device dedup, nothing else. The ORDER BY that drives
+	// DISTINCT ON lives here, so any WHERE added below belongs to the OUTER
+	// query — that is precisely what makes the filters see one row per device.
+	deduped := `
+		SELECT DISTINCT ON (mac_address) ` + defaultSubmissionColumns + `
+		FROM submissions
+		WHERE exam_id = $1
+		ORDER BY mac_address, created_at DESC`
 
-	// Count.
-	countSQL := `
-		SELECT COUNT(*) FROM (
-			SELECT DISTINCT ON (mac_address) id 
-			FROM submissions ` + where + `
-		) AS sub`
+	outerWhere := ""
+	if len(filters) > 0 {
+		outerWhere = " WHERE " + strings.Join(filters, " AND ")
+	}
+	args = append(args, filterArgs...)
+
+	// Count and data read the SAME filtered derived table, so the header count
+	// can never disagree with the rows.
+	countSQL := `SELECT COUNT(*) FROM (` + deduped + `) AS latest_subs` + outerWhere
 	var total int
 	err := pool.QueryRow(ctx, countSQL, args...).Scan(&total)
 	if err != nil {
@@ -671,16 +707,9 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 	}
 	offset := calcOffset(opts.Page, perPage)
 
-	// Fetch data.
-	sql := `
-		SELECT ` + defaultSubmissionColumns + ` 
-		FROM (
-			SELECT DISTINCT ON (mac_address) ` + defaultSubmissionColumns + `
-			FROM submissions
-			` + where + `
-			ORDER BY mac_address, created_at DESC
-		) AS latest_subs
-		ORDER BY student_name ASC LIMIT $` + fmt.Sprintf("%d", argIdx) + ` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
+	sql := `SELECT ` + defaultSubmissionColumns + ` FROM (` + deduped + `) AS latest_subs` + outerWhere + `
+		ORDER BY student_name ASC LIMIT $` + fmt.Sprintf("%d", filterArgIdx) +
+		` OFFSET $` + fmt.Sprintf("%d", filterArgIdx+1)
 	args = append(args, perPage, offset)
 
 	rows, err := pool.Query(ctx, sql, args...)

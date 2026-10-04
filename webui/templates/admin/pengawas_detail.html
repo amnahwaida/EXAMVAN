@@ -1644,9 +1644,24 @@ function loadDetail(page, silent) {
             }
 
             if (subs.length === 0) {
-                var msg = search ? 'Pencarian tidak ditemukan.' : 'Belum ada perangkat terdaftar.';
+                // Pesan harus jujur soal APA yang kosong. Sebelumnya hanya
+                // search yang diperiksa, sehingga filter status yang tidak
+                // cocok menampilkan "Belum ada perangkat terdaftar" —
+                // padahal kartu statistik tepat di atasnya masih
+                // menampilkan perangkat. Supervisor menyimpulkan/device
+                // selesai_REGISTER hilang padahal tidak.
+                var msg;
+                if (search && status) {
+                    msg = 'Tidak ada ' + statusFilterLabel(status) + ' yang cocok dengan "' + search + '".';
+                } else if (search) {
+                    msg = 'Pencarian "' + search + '" tidak ditemukan.';
+                } else if (status) {
+                    msg = 'Tidak ada perangkat berstatus ' + statusFilterLabel(status) + '.';
+                } else {
+                    msg = 'Belum ada perangkat terdaftar.';
+                }
                 subsLastHtml = null;
-                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">' + msg + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">' + escapeHtml(msg) + '</td></tr>';
                 renderSubPagination(res);
                 return;
             }
@@ -1699,6 +1714,18 @@ function loadDetail(page, silent) {
                 loadDetail(SUB_PAGE, true);
             }
         });
+}
+
+// Label manusia untuk nilai filter status, dipakai pesan empty-state supaya
+// supervisor melihat "Tidak ada perangkat berstatus Terkumpul" alih-alih
+// "Belum ada perangkat terdaftar" yang bertentangan dengan kartu statistik.
+function statusFilterLabel(value) {
+    switch (value) {
+        case 'in_progress': return 'Sedang Mengerjakan';
+        case 'submitted': return 'Terkumpul';
+        case 'not_started': return 'Belum Mulai';
+        default: return value || '';
+    }
 }
 
 function renderSubPagination(res) {

@@ -74,8 +74,13 @@ function makeEl(id) {
  * @param {string[]} opts.callAfter   statements to run after load, awaited
  * @returns {Promise<{threw, error, intervals, fetches, els, sandbox}>}
  */
-async function runScript({ js, payload = {}, callAfter = [] }) {
+async function runScript({ js, payload = {}, callAfter = [], preset = {} }) {
     const els = {};
+    // preset: { elementId: { prop: value } } — seeds the stub DOM before the
+    // script runs, e.g. { statusFilter: { value: 'submitted' } }.
+    for (const [id, props] of Object.entries(preset)) {
+        els[id] = Object.assign(makeEl(id), props);
+    }
     const document = {
         createElement: () => makeEl('new'),
         getElementById: (id) => (els[id] ||= makeEl(id)),
@@ -340,6 +345,50 @@ test('BUG-8: row numbering follows the page the server actually served', async (
     assert.equal(stored, 1,
         'SUB_PAGE must follow res.page — otherwise rows are numbered 41-60 while ' +
         'the footer says "Menampilkan 1-20" and the pagination control disappears');
+});
+
+// ---------------------------------------------------------------------------
+// "Monitoring Perangkat" filter UX
+// ---------------------------------------------------------------------------
+
+test('empty state names the status filter instead of claiming the exam is empty', async () => {
+    // Behavioural, not a regex over the source: with a status filter that
+    // matches nothing, the table must say WHICH filter excluded everything.
+    // The old wording keyed only off the search box, so it claimed
+    // "Belum ada perangkat terdaftar" while the stat cards directly above
+    // still listed devices — the supervisor concludes the roster vanished.
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({
+            submissions: [],
+            stats: { total: 4, active: 0, submitted: 0, not_started: 4 },
+        }),
+        callAfter: ['loadDetail(1)'],
+        preset: { statusFilter: { value: 'submitted' } },
+    });
+    const html = els.submissionBody ? els.submissionBody.innerHTML : '';
+    assert.ok(html.length > 0, 'empty-state branch must render something');
+    assert.ok(
+        !/Belum ada perangkat terdaftar/.test(html),
+        'a filtered-to-empty table must not claim no devices are registered: ' + html.slice(0, 200)
+    );
+    assert.ok(
+        /Terkumpul/.test(html),
+        'the message must name the status that excluded the rows: ' + html.slice(0, 200)
+    );
+});
+
+test('empty state still reports an unfiltered empty exam plainly', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ submissions: [], stats: { total: 0, active: 0, submitted: 0, not_started: 0 } }),
+        callAfter: ['loadDetail(1)'],
+    });
+    const html = els.submissionBody ? els.submissionBody.innerHTML : '';
+    assert.ok(
+        /Belum ada perangkat terdaftar/.test(html),
+        'with no filter at all the honest message is that no device is registered: ' + html.slice(0, 200)
+    );
 });
 
 // ---------------------------------------------------------------------------
