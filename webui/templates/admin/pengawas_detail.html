@@ -2712,7 +2712,32 @@ loadAAStatus();
     // Izin mengulang dimuat sebelum tabel pertama, supaya tombol di baris
     // yang sudah Terkumpul langsung tampil dalam keadaan benar dan tidak
     // berkedip dari "Izinkan" ke "Cabut Izin" saat halaman terbuka.
-    refreshRepeatGrants(EXAM_ID).then(function() { loadDetail(); });
+    //
+    // TAPI tabel tidak boleh disandera: sekuens polos .then(loadDetail) tanpa
+    // timeout membuat SATU request izin yang menggantung menghentikan loadDetail
+    // selamanya — watchdog tidak pernah dipasang (ia hidup di dalam loadDetail)
+    // dan "Memuat data..." statis tidak pernah tergantikan. Pernah terjadi dan
+    // dilaporkan sebagai "filter tidak bekerja".
+    var initialTableRequested = false;
+    function requestInitialTable() {
+        if (initialTableRequested) return;
+        initialTableRequested = true;
+        loadDetail();
+    }
+    refreshRepeatGrants(EXAM_ID).then(function() {
+        // Izin tiba duluan (kasus umum): tabel belum dirender, jadi
+        // pemanggilan ini ADALAH load awal — tanpa kedip, tanpa dobel.
+        // Izin tiba belakangan: tabel sudah tampil tanpa state granted,
+        // segarkan senyap supaya tombolnya benar.
+        if (subsLastHtml !== null) loadDetail(SUB_PAGE, true);
+        else requestInitialTable();
+    }, function() {
+        requestInitialTable();
+    });
+    // Batas kesabaran: izin tidak kunjung tiba dalam 3 detik, muat tabel apa
+    // adanya. Kalau izin akhirnya tiba, cabang .then di atas menyegarkan
+    // tombolnya sendiri.
+    setTimeout(requestInitialTable, 3000);
     // Queue load is triggered by loadAAStatus() above (and by its fetch's
     // catch path), so no duplicate fetch here.
     // S36: polling pengawasan hanya berjalan saat tab terlihat (pola

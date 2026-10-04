@@ -89,7 +89,8 @@ function makeEl(id) {
  * @param {string[]} opts.callAfter   statements to run after load, awaited
  * @returns {Promise<{threw, error, intervals, fetches, els, sandbox}>}
  */
-async function runScript({ js, payload = {}, callAfter = [], preset = {} }) {
+async function runScript({ js, payload = {}, callAfter = [], preset = {}, apiFetchImpl = null }) {
+    const timeouts = [];
     const els = {};
     // preset: { elementId: { prop: value } } — seeds the stub DOM before the
     // script runs, e.g. { statusFilter: { value: 'submitted' } }.
@@ -113,7 +114,9 @@ async function runScript({ js, payload = {}, callAfter = [], preset = {} }) {
     const sandbox = {
         console: { log() {}, warn() {}, error() {} },
         setInterval: (_fn, ms) => { intervals.push(ms); return intervals.length; },
-        clearInterval() {}, setTimeout: () => 0, clearTimeout() {},
+        clearInterval() {},
+        setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
+        clearTimeout() {},
         fetch: (url) => { fetches.push(String(url)); return Promise.resolve({ ok: true, json, text: () => Promise.resolve('') }); },
         requestAnimationFrame: () => 0,
         localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -125,7 +128,11 @@ async function runScript({ js, payload = {}, callAfter = [], preset = {} }) {
         // admin-core's apiFetch resolves to a Response — the inline script calls
         // r.json(). Returning the bare payload here would make every row builder
         // throw 'r.json is not a function' and mask the bugs under test.
-        apiFetch: (url) => { fetches.push(String(url)); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) }); },
+        apiFetch: (url) => {
+            fetches.push(String(url));
+            if (apiFetchImpl) return apiFetchImpl(String(url), payload);
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) });
+        },
         escapeHtml: (s) => String(s == null ? '' : s),
         jsEscape: (s) => String(s == null ? '' : s),
         formatDateTimeID: (s) => String(s == null ? '' : s),
@@ -162,7 +169,7 @@ async function runScript({ js, payload = {}, callAfter = [], preset = {} }) {
         await new Promise((r) => setImmediate(r));
         await new Promise((r) => setImmediate(r));
     }
-    return { threw, error, intervals, fetches, els, sandbox, ctx };
+    return { threw, error, intervals, timeouts, fetches, els, sandbox, ctx };
 }
 
 /**
@@ -769,6 +776,43 @@ test('a stale failure cannot wipe rows rendered by a newer request', async () =>
     assert.ok(
         /FRESH-ROWS/.test(w.els.submissionBody.innerHTML),
         'a stale failure wiped fresh rows: ' + w.els.submissionBody.innerHTML.slice(0, 200)
+    );
+});
+
+// ---------------------------------------------------------------------------
+// The initial table load must not be held hostage by the grants request.
+// ---------------------------------------------------------------------------
+
+test('a hung repeat-grants request cannot block the initial table load', async () => {
+    // The initial load sequenced grants BEFORE the table to avoid a button
+    // flicker — but with no timeout and no fallback. If the grants request
+    // hangs, loadDetail never runs: no watchdog is ever armed (it lives inside
+    // loadDetail), and the static "Memuat data..." stays forever with no
+    // recovery. The supervisor experiences it as "the filter does nothing".
+    const hangGrants = (url, payload) => {
+        if (/repeat-grants/.test(url)) return new Promise(() => {}); // hangs
+        return Promise.resolve({
+            ok: true, status: 200, json: () => Promise.resolve(payload),
+        });
+    };
+    const { els, fetches, timeouts } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        apiFetchImpl: hangGrants,
+    });
+    for (let i = 0; i < 15; i++) await new Promise((r) => setImmediate(r));
+    // The 3s fallback is a setTimeout, not a microtask — fire captured timers.
+    for (const t of timeouts) t.fn();
+    for (let i = 0; i < 15; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(
+        !/Memuat data/.test(els.submissionBody.innerHTML),
+        'the table never loaded because a hung grants request blocked it: ' +
+        els.submissionBody.innerHTML.slice(0, 200)
+    );
+    assert.ok(
+        /data-submission-id/.test(els.submissionBody.innerHTML),
+        'rows must render from the submissions payload even when grants hang: ' +
+        els.submissionBody.innerHTML.slice(0, 200)
     );
 });
 
