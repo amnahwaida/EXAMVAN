@@ -1117,3 +1117,70 @@ test('a single attempt stays visually quiet', async () => {
 // The device table got wedged on "Memuat data..." forever, and must not be
 // polled automatically any more.
 // ---------------------------------------------------------------------------
+
+// ===========================================================================
+// SERVER CLOCK — countdown token selaras jam server (review 2026-11-13)
+// ===========================================================================
+// TOKEN_LAST_RESET adalah timestamp SERVER, tetapi updateCountdown dulu
+// membandingkannya dengan new Date() (jam klien). PC sekolah tanpa NTP bisa
+// meleset menit → "Berubah dalam" dan deteksi Due meleset sebesar skew itu.
+// Server kini menempel server_now_ms saat render; offset (stabil selama
+// halaman terbuka) diterapkan pada setiap pembacaan "sekarang".
+
+test('SERVER-CLOCK (statik): template membawa SERVER_NOW_MS dan updateCountdown memakai serverNow()', () => {
+    const html = readDetail();
+    assert.match(html,
+        /var SERVER_NOW_MS = \{\{if \.server_now_ms\}\}\{\{\.server_now_ms\}\}\{\{else\}\}0\{\{end\}\};/,
+        'SERVER_NOW_MS wajib dirender dari data server dengan fallback 0');
+    assert.match(html, /function serverNow\(\)/, 'helper serverNow() eksis');
+    assert.match(html, /new Date\(serverNow\(\)\)/,
+        'updateCountdown wajib memakai new Date(serverNow()), bukan new Date() mentah');
+    assert.doesNotMatch(html, /var now = new Date\(\);/,
+        'pembacaan jam klien mentah di updateCountdown wajib hilang');
+});
+
+function countdownSeconds(els) {
+    const m = els.pdTokenCountdown.textContent.match(/(\d+):(\d+)/);
+    assert.ok(m, 'countdown menampilkan mm:ss, dapat: ' + els.pdTokenCountdown.textContent);
+    return Number(m[1]) * 60 + Number(m[2]);
+}
+
+test('SERVER-CLOCK (vm): countdown memakai offset jam server, bukan jam klien', async () => {
+    // Server 5 menit di depan jam klien (PC tanpa NTP). Rotasi terakhir
+    // (menurut jam server) terjadi 3 menit lalu → sisa 2 menit. Tanpa offset,
+    // jam klien yang tertinggal menghitung sisa 7 menit.
+    const { els, threw, error } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        callAfter: [
+            'SERVER_NOW_MS = Date.now() + 300000;' +
+            'TOKEN_MODE = "dynamic"; TOKEN_INTERVAL_MINUTES = 5;' +
+            'TOKEN_LAST_RESET = new Date(Date.now() + 300000 - 180000).toISOString();',
+            'updateCountdown();',
+        ],
+    });
+    assert.equal(threw, false, 'script tetap hidup: ' + (error && error.message));
+    const secs = countdownSeconds(els);
+    assert.ok(secs <= 121 && secs >= 110,
+        `dengan offset +5 menit, sisa harus ~2:00 (±10 dtk), dapat ${secs} dtk — ` +
+        'offset jam server tidak diterapkan');
+});
+
+test('SERVER-CLOCK (vm): SERVER_NOW_MS kosong → offset 0 (fallback perilaku lama)', async () => {
+    const { els, threw, error } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        callAfter: [
+            // SERVER_NOW_MS tetap 0 (render tanpa data server): offset harus 0,
+            // bukan NaN yang mengosongkan countdown seluruhnya.
+            'SERVER_NOW_MS = 0;' +
+            'TOKEN_MODE = "dynamic"; TOKEN_INTERVAL_MINUTES = 5;' +
+            'TOKEN_LAST_RESET = new Date(Date.now() - 180000).toISOString();',
+            'updateCountdown();',
+        ],
+    });
+    assert.equal(threw, false, 'script tetap hidup: ' + (error && error.message));
+    const secs = countdownSeconds(els);
+    assert.ok(secs <= 121 && secs >= 110,
+        `tanpa data server, jam klien dipakai apa adanya (~3:00 tersisa), dapat ${secs} dtk`);
+});

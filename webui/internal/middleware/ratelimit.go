@@ -145,6 +145,15 @@ func newRateLimit(maxAttempts int, window time.Duration, includeFP bool, perRout
 // limiter (memory & Redis) supaya keduanya menghitung atas kunci yang sama.
 // Separator '|' tidak pernah muncul di template rute gin maupun di IP/user key,
 // jadi batas-batas field-nya jelas di log.
+
+// RateLimitNow adalah jam yang dibaca kedua limiter sliding-window. Var (bukan
+// konst) demi test: kontrak budget route ("tepat N pertama lewat, N+1 → 429")
+// hanya deterministik bila seluruh burst terbukti jatuh di SATU window —
+// pada mesin lambat, burst sekuensial 15k request bisa melewati 60 detik dan
+// entri awal terpangkas sebelum probe tiba (flake yang pernah dilaporkan).
+// Test membekukan jam ini; produksi selalu memakai time.Now.
+var RateLimitNow = time.Now
+
 func rateLimitBucketIdentity(scope, key string) string {
 	if scope == "" {
 		return key
@@ -174,7 +183,11 @@ func startMemCleaner() {
 			defer ticker.Stop()
 			for range ticker.C {
 				memStoreMu.Lock()
-				now := time.Now()
+				// RateLimitNow (bukan time.Now): cleaner harus memakai jam yang
+				// sama dengan limiter — dengan jam test yang dibekukan, entri
+				// ber-usia-nol dan tidak boleh dianggap basi (time.Now nyata
+				// menghapus entri beku tiap 10 detik dan mereset counter).
+				now := RateLimitNow()
 				for ip, e := range memStore {
 					if now.Sub(e.start) > e.window {
 						delete(memStore, ip)
@@ -206,7 +219,7 @@ func newMemoryRateLimit(maxAttempts int, window time.Duration, includeFP bool, p
 			scope = rateLimitRouteScope(c)
 		}
 		keys := getRateLimitKeys(c, includeFP)
-		now := time.Now()
+		now := RateLimitNow()
 
 		memStoreMu.Lock()
 		blocked := false
@@ -259,7 +272,7 @@ func newRedisRateLimit(maxAttempts int, window time.Duration, includeFP bool, pe
 			scope = rateLimitRouteScope(c)
 		}
 		keys := getRateLimitKeys(c, includeFP)
-		now := time.Now().UnixMilli()
+		now := RateLimitNow().UnixMilli()
 		cutoff := now - windowMillis
 
 		rdbVal, exists := c.Get("redis")

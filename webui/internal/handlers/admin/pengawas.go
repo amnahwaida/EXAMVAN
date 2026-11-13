@@ -116,6 +116,10 @@ func PengawasDetailPage() gin.HandlerFunc {
 			"pengawas_list":        pengawasAssignments,
 			"active_page":          "pengawas",
 			"can_control_settings": canControl,
+			// server_now_ms: jam server saat render, dipakai halaman untuk
+			// menghitung offset jam klien (countdown rotasi token & deteksi
+			// Due selaras server, bukan jam PC pengawas yang bisa skew).
+			"server_now_ms": time.Now().UnixMilli(),
 		})
 	}
 }

@@ -31,18 +31,21 @@ const otpResendCooldown = 60 * time.Second
 const maxOTPAttempts = 5
 
 // generateOTP returns a random 6-digit numeric OTP.
-func generateOTP() string {
+// Fail-closed (review 2026-11-13): dulu kegagalan crypto/rand diam-diam
+// diganti digit berbasis time.Now().UnixNano() — kode yang bisa diprediksi
+// penyerang bila entropi rusak. Sekarang errornya dibalikkan ke pemanggil,
+// yang menjawab netral (anti-oracle) dan tidak mengeluarkan kode apa pun.
+func generateOTP() (string, error) {
 	const digits = "0123456789"
 	b := make([]byte, 6)
 	for i := range b {
 		n, err := rand.Int(rand.Reader, big.NewInt(10))
 		if err != nil {
-			b[i] = digits[time.Now().UnixNano()%10]
-		} else {
-			b[i] = digits[n.Int64()]
+			return "", err
 		}
+		b[i] = digits[n.Int64()]
 	}
-	return string(b)
+	return string(b), nil
 }
 
 // smtpSettings bundles the SMTP configuration read from SaaS settings.
@@ -130,7 +133,12 @@ func resendOTPHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		code := generateOTP()
+		code, gErr := generateOTP()
+		if gErr != nil {
+			log.Printf("resend otp: generate error: %v", gErr)
+			uniform()
+			return
+		}
 		expiry := time.Now().UTC().Add(otpTTL)
 		// Hash at-rest (finding C, 13 Sep 2026) — plaintext only goes to email.
 		otpHash, hErr := models.HashOTP(code)
@@ -225,24 +233,29 @@ func forgotPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 		if err == nil && status == models.UserStatusActive && email != "" && !inCooldown {
 			smtp := loadSMTPSettings(c, pool)
 			if smtp.configured() {
-				code := generateOTP()
-				expiry := time.Now().UTC().Add(otpTTL)
-				// Hash at-rest (finding C, 13 Sep 2026) — plaintext only goes to email.
-				otpHash, hErr := models.HashOTP(code)
-				if hErr != nil {
-					log.Printf("forgot password: hash otp error: %v", hErr)
-					// Fall through: the handler ends in the same neutral redirect
-					// for every outcome, so no oracle is created.
-				} else if _, e := pool.Exec(ctx,
-					`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, otpHash, expiry, id); e == nil {
-					// Async send: no timing side-channel + not blocked on SMTP.
-					go func(s smtpSettings, to, uname, otp string) {
-						if err := helpers.SendPasswordResetEmail(s.host, s.port, s.user, s.password, s.sender, to, uname, otp); err != nil {
-							log.Printf("forgot password: send email error to %s: %v", to, err)
-						}
-					}(smtp, email, username, code)
+				code, gErr := generateOTP()
+				if gErr != nil {
+					// Fail-closed tanpa oracle: respons tetap redirect netral.
+					log.Printf("forgot password: generate otp error: %v", gErr)
 				} else {
-					log.Printf("forgot password: update otp error: %v", e)
+					expiry := time.Now().UTC().Add(otpTTL)
+					// Hash at-rest (finding C, 13 Sep 2026) — plaintext only goes to email.
+					otpHash, hErr := models.HashOTP(code)
+					if hErr != nil {
+						log.Printf("forgot password: hash otp error: %v", hErr)
+						// Fall through: the handler ends in the same neutral redirect
+						// for every outcome, so no oracle is created.
+					} else if _, e := pool.Exec(ctx,
+						`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, otpHash, expiry, id); e == nil {
+						// Async send: no timing side-channel + not blocked on SMTP.
+						go func(s smtpSettings, to, uname, otp string) {
+							if err := helpers.SendPasswordResetEmail(s.host, s.port, s.user, s.password, s.sender, to, uname, otp); err != nil {
+								log.Printf("forgot password: send email error to %s: %v", to, err)
+							}
+						}(smtp, email, username, code)
+					} else {
+						log.Printf("forgot password: update otp error: %v", e)
+					}
 				}
 			} else {
 				log.Printf("forgot password: SMTP not configured, cannot send reset to %s", username)

@@ -108,7 +108,9 @@ test('L75: 5 simbol sprite tanpa referensi runtime dihapus (45 → 41)', () => {
             `#${id} census 0 referensi — dihapus; kembalikan dari git bila dipakai lagi`);
     }
     const defined = [...SPRITE.matchAll(/<symbol id="(hi-[a-z-]+)"/g)].map((m) => m[1]);
-    assert.equal(defined.length, 41, 'sprite kini 41 simbol (40 + hi-stop ikon berhenti 5.4#1)');
+    // 41 → 40: duplikat heroicons `hi-stop` kedua dibuang di fix M26 (dedup
+    // sprite); census runtime di bawah adalah guard yang sesungguhnya.
+    assert.equal(defined.length, 40, 'sprite kini 40 simbol unik (41 − duplikat hi-stop M26)');
     // Setiap simbol tersisa ter-referensi (nol mati baru) — census runtime:
     const walk = (dir, acc = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

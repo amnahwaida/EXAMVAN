@@ -82,6 +82,10 @@ test('S48 (statik): pengawas_detail bebas onkeyup/onchange inline; initLiveSearc
 test('S48 (perilaku): initLiveSearch ter-wire ke #pengawasSearch dengan callback loadDetail', async () => {
     // Eksekusi blok wiring halaman dalam sandbox dan pastikan initLiveSearch
     // dipanggil dengan elemen input yang benar.
+    // RONDE 10 (b86a77c): dropdown filter status DIHAPUS — tabel selalu
+    // menampilkan semua perangkat, jadi wiring tinggal live-search saja.
+    // Test di-refresh: blok ekstraksi berakhir di penutup if-block, bukan di
+    // baris statusFilterEl yang sudah tidak ada.
     const calls = [];
     const sandbox = {
         window: {},
@@ -93,18 +97,20 @@ test('S48 (perilaku): initLiveSearch ter-wire ke #pengawasSearch dengan callback
     };
     sandbox.window.initLiveSearch = sandbox.initLiveSearch;
     sandbox.globalThis = sandbox;
-    const marker = 'Batch 10 (S48):';
+    const marker = "initLiveSearch(document.getElementById('pengawasSearch')";
     const at = DETAIL.indexOf(marker);
-    assert.ok(at !== -1, 'blok komentar penunjuk S48 ada di pengawas_detail.html');
-    const start = DETAIL.lastIndexOf('//', at);
-    const endAnchor = "statusFilterEl.addEventListener('change', function() { loadDetail(1); });";
-    const end = DETAIL.indexOf(endAnchor, start);
-    assert.ok(end !== -1, 'wiring select filter ada di blok yang sama');
+    assert.ok(at !== -1, 'blok wiring live-search ada di pengawas_detail.html');
+    const start = DETAIL.lastIndexOf('if (typeof initLiveSearch', at);
+    const endAnchor = '\n    }';
+    const end = DETAIL.indexOf(endAnchor, at);
+    assert.ok(end !== -1, 'blok wiring live-search tertutup if-block-nya');
     const block = DETAIL.slice(start, end + endAnchor.length).replace(/^\s*\/\/.*$/gm, '');
     vm.createContext(sandbox);
     vm.runInContext(block, sandbox);
     assert.equal(calls.length, 1, 'initLiveSearch dipanggil tepat sekali saat init');
     assert.equal(calls[0].inputEl.id, 'pengawasSearch');
+    assert.doesNotMatch(DETAIL, /statusFilterEl\./,
+        'filter status dihapus (ronde 10) — wiring-nya tidak boleh kembali tanpa elemen');
 });
 
 // ===========================================================================

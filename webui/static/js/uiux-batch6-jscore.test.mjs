@@ -510,6 +510,12 @@ test('R28 (perilaku): output stabil YYYY-MM-DD HH:MM dan identik dengan formatte
     assert.match(out, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, 'format konsisten YYYY-MM-DD HH:MM');
     assert.equal(out.length, 16, 'panjang stabil (zero-padded)');
 
-    assert.equal(f(''), '—', 'input kosong → em-dash (perilaku lama)');
-    assert.equal(f('bukan-tanggal'), 'bukan-tanggal', 'input invalid dikembalikan apa adanya (perilaku lama)');
+    assert.equal(f(''), '—', 'input kosong → em-dash');
+    // Perilaku BERUBAH (fix anti-XSS tersimpan): tanggal yang tidak bisa
+    // di-parse dikembalikan sebagai em-dash, BUKAN string mentahnya — setiap
+    // pemanggil menyuntikkan hasil ke innerHTML, jadi menggemakan input
+    // mentah menjadikan satu kolom tanggal baru/legacy sebagai sink XSS.
+    // Lihat komentar UNPARSEABLE_DATE di admin-core.js.
+    assert.equal(f('bukan-tanggal'), '—', 'input invalid → em-dash, bukan string mentah (anti stored-XSS)');
+    assert.equal(f('<img src=x onerror=alert(1)>'), '—', 'input markup invalid → em-dash (tidak digemakan)');
 });

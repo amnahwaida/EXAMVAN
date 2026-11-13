@@ -101,8 +101,20 @@ const INLINE_SCRIPTS = (() => {
 const INLINE_JS = INLINE_SCRIPTS.join('\n');
 // Untuk eksekusi vm: buang sintaks Go template ({{ .X }}) dari script inline —
 // di browser nilai itu sudah ter-render sebelum JS dieksekusi.
+// Praproses direktif Go template agar inline script bisa dievaluasi di vm.
+// Tiga bentuk yang muncul di settings.html:
+//   1. kondisional if/else/end  → ambil cabang truthy-nya
+//   2. kondisional if/end       → ambil isinya
+//   3. nilai {{.field}}         → '0' (placeholder angka aman di posisi nilai)
+// Regex lama ('0' untuk SEMUA direktif) menghasilkan `0true0false0` untuk
+// bentuk (1) — SyntaxError yang membunuh dua test PERILAKU.
+const stripGoTemplates = (s) => s
+    .replace(/\{\{if[^{}]*\}\}([\s\S]*?)\{\{else\}\}[\s\S]*?\{\{end\}\}/g, '$1')
+    .replace(/\{\{if[^{}]*\}\}([\s\S]*?)\{\{end\}\}/g, '$1')
+    .replace(/\{\{[^{}]*\}\}/g, '0');
+
 const INLINE_JS_EXEC = INLINE_SCRIPTS
-    .map((s) => s.replace(/\{\{[^{}]*\}\}/g, '0'))
+    .map(stripGoTemplates)
     .join('\n');
 
 test('R28: SEMUA data-action di settings.html terdaftar (inline script ∪ modul milik batch ini)', () => {

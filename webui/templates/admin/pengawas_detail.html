@@ -1085,6 +1085,21 @@
 var EXAM_ID = {{.exam.ID}};
 var SUB_PAGE = 1;
 
+// ===== Jam server =====
+// TOKEN_LAST_RESET adalah timestamp SERVER, tetapi countdown dulu memakai
+// new Date() (jam klien) — PC sekolah tanpa NTP bisa meleset menit, dan
+// skew itu langsung jadi skew "Berubah dalam" plus deteksi Due. Server
+// menempel server_now_ms saat render; selisihnya (stabil selama halaman
+// terbuka — drift sesungguhnya jauh di bawah presisi tampilan) diterapkan
+// pada setiap pembacaan "sekarang" via serverNow().
+var SERVER_NOW_MS = {{if .server_now_ms}}{{.server_now_ms}}{{else}}0{{end}};
+var __bootClientMs = Date.now();
+function serverClockOffsetMs() {
+    if (typeof SERVER_NOW_MS !== 'number' || !isFinite(SERVER_NOW_MS) || SERVER_NOW_MS <= 0) return 0;
+    return SERVER_NOW_MS - __bootClientMs;
+}
+function serverNow() { return Date.now() + serverClockOffsetMs(); }
+
 // ===== Izin mengulang per siswa — state di level atas script =====
 // PENTING: deklarasi ini harus berada di scope script, BUKAN di dalam IIFE.
 // Script ini punya beberapa IIFE, dan row-builder loadDetail() (top-level)
@@ -2413,7 +2428,7 @@ function regenerateActiveToken() {
                     // Countdown dihitung dari JAM SERVER. Menempelkan
                     // new Date() (jam perangkat) mencampur dua domain jam dan
                     // membuat countdown meleset atau negatif.
-                    TOKEN_LAST_RESET = (res.token_last_reset_at || new Date().toISOString());
+                    TOKEN_LAST_RESET = (res.token_last_reset_at || new Date(serverNow()).toISOString());
                     tokenDueFetched = false;
                     showToast('Token baru: ' + res.token, 'success');
                 } else {
@@ -2563,7 +2578,8 @@ function updateCountdown() {
         var lastReset = new Date(TOKEN_LAST_RESET);
         if (isNaN(lastReset.getTime())) { el.innerHTML = ''; return; }
         var nextReset = new Date(lastReset.getTime() + TOKEN_INTERVAL_MINUTES * 60 * 1000);
-        var now = new Date();
+        // Jam kunci: serverNow(), bukan jam klien mentah (lihat blok Jam server).
+        var now = new Date(serverNow());
         var remainMs = nextReset.getTime() - now.getTime();
 
         if (remainMs <= 0) {

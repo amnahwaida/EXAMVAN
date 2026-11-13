@@ -90,9 +90,15 @@ test('R81 (statik): pengawas.html bebas #4f46e5 sebagai warna svg/teks — chevr
 // ---------------------------------------------------------------------------
 
 test('R84 (statik): anchor skip-link login.html tanpa atribut style inline', () => {
-    const html = LOGIN();
-    const anchor = html.match(/<a href="#main-content" class="skip-link"[^>]*>/);
-    assert.ok(anchor, 'login.html wajib punya <a href="#main-content" class="skip-link">');
+    // Skip-link kini di-render lewat partial bersama public_skip_link
+    // (shared.html) — asersi menyasar DEFINISI partial + pemanggilannya di
+    // login.html, bukan lagi anchor literal di login.html.
+    const login = LOGIN();
+    assert.match(login, /\{\{\s*template\s+"public_skip_link"/,
+        'login.html wajib memanggil partial public_skip_link');
+    const partial = read(ROOT, 'public', 'shared.html');
+    const anchor = partial.match(/<a href="#main-content" class="skip-link"[^>]*>/);
+    assert.ok(anchor, 'partial public_skip_link wajib memancarkan <a href="#main-content" class="skip-link">');
     assert.doesNotMatch(anchor[0], /\sstyle=/,
         'skip-link arwah inline (position:absolute;left:-9999px;…) menimpa theme.css — hapus seluruh style');
 });

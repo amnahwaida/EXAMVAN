@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 
@@ -14,7 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	csrfTokenLength = 32        // 32 bytes → 64 hex chars
+	csrfTokenLength = 32 // 32 bytes → 64 hex chars
 	csrfSessionKey  = "_csrf_token"
 )
 
@@ -84,7 +85,10 @@ func CSRFRequired() gin.HandlerFunc {
 			provided = c.PostForm("_csrf_token")
 		}
 
-		if provided != expected {
+		// Constant-time compare: panjang berbeda juga menghasilkan 0 (ditolak),
+		// jadi kasus "token terpotong/lebih panjang" tetap masuk jalur 403 yang
+		// sama tanpa mengganti perbedaan waktu menjadi sinyal.
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"success": false,
 				"message": "CSRF token tidak valid. Silakan refresh halaman.",

@@ -564,7 +564,14 @@ test('S30: head.html tidak mendefinisikan CSS skip-link sendiri (CSS tunggal di 
 });
 
 test('S30: skip-link login.html tetap ada (tidak teregresi)', () => {
-    assert.match(LOGIN, /class="skip-link"/);
+    // Skip-link login kini di-render lewat partial bersama (single source of
+    // truth bersama halaman publik, WCAG 2.4.1) — login.html wajib memanggil
+    // partial-nya, dan partial-nya wajib memancarkan anchor .skip-link.
+    assert.match(LOGIN, /\{\{\s*template\s+"public_skip_link"/,
+        'login.html wajib memanggil partial public_skip_link');
+    const SHARED = read('templates/public/shared.html');
+    assert.match(SHARED, /\{\{\s*define\s+"public_skip_link"\s*\}\}[\s\S]{0,400}?class="skip-link"/,
+        'partial public_skip_link wajib memancarkan anchor class="skip-link"');
 });
 
 // ---------------------------------------------------------------------------

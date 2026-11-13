@@ -178,6 +178,9 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
         attrs: { 'data-action': 'show-access-log', 'data-submission-id': '42' },
         focused: false,
         focus() { this.focused = true; },
+        // restoreSubsFocus versi ronde 9 MEMBACA atribut via getAttribute
+        // (perbandingan string, bukan selector) — stub wajib menyediakannya.
+        getAttribute(n) { return this.attrs[n] !== undefined ? this.attrs[n] : null; },
     };
     const activeBtn = {
         attrs: { 'data-action': 'show-access-log', 'data-submission-id': '42' },
@@ -186,6 +189,11 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
     };
     tbody.contains = (el) => el === activeBtn || el === restoredBtn;
     tbody.querySelector = () => restoredBtn;
+    // restoreSubsFocus versi ronde 9 menelusuri baris via querySelectorAll
+    // (bukan merakit CSS selector dari data-mac) — stub baris berisi tombol
+    // padanan agar jalur PEMULIHAN fokus yang diuji, bukan jalur baris-hilang.
+    tbody.querySelectorAll = () => [{ querySelector: () => restoredBtn }];
+    tbody.focus = () => {};
 
     const sandbox = {
         document: {
@@ -194,7 +202,6 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
             getElementById(id) {
                 if (id === 'submissionBody') return tbody;
                 if (id === 'pengawasSearch') return { value: '' };
-                if (id === 'statusFilter') return { value: '' };
                 if (id === 'subPagination') return { style: {}, innerHTML: '', display: '' };
                 return null;
             },
@@ -217,13 +224,32 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
 
-    // State modul + fungsi-fungsi jalur render submissions.
+    // Harness diperbarui untuk script ronde 9-10: loadDetail kini memakai
+    // watchdog + generation + sync token dari payload. Semua state modul dan
+    // helper yang dirujuk wajib dideklarasikan/diekstrak, kalau tidak satu
+    // ReferenceError membunuh assertion yang sudah benar.
+    // setTimeout stub: watchdog HANYA dipasang, tidak boleh menyala di test.
+    sandbox.setTimeout = () => 0;
+    sandbox.clearTimeout = () => {};
     const decl = `
         var SUBS_PER_PAGE = 20;
         var subsLastHtml = null;
         var subsSnapshot = [];
+        var detailStartedAt = 0;
+        var detailWatchdog = null;
+        var DETAIL_TIMEOUT_MS = 20000;
+        var detailGeneration = 0;
+        var openAccessLogId = null;
+        var examLive = true;
+        var examEnded = false;
+        var repeatGrantedKeys = {};
     `;
-    const names = ['getSubsFocusKey', 'restoreSubsFocus', 'renderSubPagination', 'loadDetail'];
+    const names = [
+        'getSubsFocusKey', 'restoreSubsFocus', 'renderSubPagination',
+        'armDetailWatchdog', 'disarmDetailWatchdog', 'currentDetailUrl',
+        'renderActiveFilterChip', 'applyExamLivenessToControls',
+        'syncTokenFromPayload', 'loadDetail',
+    ];
     const parts = names.map((n) => {
         const fn = extractFunction(DETAIL, n);
         assert.ok(fn, 'fungsi ' + n + ' eksis di pengawas_detail.html');
@@ -380,7 +406,11 @@ test('R112 (vm): jalur sukses (kosong & berisi) tetap mengumumkan jumlah', async
     const sbEmpty = buildApprovalsSandbox(() => ({ success: true, data: [], total: 0 }));
     sbEmpty.loadApprovals();
     await new Promise((r) => setTimeout(r, 0));
-    assert.match(sbEmpty.__live.textContent, /Tidak ada permintaan izin/,
+    // Antrean kosong mengumumkan lewat announceQueueCount DAN lewat notice
+    // empty-state (renderApprovalNotice memakai announceText wajib, kontrak
+    // R112). Yang terakhir menimpa teks live region — kedua pesan ekuivalen
+    // bagi screen reader, jadi asersinya menerima keduanya.
+    assert.match(sbEmpty.__live.textContent, /Tidak ada permintaan izin|Belum ada antrean peserta/,
         'antrean kosong tetap diumumkan (perilaku S85 dipertahankan)');
 
     const sbData = buildApprovalsSandbox(() => ({
@@ -416,13 +446,19 @@ test('R113 (vm): showAccessLog bekerja dari snapshot modul', () => {
                 return null;
             },
         },
+        // Kontrak refactor R113: showAccessLog/renderAccessLogModal kini dua
+        // fungsi terpisah (modal ikut segar tiap poll) — keduanya diekstrak,
+        // dan state modul openAccessLogId dideklarasikan eksplisit.
+        openAccessLogId: null,
         subsSnapshot: [{ id: '42', mac_address: 'AA:BB', student_name: 'Budi', student_class: 'X-1', exam_number: '007', submitted: true, access_logs: [], submission_history: [] }],
         localizeUTC: () => '2026-08-25 09:00',
         esc: (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
     });
     const fn = extractFunction(DETAIL, 'showAccessLog');
     assert.ok(fn, 'showAccessLog eksis');
-    vm.runInContext(fn, sb, { filename: 'r113-accesslog' });
+    const renderFn = extractFunction(DETAIL, 'renderAccessLogModal');
+    assert.ok(renderFn, 'renderAccessLogModal eksis (dipisah dari showAccessLog)');
+    vm.runInContext(fn + '\n' + renderFn, sb, { filename: 'r113-accesslog' });
 
     sb.showAccessLog('42');
     assert.match(body.innerHTML, /Budi/, 'data siswa dibaca dari snapshot modul');

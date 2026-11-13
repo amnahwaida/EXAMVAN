@@ -49,9 +49,11 @@ test('S60 (statik): callback live-search & listener change di pengawas_detail me
     assert.match(DETAIL,
         /initLiveSearch\(document\.getElementById\('pengawasSearch'\), function\(\) \{ loadDetail\(1\); \}\)/,
         'callback initLiveSearch tanpa argumen → halaman tidak reset (hasil kosong palsu)');
-    assert.match(DETAIL,
-        /statusFilterEl\.addEventListener\('change', function\(\) \{ loadDetail\(1\); \}\)/,
-        'listener change statusFilter juga wajib reset ke halaman 1');
+    // RONDE 10 (b86a77c): dropdown filter status DIHAPUS — tabel selalu
+    // menampilkan semua perangkat. Guard ini menjaga agar wiring-nya tidak
+    // kembali tanpa elemen select-nya (referensi basi = ReferenceError).
+    assert.doesNotMatch(DETAIL, /statusFilterEl\./,
+        'filter status dihapus — tidak boleh ada lagi referensi statusFilterEl');
 });
 
 test('S60 (statik): callback live-search & fallback Enter di pengawas.html memanggil loadPengawasExams(1)', () => {
@@ -88,18 +90,46 @@ test('S60 (perilaku): detail — SUB_PAGE=3 lalu callback live-search dipanggil 
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
 
-    const guardVars = 'var detailLoading = false; var detailRerunPending = false;';
-    const fnSrc = extractFunction(DETAIL, 'loadDetail');
-    assert.ok(fnSrc, 'loadDetail ada di pengawas_detail.html');
-
-    // Blok wiring live-search (tanpa blok statusFilter yang butuh elemen DOM).
+    // Harness diperbarui untuk script ronde 9-10 (watchdog + generation +
+    // sync token): loadDetail kini menyentuh state modul dan helper tambahan.
+    // Semua yang dirujuk loadDetail wajib ada di sandbox, kalau tidak satu
+    // ReferenceError akan MEMBUNUH assertion yang sudah benar (pola kegagalan
+    // yang pernah menyamar sebagai "filter tidak bekerja" — lihat komentar
+    // repeatGrantedKeys di pengawas_detail.html).
+    const guardVars = [
+        'var detailLoading = false;',
+        'var detailRerunPending = false;',
+        'var detailStartedAt = 0;',
+        'var detailWatchdog = null;',
+        'var DETAIL_TIMEOUT_MS = 20000;',
+        'var detailGeneration = 0;',
+        'var subsLastHtml = null;',
+        'var subsSnapshot = [];',
+    ].join('\n');
+    const names = [
+        'armDetailWatchdog', 'disarmDetailWatchdog', 'currentDetailUrl',
+        'renderActiveFilterChip', 'applyExamLivenessToControls',
+        'syncTokenFromPayload', 'loadDetail',
+    ];
+    const parts = names.map((n) => {
+        const fn = extractFunction(DETAIL, n);
+        assert.ok(fn, 'fungsi ' + n + ' eksis di pengawas_detail.html');
+        return fn;
+    });
+    // Blok wiring live-search (tanpa blok statusFilter yang sudah dihapus).
     const marker = "initLiveSearch(document.getElementById('pengawasSearch')";
     const at = DETAIL.indexOf(marker);
     assert.ok(at !== -1, 'blok wiring live-search ada');
-    const blockEnd = DETAIL.indexOf('});', at);
-    const wiring = DETAIL.slice(DETAIL.lastIndexOf('if (typeof initLiveSearch', at), DETAIL.indexOf('}', blockEnd + 3) + 1);
+    const endAnchor = '\n    }';
+    const end = DETAIL.indexOf(endAnchor, at);
+    assert.ok(end !== -1, 'blok wiring live-search tertutup if-block-nya');
+    const wiring = DETAIL.slice(DETAIL.lastIndexOf('if (typeof initLiveSearch', at), end + endAnchor.length);
 
-    vm.runInContext(guardVars + '\n' + fnSrc + '\n' + wiring, sandbox, { filename: 's60-detail' });
+    // setTimeout stub: watchdog HANYA dipasang, tidak boleh menyala di test.
+    sandbox.setTimeout = () => 0;
+    sandbox.clearTimeout = () => {};
+
+    vm.runInContext(guardVars + '\n' + parts.join('\n') + '\n' + wiring, sandbox, { filename: 's60-detail' });
 
     sandbox.__liveCb();
     await new Promise((r) => setTimeout(r, 0));
@@ -108,19 +138,11 @@ test('S60 (perilaku): detail — SUB_PAGE=3 lalu callback live-search dipanggil 
         'fetch setelah pencarian dari hal >1 harus page=1, dapat: ' + urls[urls.length - 1]);
     assert.equal(sandbox.SUB_PAGE, 1, 'SUB_PAGE global ter-reset ke 1');
 
-    // Listener change statusFilter (dengan elemen tersedia) → juga page=1.
-    byId.statusFilter = el('statusFilter', {
-        value: '',
-        addEventListener(type, fn) { if (type === 'change') changeHandler = fn; },
-    });
-    const filterWiring = DETAIL.match(/var statusFilterEl[\s\S]{0,300}?statusFilterEl\.addEventListener\('change'[\s\S]*?\}\);/);
-    assert.ok(filterWiring, 'wiring statusFilter ada');
-    vm.runInContext(filterWiring[0], sandbox);
-    assert.equal(typeof changeHandler, 'function', 'listener change terpasang');
-    changeHandler();
-    await new Promise((r) => setTimeout(r, 0));
-    assert.match(urls[urls.length - 1], /[?&]page=1(&|$)/,
-        'perubahan filter juga reset ke page=1');
+    // RONDE 10 (b86a77c): listener change statusFilter DIHAPUS bersama
+    // dropdown-nya — reset halaman kini hanya jalur live-search. Guard ini
+    // mencegah wiring arwah kembali tanpa elemen.
+    assert.doesNotMatch(DETAIL, /statusFilterEl\.addEventListener/,
+        'wiring statusFilter dihapus — jangan hidupkan kembali tanpa elemennya');
 });
 
 test('S60 (perilaku): daftar ujian — PENG_CURRENT_PAGE=3 lalu callback live-search dipanggil → fetch URL page=1', async () => {
@@ -129,6 +151,9 @@ test('S60 (perilaku): daftar ujian — PENG_CURRENT_PAGE=3 lalu callback live-se
     const searchInput = { value: 'matematika', dataset: {} };
     const sandbox = {
         PENG_CURRENT_PAGE: 3,
+        // PENG_SEQ hidup di scope atas pengawas.html (di luar fungsi yang
+        // diekstrak) — deklarasikan agar guard respons-basi jalan.
+        PENG_SEQ: 0,
         encodeURIComponent,
         console,
         document: {
