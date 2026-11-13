@@ -340,26 +340,14 @@ test('S19: input tanpa id diberi id unik lalu error terhubung', () => {
     assert.equal(input.attrs['aria-describedby'], input.id + '-error');
 });
 
-test('S19: clearFieldErrors(container) membersihkan semua field dalam container', () => {
-    const env = loadAdminCore();
-    const form = env.makeNode('form');
-    env.doc.body.appendChild(form);
-    const ids = ['fName', 'fVersion', 'fFile'];
-    ids.forEach((id) => {
-        const f = env.makeNode('input');
-        f.id = id;
-        form.appendChild(f);
-        env.sandbox.setFieldError(f, 'err ' + id);
-    });
-
-    env.sandbox.clearFieldErrors(form);
-
-    ids.forEach((id) => {
-        const f = env.doc.getElementById(id);
-        assert.ok(!f.className.includes('input-error'), id + ' bersih dari class error');
-        assert.equal(f.attrs['aria-invalid'], undefined, id + ' bersih dari aria-invalid');
-        assert.equal(env.doc.getElementById(id + '-error'), null, id + ' kehilangan <p> error');
-    });
+test('SIMPLIFY 14 Nov: clearFieldErrors (jamak, tanpa pemanggil produksi) dihapus dari admin-core', () => {
+    // Wrapper jamak ini hanya pernah dipanggil oleh test-nya sendiri —
+    // produksi memakai clearFieldError per-elemen (admin.js, settings).
+    assert.doesNotMatch(ADMIN_CORE_SRC, /\bfunction clearFieldErrors\b/,
+        'clearFieldErrors tidak boleh kembali tanpa pemanggil produksi');
+    // Perilaku tunggal yang benar-benar dipakai produksi tetap ada.
+    assert.match(ADMIN_CORE_SRC, /\bfunction clearFieldError\b/, 'clearFieldError tunggal tetap ada');
+    assert.match(ADMIN_CORE_SRC, /\bfunction setFieldError\b/, 'setFieldError tetap ada');
 });
 
 // ---------------------------------------------------------------------------

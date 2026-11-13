@@ -1,3 +1,9 @@
+/*! EXAMVAN — output.css hasil PENYARINGAN (bukan build tailwind utuh).
+ * Dulu artefak tailwind v4.3.1 102KB; review sederhanakan 14 Nov 2026 membuang
+ * 86+ rule yang SELURUH komponen kelasnya mati di seluruh templates/JS
+ * (guard: static/js/uiux-batch41-outputcss-live.test.mjs). Jangan regenerate
+ * via tailwind build tanpa menjalankan penyaringan yang sama.
+ */
 /* Desktop-only presentation. Mobile and tablet layouts remain owned by public-mobile.css. */
 
 /* S32: reduced-motion di layer desktop (dulu 0 kemunculan — halaman yang
@@ -61,17 +67,17 @@
   .download-card:hover, .instruction-card:hover { transform: none; border-color: rgba(129,140,248,.24); }
   .server-version-box { border-radius: 8px; }
 
-  .billing-toggle-wrapper { margin-bottom: 44px !important; }
-  .billing-toggle { width: fit-content !important; min-width: 520px; grid-template-columns: repeat(3, 1fr); border-radius: 8px !important; }
-  .toggle-btn { min-width: 165px; border-radius: 6px !important; }
-  .pricing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 18px !important; margin-bottom: 72px !important; align-items: stretch; }
-  .pricing-card { min-height: 100%; padding: 30px !important; border-radius: 8px !important; }
-  .pricing-card.popular { transform: none; border-color: rgba(99,102,241,.5); box-shadow: 0 18px 45px rgba(var(--rgb-black),.26); }
-  .pricing-card:hover { transform: translateY(-3px) !important; }
-  .comparison-table-wrapper { border-radius: 8px; }
-  .adv-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
-  .adv-card { padding: 24px; border-radius: 8px; }
-  .adv-card:hover { transform: translateY(-2px); }
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
 
   .login-page { padding: calc(72px + 48px) 48px 48px; align-items: center; background: #090d16; }
   .login-page::before { content: ''; position: fixed; inset: 0 50% 0 0; background: #0f1724; border-right: 1px solid rgba(var(--rgb-white),.06); pointer-events: none; }
@@ -82,7 +88,7 @@
   .login-form .form-group { margin-bottom: 18px; }
   .btn-login { border-radius: 7px; }
 
-  .header { padding: 14px 32px; }
+  
   /* M27: rule .main DIHAPUS — selektor ini dipakai HANYA oleh hasil.html,
      yang mendefinisikan layout-nya sendiri di hasil.css (max-width 1100px,
      padding-top calc(var(--public-nav-height) + 24px) untuk clearing nav

@@ -231,8 +231,8 @@ test('S71 (guard): cap !important CSS inti terkunci di angka aktual terukur', ()
     const AKTUAL = {
         'static/css/admin-base.css': 46,
         'static/css/hasil.css': 65,
-        'static/css/public-desktop.css': 21,
-        'static/css/public-mobile.css': 48,
+        'static/css/public-desktop.css': 15,
+        'static/css/public-mobile.css': 36,
     };
     // Verifikasi independen — hitungan BARIS ber-!important (pola audit review).
     for (const [file, aktual] of Object.entries(AKTUAL)) {

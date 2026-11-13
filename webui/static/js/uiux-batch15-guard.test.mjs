@@ -301,8 +301,9 @@ test('S99a (statik): pengawas-detail.js & device-fingerprint.js punya entri BASE
 // ════════════════════════════════════════════════════════════════════════
 
 const PUBLIC_CSS_BASELINES = {
-    // hex 3 (duplikat --color-bg-secondary :13,:76–79), rgba 5 — hasil ukur Batch 15.
-    'public-desktop.css': { hex: 3, rgba: 5 },
+    // hex 3 (duplikat --color-bg-secondary :13,:76–79), rgba 4 — hasil ukur
+    // Batch 15; turun 5 -> 4 saat penyaringan rule mati (14 Nov 2026).
+    'public-desktop.css': { hex: 3, rgba: 4 },
     // hex 10 (#111827 dsb. :36,:78), rgba 2 — hasil ukur Batch 15.
     'public-mobile.css': { hex: 5, rgba: 2 }, /* Batch 16/R125 → 9; L70 (Batch 34) white sweep → 5 */
 };

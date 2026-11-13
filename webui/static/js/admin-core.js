@@ -712,17 +712,6 @@ function clearFieldError(inputEl) {
     if (errEl && errEl.parentNode) errEl.parentNode.removeChild(errEl);
 }
 
-function clearFieldErrors(containerEl) {
-    if (!containerEl) return;
-    // Selector id berakhiran "-error" tidak praktis lintas-browser; cukup
-    // bersihkan semua kontrol form dan biarkan clearFieldError yang melepas
-    // <p> via id-nya masing-masing.
-    var controls = containerEl.querySelectorAll ? containerEl.querySelectorAll('input, select, textarea') : [];
-    Array.prototype.forEach.call(controls, function (el) {
-        if (typeof clearFieldError === 'function') clearFieldError(el);
-    });
-}
-
 // ===== Live search terpadu (S5) ============================================
 // Satu pola pencarian untuk semua halaman: debounce saat mengetik, Enter
 // memanggil langsung dan membatalkan timer pending. Pemakaian:

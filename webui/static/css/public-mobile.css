@@ -1,3 +1,9 @@
+/*! EXAMVAN — output.css hasil PENYARINGAN (bukan build tailwind utuh).
+ * Dulu artefak tailwind v4.3.1 102KB; review sederhanakan 14 Nov 2026 membuang
+ * 86+ rule yang SELURUH komponen kelasnya mati di seluruh templates/JS
+ * (guard: static/js/uiux-batch41-outputcss-live.test.mjs). Jangan regenerate
+ * via tailwind build tanpa menjalankan penyaringan yang sama.
+ */
 /* EXAMVAN public UI - mobile-first layout layer. Loaded after page styles. */
 :root { --public-gutter: 16px; --public-nav-height: 72px; }
 
@@ -91,8 +97,7 @@ body > nav {
 }
 
 /* Shared page structure. */
-main, .hero, .features-section, .stats-section, .cta-section, .footer-container,
-.login-container, .result-container, .hasil-container {
+main, .hero, .cta-section, .footer-container, .login-container {
   width: 100%; max-width: 100%; min-width: 0;
 }
 main { padding-left: var(--public-gutter) !important; padding-right: var(--public-gutter) !important; }
@@ -102,10 +107,10 @@ main { padding-left: var(--public-gutter) !important; padding-right: var(--publi
 .hero-actions { display: grid; grid-template-columns: 1fr; width: 100%; gap: 10px; }
 .hero-actions > *, .btn-primary, .btn-secondary { width: 100%; min-height: 48px; justify-content: center; }
 .mockup-wrapper { width: 100%; max-width: 100%; }
-.features-grid, .stats-container, .pricing-grid, .benefits-grid, .platform-layout {
+.stats-container, .platform-layout {
   grid-template-columns: minmax(0, 1fr) !important; gap: 14px !important;
 }
-.feature-card, .pricing-card, .download-card, .instruction-card { padding: 20px !important; border-radius: 8px !important; }
+.feature-card, .download-card, .instruction-card { padding: 20px !important; border-radius: 8px !important; }
 .section-title { font-size: 26px !important; letter-spacing: 0 !important; }
 .section-subtitle { font-size: 13px; }
 .cta-card { padding: 30px 18px !important; border-radius: 8px !important; }
@@ -114,7 +119,7 @@ main { padding-left: var(--public-gutter) !important; padding-right: var(--publi
 /* Download. */
 body main { padding-top: 96px; }
 .hero-section { margin-bottom: 32px !important; }
-.live-badge, .hero-badge { max-width: 100%; white-space: normal; text-align: left; }
+.live-badge { max-width: 100%; white-space: normal; text-align: left; }
 .tabs-container {
   /* R21: intent tunggal 3 kolom di SEMUA ukuran (Batch 1 R16). Tanpa
      !important pada kolom — aman karena file ini dimuat SETELAH style inline
@@ -127,18 +132,18 @@ body main { padding-top: 96px; }
 .tab-btn { min-height: 48px; padding: 10px 8px !important; justify-content: center; font-size: 13px !important; border-radius: 6px !important; }
 .card-header { align-items: flex-start !important; gap: 12px !important; margin-bottom: 20px !important; padding-bottom: 16px !important; }
 .card-icon { width: 44px !important; height: 44px !important; flex: 0 0 44px; border-radius: 8px !important; }
-.download-btn { width: 100%; min-height: 50px; justify-content: center; }
+
 
 /* Pricing. */
-.billing-toggle-wrapper { margin-bottom: 32px !important; }
-.billing-toggle { width: 100%; display: grid !important; grid-template-columns: repeat(3, 1fr); border-radius: 8px !important; }
-.toggle-btn { padding: 10px 4px !important; min-height: 46px; font-size: 12px !important; border-radius: 6px !important; }
-.save-badge { display: none; }
-.pricing-grid { margin-bottom: 48px !important; }
-.pricing-card { overflow: hidden !important; }
-.pricing-card:hover { transform: none !important; }
-.comparison-table-wrapper, .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.comparison-table { min-width: 680px !important; }
+
+
+
+
+
+
+
+.table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
 
 /* Public auth and recovery pages. */
 .login-page { min-height: 100dvh; padding: calc(var(--public-nav-height) + 16px) 16px 16px; align-items: flex-start; }
@@ -157,9 +162,9 @@ body main { padding-top: 96px; }
 .flash-msg, .reg-info-banner { overflow-wrap: anywhere; }
 
 /* Results pages and generic public tables. */
-.results-header, .page-header { flex-direction: column; align-items: stretch !important; gap: 12px; }
-.search-section, .filter-bar { width: 100%; flex-wrap: wrap; }
-.search-section input, .filter-bar input, .filter-bar select { width: 100%; min-height: 48px; font-size: 16px; }
+
+.search-section { width: 100%; flex-wrap: wrap; }
+.search-section input { width: 100%; min-height: 48px; font-size: 16px; }
 .stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 .modal-card { width: calc(100% - 24px) !important; max-width: calc(100% - 24px) !important; max-height: calc(100dvh - 24px); overflow-y: auto; }
 
@@ -169,8 +174,8 @@ button, a.btn-primary, a.btn-secondary { touch-action: manipulation; }
 @media (min-width: 769px) {
   :root { --public-gutter: 24px; --public-nav-height: 78px; }
   .hero-title, .hero-section .hero-title { font-size: 42px !important; }
-  .features-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-  .pricing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 20px !important; }
+  
+  
   .platform-layout { grid-template-columns: minmax(0, 1fr) !important; }
   .login-card { max-width: 480px; padding: 30px !important; }
 }
@@ -190,9 +195,9 @@ button, a.btn-primary, a.btn-secondary { touch-action: manipulation; }
   .hero-title, .hero-section .hero-title { font-size: 52px !important; }
   .hero-actions { display: flex; width: auto; }
   .hero-actions > *, .btn-primary, .btn-secondary { width: auto; }
-  .features-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  
   .stats-container { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-  .pricing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 24px !important; }
+  
   .platform-layout { grid-template-columns: 1.2fr .8fr !important; gap: 32px !important; }
   .reg-step-label { display: inline; }
 }
