@@ -722,9 +722,14 @@ func UpdateExamToken(ctx context.Context, pool *pgxpool.Pool, id int, token stri
 }
 
 // GetExamByActiveToken retrieves an exam by its active_token (for Android API lookup).
+// Input dinormalkan (review alur ujian 14 Nov 2026): ini satu-satunya lookup
+// token yang masih case-sensitive — join siswa gagal "Token tidak valid"
+// untuk input lowercase/pad padahal semua gerbang pasca-join (PDF/submit/
+// result) memakai examtoken.Matches yang EqualFold. Sibling GetExamByToken/
+// GetExamByLiveToken sudah menormalkan sejak awal.
 func GetExamByActiveToken(ctx context.Context, pool *pgxpool.Pool, activeToken string) (Exam, error) {
-	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.active_token = $1`
-	return scanExam(pool.QueryRow(ctx, sql, activeToken))
+	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE UPPER(e.active_token) = $1`
+	return scanExam(pool.QueryRow(ctx, sql, normalizeExamToken(activeToken)))
 }
 
 // UpdateExamActiveToken updates the active_token for dynamic rotation, leaving the permanent token unchanged.

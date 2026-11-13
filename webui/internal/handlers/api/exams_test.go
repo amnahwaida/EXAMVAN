@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -559,4 +560,36 @@ func readBody(t *testing.T, resp *http.Response) string {
 		t.Logf("read body: %v", err)
 	}
 	return string(b)
+}
+
+// TestExamByTokenAcceptsLowercaseAndPaddedToken (review 14 Nov 2026, P2):
+// join siswa adalah satu-satunya lookup token yang masih case-sensitive —
+// GetExamByToken/GetExamByLiveToken menormalkan (normalizeExamToken + UPPER)
+// dan semua gerbang pasca-join (PDF/submit/result/access-log/WS) memakai
+// examtoken.Matches (EqualFold + TrimSpace). Token yang sama wajib diterima
+// join apapun bentuk ketikannya; sebelumnya input mentah dibandingkan
+// case-sensitive sehingga siswa mendapat "Token tidak valid" di pintu masuk.
+func TestExamByTokenAcceptsLowercaseAndPaddedToken(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	token := createExamByTokenFixture(t, pool)
+
+	srv := httptest.NewServer(newExamByTokenRouter(pool))
+	defer srv.Close()
+
+	cases := map[string]string{
+		"lowercase":    strings.ToLower(token),
+		"padded":       "  " + token + "  ",
+		"lower+padded": " " + strings.ToLower(token) + " ",
+	}
+	for name, tok := range cases {
+		resp, err := http.Get(srv.URL + "/api/exams/token/" + url.PathEscape(tok))
+		if err != nil {
+			t.Fatalf("%s: GET: %v", name, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s (token %q): status = %d, want 200 — join harus menormalkan input token",
+				name, tok, resp.StatusCode)
+		}
+	}
 }

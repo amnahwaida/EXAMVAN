@@ -134,9 +134,24 @@ func evaluateSingleQuestion(studentAns, correctAns interface{}, qType string, qW
 	}
 
 	switch qType {
-	case "single_choice", "true_false", "short_answer":
+	case "single_choice", "true_false":
 		sNorm := strings.ToUpper(strings.Join(strings.Fields(fmt.Sprintf("%v", studentAns)), " "))
 		cNorm := strings.ToUpper(strings.Join(strings.Fields(fmt.Sprintf("%v", correctAns)), " "))
+		if sNorm == cNorm {
+			return EvaluationDetail{Earned: qWeight, StatusText: StatusCorrect, StatusClass: StatusCorrect}
+		}
+		return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
+
+	case "short_answer":
+		// Toleransi numerik (review alur ujian 14 Nov 2026): jawaban yang BENAR
+		// secara nilai jangan dinilai salah hanya karena format ketikan
+		// ("1.0" vs "1", "1,50" vs "1.5", "007" vs "7"). Bila kedua sisi
+		// terbaca sebagai angka, bandingkan nilai float-nya; selain itu
+		// perilaku lama (upper + rapatkan spasi) dipertahankan — jawaban teks
+		// tidak berubah. Koma dipetakan ke titik (desimal Indonesia);
+		// "1.234" tetap 1.234 — pemisah ribuan tidak dikenali, sengaja.
+		sNorm := normalizeShortAnswer(studentAns)
+		cNorm := normalizeShortAnswer(correctAns)
 		if sNorm == cNorm {
 			return EvaluationDetail{Earned: qWeight, StatusText: StatusCorrect, StatusClass: StatusCorrect}
 		}
@@ -188,6 +203,20 @@ func toMapStringInterface(v interface{}) map[string]interface{} {
 	}
 }
 
+// normalizeShortAnswer menormalkan jawaban isian singkat: upper + rapatkan
+// spasi, lalu — bila nilai terbaca sebagai angka (koma diterima sebagai
+// desimal) — kanonik ke bentuk float tanpa nol berlebih. Nilai bukan angka
+// kembali apa adanya (sudah di-upper).
+func normalizeShortAnswer(v interface{}) string {
+	s := strings.ToUpper(strings.Join(strings.Fields(fmt.Sprintf("%v", v)), " "))
+	n := strings.ReplaceAll(s, ",", ".")
+	if f, err := strconv.ParseFloat(n, 64); err == nil {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	return s
+}
+
+// evaluateMC evaluates a multiple-choice answer.
 func evaluateMC(studentSet, correctSet []string, qWeight float64, partialScoring bool) EvaluationDetail {
 	if partialScoring {
 		if len(correctSet) == 0 {
