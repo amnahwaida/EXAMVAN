@@ -9,7 +9,6 @@ import (
 const (
 	DefaultPort        = 5000
 	DefaultStoragePath = "/app/storage"
-	DefaultMaxFileSize = 5 * 1024 * 1024 // 5 MB
 	TokenLength        = 8
 )
 
@@ -27,7 +26,6 @@ type Config struct {
 	AdminUser        string
 	AdminPass        string
 	StoragePath      string
-	MaxFileSize      int64
 	Version          string
 	DatabaseMaxConns int
 
@@ -50,7 +48,6 @@ func Load() *Config {
 		AdminUser:   os.Getenv("EXAMVAN_ADMIN_USER"),
 		AdminPass:   os.Getenv("EXAMVAN_ADMIN_PASS"),
 		StoragePath: envStr("STORAGE_PATH", DefaultStoragePath),
-		MaxFileSize: DefaultMaxFileSize,
 		Version:     DefaultVersion,
 		// Default 60 (Lapis 1 — kapasitas): harus SELALU lebih kecil dari
 		// max_connections PostgreSQL-nya (compose: 150) agar koneksi migrasi,

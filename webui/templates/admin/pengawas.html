@@ -331,12 +331,6 @@ function updateStats(exams) {
 
 function setText(id, val) { var e = document.getElementById(id); if (e) e.textContent = val; }
 
-function esc(s) {
-    if (!s) return '—';
-    var d = document.createElement('div');
-    d.appendChild(document.createTextNode(s));
-    return d.innerHTML;
-}
 
 // ===== Batch 7 (R28): delegasi data-action =====
 // Kartu monitor & pagination pindah ke delegasi; handler kartu mundur bila

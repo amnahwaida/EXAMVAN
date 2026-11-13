@@ -49,6 +49,31 @@ func IsValidUsername(s string) bool {
 	return usernameRe.MatchString(s)
 }
 
+// emailRe restricts emails to a strict mailbox shape: local part of
+// [A-Za-z0-9._%+-], domain labels of [A-Za-z0-9.-] with a 2+ letter TLD.
+// The email field flows into SMTP headers and the envelope RCPT command
+// (helpers.sendSMTPMessage), so ANY character outside this shape — CR/LF,
+// spaces, control characters, angle brackets — must never reach the transport
+// (review 14 Nov 2026: `contains @` + `contains .` accepted
+// `a@b.\r\nBcc: attacker@x`). Net effect beyond injection: Go ≥1.19's
+// net/smtp validateLine refuses CRLF lines outright, so a junk email used to
+// fail delivery SILENTLY — strict validation now rejects it at the door with
+// a clear message instead.
+// Label domain tanpa titik ganda, local part tanpa titik di tepi, dan label
+// akhir minimal 2 huruf — ketat untuk keperluan anti-junk (bukan validator
+// RFC penuh).
+var emailRe = regexp.MustCompile(`^[A-Za-z0-9_%+](?:[A-Za-z0-9._%+\-]*[A-Za-z0-9_%+\-])?@(?:[A-Za-z0-9\-]+\.)+[A-Za-z]{2,}$`)
+
+// IsValidEmail reports whether s is an acceptable email address. Callers
+// should TrimSpace before calling. Length is capped at the RFC 5321 limit of
+// 254 characters.
+func IsValidEmail(s string) bool {
+	if s == "" || len(s) > 254 {
+		return false
+	}
+	return emailRe.MatchString(s)
+}
+
 type AdminUser struct {
 	ID           int       `json:"id"`
 	Username     string    `json:"username"`
@@ -465,10 +490,6 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 		&u.InstansiID, &u.InstansiCode,
 	)
 	return u, err
-}
-
-func scanAdminUserFromRows(rows pgx.Rows) (AdminUser, error) {
-	return scanAdminUser(rows)
 }
 
 // GetUserByUsername retrieves a user by username (case-sensitive).

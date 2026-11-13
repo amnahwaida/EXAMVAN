@@ -5,12 +5,35 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
+	"strings"
 	"time"
 )
 
+// sanitizeSMTPValue strips CR/LF and other ASCII control characters from a
+// value destined for an SMTP header or envelope command. Defense-in-depth for
+// the email field (review 14 Nov 2026): Go's net/smtp already refuses CRLF in
+// Mail/Rcpt (validateLine), but this transport also BUILDS the message headers
+// by hand — if a stored email predates strict validation or a future refactor
+// reorders the send, an injected line must never be able to ride the wire.
+func sanitizeSMTPValue(v string) string {
+	var b strings.Builder
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // sendSMTPMessage delivers a plain-text UTF-8 email via SMTP. It is the shared
-// transport used by the verification and password-reset emails.
+// transport used by the verification and password-reset emails. Every
+// client-supplied interpolation passes through sanitizeSMTPValue first — the
+// wire must only ever carry single, well-formed lines.
 func sendSMTPMessage(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, subject, body string) error {
+	toEmail = sanitizeSMTPValue(toEmail)
+	senderName = sanitizeSMTPValue(senderName)
+	subject = sanitizeSMTPValue(subject)
 	msg := []byte(fmt.Sprintf(
 		"From: %s <%s>\r\n"+
 			"To: %s\r\n"+

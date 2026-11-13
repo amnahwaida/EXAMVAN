@@ -271,7 +271,7 @@ function loadDetailPageActions(sandbox) {
     sandbox.localizeUTC = (s) => (s || '');
 
     const parts = [];
-    for (const fname of ['esc', 'buildApprovalRowHTML', 'showConfirmApprovalModal', 'closeConfirmApprovalModal',
+    for (const fname of ['buildApprovalRowHTML', 'showConfirmApprovalModal', 'closeConfirmApprovalModal',
         // Batch 10 (S50): helper label identitas dipanggil dari dalam
         // showConfirmApprovalModal — ikut dimuat agar sandbox lengkap.
         'findApprovalStudentName', 'formatApprovalStudentLabel']) {

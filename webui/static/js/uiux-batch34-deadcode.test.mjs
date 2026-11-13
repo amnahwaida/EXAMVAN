@@ -74,7 +74,11 @@ test('L73: kelas mati admin-base.css dihapus (census: 0 pemakaian templates/JS)'
     for (const cls of ['skeleton-inline', 'shortcuts-hint', 'sticky-toolbar',
                        'circular-progress', 'mobile-bottom-bar', 'clickable-row',
                        'tone-danger', 'tone-accent', 'shortcut-row', 'shortcut-key',
-                       'bottom-bar-count', 'bottom-bar-actions']) {
+                       'bottom-bar-count', 'bottom-bar-actions',
+                       // Review sederhanakan 14 Nov 2026 — census 0 pemakaian
+                       // templates/JS dan 0 referensi guard test:
+                       'desktop-only-item', 'skeleton-block', 'skeleton-circle',
+                       'toggle-user-name', 'topbar-badge']) {
         assert.doesNotMatch(ADMIN_BASE, new RegExp(`\\.${cls.replace(/-/g, '\\-')}\\b`),
             `.${cls} seharusnya sudah dihapus (census 0 pemakaian)`);
     }

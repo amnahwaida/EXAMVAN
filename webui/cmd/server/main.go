@@ -1356,7 +1356,11 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		// Strict charset validation (review 14 Nov 2026): the email flows into
+		// SMTP headers/envelope downstream — dulu cukup `contains @` +
+		// `contains .`, sehingga nilai ber-CRLF lolos dan email OTP gagal
+		// dikirim diam-diam (net/smtp menolak baris CRLF di jalur envelope).
+		if !models.IsValidEmail(strings.TrimSpace(email)) {
 			registerError("Format email tidak valid.")
 			return
 		}

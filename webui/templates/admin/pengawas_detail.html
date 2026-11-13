@@ -1976,12 +1976,6 @@ function renderSubPagination(res) {
     pagEl.style.display = 'block';
 }
 
-function esc(s) {
-    if (!s) return '—';
-    var d = document.createElement('div');
-    d.appendChild(document.createTextNode(s));
-    return d.innerHTML;
-}
 
 // Batch 11 (R57): definisi lokal localizeUTC dihapus — pemakaian jatuh ke
 // alias admin-core.js formatDateTimeID agar format tanggal seragam

@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -45,47 +47,22 @@ func TemplateData(c *gin.Context) gin.H {
 		"version":    version,
 	}
 
-	// Fetch database pool and read SEO settings
+	// Fetch database pool and read SEO settings — SATU query untuk semua kunci
+	// (review 14 Nov 2026): dulu enam QueryRow berurutan per render halaman.
 	if dbVal, exists := c.Get("db"); exists && dbVal != nil {
 		if pool, ok := dbVal.(*pgxpool.Pool); ok {
-			var seoTitle, seoDesc, seoKeys, seoIndex string
-			
-			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_title").Scan(&seoTitle); err != nil || seoTitle == "" {
-				seoTitle = "EXAMVAN - Aplikasi Ujian Online Aman & Tertib"
+			for k, v := range loadSeoFooterSettings(c.Request.Context(), pool) {
+				data[k] = v
 			}
-			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_description").Scan(&seoDesc); err != nil || seoDesc == "" {
-				seoDesc = "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan."
+		} else {
+			for k, v := range defaultSeoFooterSettings() {
+				data[k] = v
 			}
-			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_keywords").Scan(&seoKeys); err != nil || seoKeys == "" {
-				seoKeys = "examvan, ujian online, ujian sekolah"
-			}
-			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_index").Scan(&seoIndex); err != nil || seoIndex == "" {
-				seoIndex = "1"
-			}
-
-			var footerText, footerTagline string
-
-			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "footer_text").Scan(&footerText); err != nil || footerText == "" {
-				footerText = "© 2026 EXAMVAN Team. All rights reserved."
-			}
-			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "footer_tagline").Scan(&footerTagline); err != nil || footerTagline == "" {
-				footerTagline = "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman."
-			}
-
-			data["seo_title"] = seoTitle
-			data["seo_description"] = seoDesc
-			data["seo_keywords"] = seoKeys
-			data["seo_index"] = (seoIndex == "1" || seoIndex == "true")
-			data["footer_text"] = footerText
-			data["footer_tagline"] = footerTagline
 		}
 	} else {
-		data["seo_title"] = "EXAMVAN - Aplikasi Ujian Online Aman & Tertib"
-		data["seo_description"] = "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan."
-		data["seo_keywords"] = "examvan, ujian online, ujian sekolah"
-		data["seo_index"] = true
-		data["footer_text"] = "© 2026 EXAMVAN Team. All rights reserved."
-		data["footer_tagline"] = "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman."
+		for k, v := range defaultSeoFooterSettings() {
+			data[k] = v
+		}
 	}
 
 	// Attach authenticated user info when available.
@@ -141,4 +118,75 @@ func MergeTemplateData(c *gin.Context, existing gin.H) gin.H {
 		base[k] = v
 	}
 	return base
+}
+
+// ---------------------------------------------------------------------------
+// SEO/footer settings — SATU query untuk seluruh halaman (guard:
+// TestTemplateDataSingleSettingsQuery)
+// ---------------------------------------------------------------------------
+
+// seoFooterKeys adalah kunci saas_settings yang dikonsumsi TemplateData.
+// Kunci baru wajib ditambahkan DI SINI (bukan dengan SELECT per-kunci sendiri)
+// agar tetap satu query per render.
+var seoFooterKeys = []string{
+	"seo_title", "seo_description", "seo_keywords", "seo_index",
+	"footer_text", "footer_tagline",
+}
+
+// defaultSeoFooterSettings returns the built-in values used when the DB is
+// unavailable or a key has no row.
+func defaultSeoFooterSettings() gin.H {
+	return gin.H{
+		"seo_title":       "EXAMVAN - Aplikasi Ujian Online Aman & Tertib",
+		"seo_description": "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
+		"seo_keywords":    "examvan, ujian online, ujian sekolah",
+		"seo_index":       true,
+		"footer_text":     "© 2026 EXAMVAN Team. All rights reserved.",
+		"footer_tagline":  "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.",
+	}
+}
+
+// loadSeoFooterSettings reads every SEO/footer key in ONE round trip and
+// overlays the defaults with whatever rows exist. Empty/missing values fall
+// back to the defaults; seo_index is normalised to a bool.
+func loadSeoFooterSettings(ctx context.Context, pool *pgxpool.Pool) gin.H {
+	out := gin.H{}
+	for k, v := range defaultSeoFooterSettings() {
+		out[k] = v
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT key, value FROM saas_settings WHERE key = ANY($1)`, seoFooterKeys)
+	if err != nil {
+		return out // DB error → defaults, halaman tetap render
+	}
+	defer rows.Close()
+
+	values := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
+		}
+		values[k] = v
+	}
+	if v := values["seo_title"]; v != "" {
+		out["seo_title"] = v
+	}
+	if v := values["seo_description"]; v != "" {
+		out["seo_description"] = v
+	}
+	if v := values["seo_keywords"]; v != "" {
+		out["seo_keywords"] = v
+	}
+	if v := values["seo_index"]; v != "" {
+		out["seo_index"] = (v == "1" || v == "true")
+	}
+	if v := values["footer_text"]; v != "" {
+		out["footer_text"] = v
+	}
+	if v := values["footer_tagline"]; v != "" {
+		out["footer_tagline"] = v
+	}
+	return out
 }

@@ -5,8 +5,6 @@ package helpers
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -47,138 +45,23 @@ func FormatISOUTC(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05Z")
 }
 
-// GenerateCSRFToken creates a 64-character hex CSRF token from 32 random bytes.
-func GenerateCSRFToken() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback to SHA256 of current time if crypto/rand fails (extremely rare).
-		h := sha256.Sum256([]byte(time.Now().String()))
-		return hex.EncodeToString(h[:])
-	}
-	return hex.EncodeToString(b)
-}
-
-// ParseRoles parses a role string into a slice of role names.
-// It handles the hardcoded 'superadmin' value and JSON array formats.
-func ParseRoles(roleStr string) []string {
-	return parseRolesInternal(roleStr)
-}
-
-// HasRole checks if a role string includes the target role.
-func HasRole(roleStr, target string) bool {
-	for _, r := range ParseRoles(roleStr) {
-		if r == target {
-			return true
-		}
-	}
-	return false
-}
-
-// SerializeRoles serializes a slice of roles to a JSON string for storage.
-func SerializeRoles(roles []string) string {
-	return serializeRolesInternal(roles)
-}
-
-// DisplayRoles returns human-readable role labels from a role string.
-func DisplayRoles(roleStr string) string {
-	roleMap := map[string]string{
-		"superadmin": "Super Admin",
-		"guru":       "Guru",
-		"pengawas":   "Pengawas",
-		"operator":   "Operator",
-	}
-	roles := ParseRoles(roleStr)
-	labels := make([]string, 0, len(roles))
-	for _, r := range roles {
-		if label, ok := roleMap[r]; ok {
-			labels = append(labels, label)
-		} else {
-			labels = append(labels, r)
-		}
-	}
-	if len(labels) == 0 {
-		return "Guru"
-	}
-	return strings.Join(labels, ", ")
-}
-
-// ---------------------------------------------------------------------------
-// Internal implementations (no external JSON dependency — kept simple)
-// ---------------------------------------------------------------------------
-
-func parseRolesInternal(roleStr string) []string {
-	if roleStr == "" {
-		return []string{"guru"}
-	}
-	if roleStr == "superadmin" {
-		return []string{"superadmin"}
-	}
-	// Detect JSON array: starts with '['.
-	trimmed := strings.TrimSpace(roleStr)
-	if strings.HasPrefix(trimmed, "[") {
-		return parseJSONRoles(trimmed)
-	}
-	return []string{roleStr}
-}
-
-// parseJSONRoles does a minimal JSON string array parse without importing encoding/json.
-func parseJSONRoles(s string) []string {
-	// Remove surrounding brackets and whitespace.
-	inner := strings.TrimSpace(s[1 : len(s)-1])
-	if inner == "" {
-		return []string{"guru"}
-	}
-	var roles []string
-	for {
-		inner = strings.TrimSpace(inner)
-		if inner == "" {
-			break
-		}
-		if !strings.HasPrefix(inner, "\"") {
-			break
-		}
-		// Find closing quote (simple parse, no escaping support for brevity).
-		quoteEnd := strings.IndexByte(inner[1:], '"')
-		if quoteEnd < 0 {
-			break
-		}
-		role := inner[1 : 1+quoteEnd]
-		roles = append(roles, role)
-		inner = inner[1+quoteEnd+1:]
-		// Skip comma.
-		inner = strings.TrimLeft(inner, ",")
-	}
-	if len(roles) == 0 {
-		return []string{"guru"}
-	}
-	return roles
-}
-
-func serializeRolesInternal(roles []string) string {
-	if len(roles) == 0 {
-		return `["guru"]`
-	}
-	parts := make([]string, len(roles))
-	for i, r := range roles {
-		parts[i] = `"` + r + `"`
-	}
-	return "[" + strings.Join(parts, ",") + "]"
-}
-
 // GenerateExamToken creates an 8-character uppercase alphanumeric token (A-Z, 0-9).
 // Uses crypto/rand.Int for unbiased distribution.
-func GenerateExamToken() string {
+func GenerateExamToken() (string, error) {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 8)
 	for i := range b {
 		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
 		if err != nil {
-			// Fallback: time-based token.
-			return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
+			// Fail-closed (review 14 Nov 2026): dulu fallback time-based
+			// (UnixNano % 99999999, ≤32 bit, prediktabel) mengeluarkan token
+			// ujian lemah saat crypto/rand gagal — token adalah kredensial
+			// masuk siswa, jadi error dibalikkan ke caller alih-alih dicetak.
+			return "", fmt.Errorf("generate exam token: crypto/rand unavailable: %w", err)
 		}
 		b[i] = chars[idx.Int64()]
 	}
-	return string(b)
+	return string(b), nil
 }
 
 // SafeStoragePath resolves a relative file path against the storage

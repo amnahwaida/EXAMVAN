@@ -25,13 +25,6 @@ type StudentAccessLog struct {
 	IdentityData      *string   `json:"identity_data,omitempty"`
 }
 
-// AccessLogEvent constants.
-const (
-	AccessEventLogin     = "login"
-	AccessEventHeartbeat = "heartbeat"
-	AccessEventLogout    = "logout"
-)
-
 const defaultAccessLogColumns = `id, exam_id, submission_id, student_identifier,
 student_name, exam_number, student_class, event, ip_address, device_info, created_at, identity_data`
 

@@ -744,7 +744,13 @@ func CreateUser() gin.HandlerFunc {
 		// mirrors the self-registration path in main.go. Runs before the tx
 		// (a pool call inside the open tx would risk the connection
 		// deadlock above).
+		// Strict charset validation (review 14 Nov 2026): the email flows into
+		// SMTP headers/envelope downstream — junk values must never be stored.
 		if em := strings.TrimSpace(body.Email); em != "" {
+			if !models.IsValidEmail(em) {
+				errorResponse(c, http.StatusBadRequest, "Format email tidak valid")
+				return
+			}
 			existingByEmail, err := models.GetUserByEmail(ctx, pool, em)
 			if err == nil && existingByEmail.Email != "" {
 				errorResponse(c, http.StatusBadRequest, "Email sudah terdaftar. Gunakan email lain atau biarkan kosong.")
@@ -1317,7 +1323,14 @@ func EditUser() gin.HandlerFunc {
 		}
 
 		if body.Email != nil {
-			updates["email"] = strings.TrimSpace(*body.Email)
+			// Strict charset validation (review 14 Nov 2026) — sama dengan
+			// register/CreateUser: email mengalir ke SMTP header/envelope.
+			em := strings.TrimSpace(*body.Email)
+			if em != "" && !models.IsValidEmail(em) {
+				errorResponse(c, http.StatusBadRequest, "Format email tidak valid")
+				return
+			}
+			updates["email"] = em
 		}
 
 		if body.Instansi != nil {
@@ -1587,10 +1600,10 @@ func EditUser() gin.HandlerFunc {
 					      WHERE vr.user_id = admin_users.id AND vr.is_active
 					  )`, expVal, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
-				}					// Align the instansi users' active packages with the new expiry too
-					// (their expires_at was just rewritten above, so the shared helper
-					// reads the authoritative per-account expiry).
-					if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}, targetID); err != nil {
+				} // Align the instansi users' active packages with the new expiry too
+				// (their expires_at was just rewritten above, so the shared helper
+				// reads the authoritative per-account expiry).
+				if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}, targetID); err != nil {
 					log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
 				}
 			} else {
@@ -1792,8 +1805,8 @@ func ToggleUserStatus() gin.HandlerFunc {
 
 		// Cascade: track suspension/activation of operator's instansi.
 		if targetUser.IsOperator() {
-				opInstansi := targetUser.Instansi
-				opScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
+			opInstansi := targetUser.Instansi
+			opScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
 			if opInstansi != "" {
 				if newStatus == models.UserStatusActive {
 					// Restore all cascade-suspended users

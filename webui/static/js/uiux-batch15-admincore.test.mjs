@@ -546,3 +546,16 @@ test('R101 (statik): anchor Sebelumnya/Berikutnya dashboard punya aria-disabled=
     assert.match(next[0], /\{\{if ge \.page \.total_pages\}\}aria-disabled="true"\{\{end\}\}/,
         'boundary atas (halaman terakhir) wajib aria-disabled="true"');
 });
+
+// ════════════════════════════════════════════════════════════════════════
+// SIMPLIFY-14 Nov 2026 — esc() satu sumber di admin-core.js
+// ════════════════════════════════════════════════════════════════════════
+
+test('SIMPLIFY (statik): esc() terdefinisi sekali di admin-core.js — tanpa salinan lokal per halaman', () => {
+    assert.match(read('static', 'js', 'admin-core.js'), /\bfunction esc\(/,
+        'esc() eksis di admin-core.js');
+    for (const [label, file] of [['pengawas.html', 'pengawas.html'], ['pengawas_detail.html', 'pengawas_detail.html']]) {
+        assert.doesNotMatch(read('templates', 'admin', file), /\bfunction esc\(/,
+            `${label} tidak lagi mendefinisikan esc() lokal (pakai milik admin-core.js)`);
+    }
+});

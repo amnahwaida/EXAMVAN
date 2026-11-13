@@ -81,12 +81,12 @@ func TestRegenerateTokenRetriesOnCollision(t *testing.T) {
 
 	prev := generateExamToken
 	calls := 0
-	generateExamToken = func() string {
+	generateExamToken = func() (string, error) {
 		calls++
 		if calls == 1 {
-			return otherToken // tabrakan: sudah dimiliki ujian lain
+			return otherToken, nil // tabrakan: sudah dimiliki ujian lain
 		}
-		return fmt.Sprintf("RT%06d", calls) // segar, 8 char alfanumerik
+		return fmt.Sprintf("RT%06d", calls), nil // segar, 8 char alfanumerik
 	}
 	t.Cleanup(func() { generateExamToken = prev })
 

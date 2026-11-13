@@ -154,25 +154,12 @@ code, pre, .token-code, .mono {
     user-select: none;
     pointer-events: none;
 }
-.skeleton-block {
-    display: block;
-    height: 16px;
-    margin-bottom: 8px;
-    width: 100%;
-}
 .skeleton-card {
     padding: 20px;
     border-radius: var(--radius-md);
     background: rgba(var(--rgb-white),0.02);
     border: 1px solid var(--color-glass-border);
 }
-.skeleton-circle {
-    display: inline-block;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-}
-
 
 
 
@@ -908,7 +895,7 @@ img, video, canvas, svg { max-width: 100%; }
     padding-left: max(14px, env(safe-area-inset-left, 0px)) !important;
     padding-right: max(14px, env(safe-area-inset-right, 0px)) !important;
   }
-  .topbar-center, .topbar-nav, .toggle-user-name, .topbar-badge, .desktop-only-item {
+  .topbar-center, .topbar-nav {
     display: none !important;
   }
   .topbar-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
@@ -946,9 +933,6 @@ html.touch-device .topbar {
 }
 html.touch-device .topbar-center,
 html.touch-device .topbar-nav,
-html.touch-device .toggle-user-name,
-html.touch-device .topbar-badge,
-html.touch-device .desktop-only-item { display: none !important; }
 html.touch-device .topbar-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
 html.touch-device .topbar-right,
 html.touch-device .topbar-menu-dropdown,

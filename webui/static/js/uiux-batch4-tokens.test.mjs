@@ -142,7 +142,9 @@ test('S15/no-visual-change: jumlah total deklarasi radius & box-shadow tidak ber
     // (.shortcuts-hint & .skeleton-card membawa var(--radius-md),
     // .mobile-bottom-baractions btn-sm, dsb.). Substitusi var() tidak boleh
     // mengubah jumlah (toleransi ketat ±0; guard anti kehilangan rule).
-    assert.equal(radiusDecls, 25, `jumlah deklarasi border-radius berubah (baseline 27, dapat ${radiusDecls})`);
+    // Review sederhanakan 14 Nov 2026: .skeleton-circle mati membawa 1 radius
+    // → 25 turun ke 24. Shadow tetap 6.
+    assert.equal(radiusDecls, 24, `jumlah deklarasi border-radius berubah (baseline 24, dapat ${radiusDecls})`);
     assert.equal(shadowDecls, 6, `jumlah deklarasi box-shadow berubah (baseline 6, dapat ${shadowDecls})`);
 });
 

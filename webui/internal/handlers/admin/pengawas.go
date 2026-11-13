@@ -746,47 +746,6 @@ func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID
 	return out
 }
 
-func fetchStudentAccessLogsByExamNumber(ctx context.Context, pool *pgxpool.Pool, examID int, examNumber string) []accessLogEntry {
-	if examNumber == "" {
-		return nil
-	}
-
-	rows, err := pool.Query(ctx,
-		`SELECT event, ip_address, device_info, created_at,
-		 student_name, exam_number, student_class, identity_data, student_identifier
-		 FROM student_access_logs
-		 WHERE exam_id = $1 AND exam_number = $2
-		 ORDER BY created_at ASC`, examID, examNumber)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var logs []accessLogEntry
-	for rows.Next() {
-		var entry accessLogEntry
-		var createdAt time.Time
-		var identityDataStr *string
-		var macAddr *string
-		if err := rows.Scan(&entry.Event, &entry.IPAddress, &entry.DeviceInfo,
-			&createdAt, &entry.StudentName, &entry.ExamNumber, &entry.StudentClass, &identityDataStr, &macAddr); err != nil {
-			continue
-		}
-		entry.CreatedAt = createdAt.Format(time.RFC3339)
-		if identityDataStr != nil {
-			var idData map[string]interface{}
-			if err := json.Unmarshal([]byte(*identityDataStr), &idData); err == nil {
-				entry.IdentityData = idData
-			}
-		}
-		if macAddr != nil {
-			entry.DeviceInfo = *macAddr + " - " + entry.DeviceInfo
-		}
-		logs = append(logs, entry)
-	}
-	return logs
-}
-
 func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam) {
 	if err := examtoken.MaybeResetActiveToken(ctx, pool, exam, time.Now().UTC()); err != nil {
 		log.Printf("auto reset active token error: %v", err)

@@ -395,6 +395,18 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
+// esc: escape via DOM text node — beda contract dengan escapeHtml: nilai
+// falsy (null/undefined/'') dirender sebagai EM DASH placeholder, dan output
+// aman untuk text-content bukan atribut (tidak meng-escape tanda kutip).
+// Satu sumber (SIMPLIFY 14 Nov 2026): sebelumnya terduplikasi byte-identik di
+// pengawas.html dan pengawas_detail.html.
+function esc(s) {
+    if (!s) return '—';
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+}
+
 // Escape string for JavaScript string literal context (e.g. onclick attribute values)
 // This handles the case where HTML entity escaping is not sufficient because &#39;
 // would be decoded back to ' by the HTML parser in attribute values.

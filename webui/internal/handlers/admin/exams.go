@@ -340,7 +340,15 @@ func UploadExam() gin.HandlerFunc {
 			// token berikutnya. Jika setelah 5 percobaan masih bentrok, INSERT
 			// kena unique violation yang dipetakan ke 400 di bawah.
 			for i := 0; i < 5; i++ {
-				token = helpers.GenerateExamToken()
+				// Fail-closed (review 14 Nov 2026): crypto/rand gagal → 500,
+				// BUKAN token prediktabel dari fallback time-based lama.
+				genTok, gErr := helpers.GenerateExamToken()
+				if gErr != nil {
+					log.Printf("upload: generate token gagal: %v", gErr)
+					errorResponse(c, http.StatusInternalServerError, "Gagal membuat token ujian — silakan coba lagi")
+					return
+				}
+				token = genTok
 				existing, err := models.GetExamByLiveToken(ctx, pool, token)
 				if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.ID == 0) {
 					break
@@ -2076,7 +2084,15 @@ func RegenerateToken() gin.HandlerFunc {
 		// ke 400 ramah di bawah — bukan 500 mentah tanpa penjelasan).
 		var newToken string
 		for i := 0; i < 5; i++ {
-			newToken = generateExamToken()
+			// Fail-closed (review 14 Nov 2026): crypto/rand gagal → 500,
+			// token lama tetap berlaku — bukan token prediktabel.
+			genTok, gErr := generateExamToken()
+			if gErr != nil {
+				log.Printf("regenerate token: generate gagal: %v", gErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat token — token lama tetap berlaku, silakan coba lagi")
+				return
+			}
+			newToken = genTok
 			existing, err := models.GetExamByLiveToken(ctx, pool, newToken)
 			if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.ID == 0) {
 				break

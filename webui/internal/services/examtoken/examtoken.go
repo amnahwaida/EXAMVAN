@@ -57,7 +57,12 @@ func MaybeResetActiveToken(ctx context.Context, pool *pgxpool.Pool, exam *models
 		return nil
 	}
 
-	newToken := helpers.GenerateExamToken()
+	newToken, gErr := helpers.GenerateExamToken()
+	if gErr != nil {
+		// Fail-closed: rotasi batal, token lama tetap berlaku — lebih aman
+		// daripada mengeluarkan token lemah. Tick berikutnya mencoba lagi.
+		return gErr
+	}
 	resetAt := now.UTC()
 	_, err = tx.Exec(ctx,
 		`UPDATE exams SET active_token = $1, previous_active_token = $2, token_last_reset_at = $3 WHERE id = $4`,
