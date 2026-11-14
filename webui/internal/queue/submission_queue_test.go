@@ -379,3 +379,94 @@ func TestFlushBatchKeepsApprovalWhenRowFails(t *testing.T) {
 		t.Errorf("submission rows = %d, want 0 (failing job must not persist)", total)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Review alur ujian 14 Nov 2026 — P1 remote kill (sisi worker):
+// pengawas menghentikan ujian mid-exam → klien dirancang auto-submit → job
+// tiba SETELAH status di-flip ke inactive. processSubmission dulu menolak
+// semua job untuk ujian non-aktif (fix C), sehingga jawaban siswa yang
+// di-auto-submit justru di-spool ke failed/ dan tidak pernah dinilai.
+// Toleransi baru: job dari device yang MASIH memegang approval 'approved'
+// dinilai dan dipersist — entitlement yang sama dengan toleransi handler.
+// Ujian terhapus tetap ditolak; ujian berjalan tanpa approval tetap ditolak.
+// ---------------------------------------------------------------------------
+
+func setupStoppedExamWithApproval(t *testing.T, pool *pgxpool.Pool, ownerID int, withApproval bool) (examID int, job SubmissionJob) {
+	t.Helper()
+	ctx := context.Background()
+	token := fmt.Sprintf("S%07d", time.Now().UnixNano()%10000000)
+	questionsJSON := `[{"number":1,"type":"multiple_choice","label":"S","weight":2,"key":"jakarta","options":["Jakarta","Bogor"]}]`
+	var examIDLocal int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+		                   security_level, questions_json, created_by, exam_started_at, end_time)
+		VALUES ('Ujian Stop Queue', 'stopq.pdf', 1024, $1, $1, 'inactive', 'medium', $3, $2, NULL, NULL)
+		RETURNING id`, token, ownerID, questionsJSON).Scan(&examIDLocal); err != nil {
+		t.Fatalf("insert stopped exam: %v", err)
+	}
+	if withApproval {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, status)
+			VALUES ($1, 'DEVICE:stop-queue', 'Siswa Queue', 'SQ1', 'approved')`, examIDLocal); err != nil {
+			t.Fatalf("insert approval: %v", err)
+		}
+	}
+	job = SubmissionJob{
+		ExamID:       examIDLocal,
+		StudentName:  "Siswa Queue",
+		ExamNumber:   "SQ1",
+		StudentClass: "XII-A",
+		Answers:      map[string]interface{}{"1": "jakarta"},
+		MACAddress:   "DEVICE:stop-queue",
+	}
+	return examIDLocal, job
+}
+
+func TestProcessSubmissionToleratesApprovedDeviceAfterStop(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-stop-guru")
+	examID, job := setupStoppedExamWithApproval(t, pool, ownerID, true)
+
+	w := &Worker{rdb: nil, pool: pool}
+	score, err := w.processSubmission(ctx, &job)
+	if err != nil {
+		t.Fatalf("processSubmission error: %v — job dari device approved wajib dinilai walau ujian sudah di-stop", err)
+	}
+	if score == nil {
+		t.Fatal("score nil — jawaban multiple_choice wajib dinilai")
+	}
+
+	// Dan benar-benar bisa dipersist lewat jalur batch biasa.
+	w.flushBatch(ctx, []SubmissionResult{{Job: job, Score: score}})
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:stop-queue'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("submission rows = %d, want 1 (jawaban pasca-stop harus durable)", total)
+	}
+}
+
+func TestProcessSubmissionRejectsStoppedExamWithoutApproval(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-stop-napv")
+	examID, job := setupStoppedExamWithApproval(t, pool, ownerID, false)
+
+	w := &Worker{rdb: nil, pool: pool}
+	_, err := w.processSubmission(ctx, &job)
+	if err == nil {
+		t.Fatal("job tanpa approval untuk ujian non-aktif harus ditolak (proteksi fix C tetap berlaku)")
+	}
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1`, examID).Scan(&total); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("submissions = %d, want 0 (ditolak tidak boleh dipersist)", total)
+	}
+}

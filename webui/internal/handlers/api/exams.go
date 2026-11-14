@@ -1156,30 +1156,38 @@ func SubmitExam() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses jawaban")
 			return
 		}
-		if !exam.IsActive() || exam.ExamStartedAt == nil {
-			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
-			return
-		}
-		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
-			// Longgarkan untuk RECOVERY resubmit (desktop/Android "Kirim Lagi"):
-			// device yang MASIH memegang approval row 'approved' boleh mengirim
-			// ulang jawaban lewat deadline. Approval hanya dicabut SETELAH
-			// submit durable (sync path / worker pasca-commit), jadi approval
-			// yang tersisa berarti submit sebelumnya GAGAL — persis skenario
-			// yang dibuat fitur recovery (jaringan mati di deadline, siswa
-			// re-entry nanti). Tanpa pengecualian ini, resubmit ditolak 403
-			// setelah end_time+60s → jawaban siswa yang sudah dikerjakan hilang
-			// permanen. Device TANPA approval (belum pernah di-approve / sudah
-			// selesai) tetap ditolak — mencegah siswa kerja lewat deadline lalu
-			// submit.
+		// --- Gerbang aktif/jadwal dengan toleransi entitlement (review alur
+		// ujian 14 Nov 2026) -----------------------------------------------
+		// Tiga keadaan menutup pengerjaan: ujian dihentikan pengawas
+		// (inactive + started_at NULL), belum dimulai, dan jadwal berakhir.
+		// Untuk device yang MASIH memegang approval 'approved', submit tetap
+		// diterima (entitlement = approval row):
+		//   - jadwal berakhir: recovery "Kirim Lagi" (kontrak lama);
+		//   - remote kill (baru): kontrak klien exam_terminated = auto-submit
+		//     segera, tapi StopExam commit inactive SEBELUM broadcast — tanpa
+		//     toleransi ini seluruh auto-submit pasca-stop gagal 404 dan
+		//     jawaban terstranded di perangkat.
+		// Device tanpa/pending/rejected approval tetap ditolak dengan pesan
+		// aslinya. Pengawas tetap punya kontrol: menolak device dari
+		// monitoring memblokir resubmit-nya (approval = entitlement).
+		inactiveOrUnstarted := !exam.IsActive() || exam.ExamStartedAt == nil
+		scheduleEnded := models.ExamScheduleEnded(&exam, time.Now().UTC())
+		if inactiveOrUnstarted || scheduleEnded {
 			var approvalStatus string
 			apErr := pool.QueryRow(ctx,
 				"SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2",
 				examID, macAddress).Scan(&approvalStatus)
 			if apErr != nil || approvalStatus != "approved" {
-				errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
+				// Pesan asli dipertahankan per penyebab (anti-oracle sama
+				// dengan desain sebelumnya).
+				if inactiveOrUnstarted {
+					errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+				} else {
+					errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
+				}
 				return
 			}
+			// Approved → recovery/remote-kill submit diterima.
 		}
 
 		if !examtoken.Matches(exam, token) {

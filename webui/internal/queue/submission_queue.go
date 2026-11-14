@@ -375,19 +375,38 @@ func (w *Worker) processSubmission(ctx context.Context, job *SubmissionJob) (*fl
 	// gates run only at enqueue — a job loitering in Redis through a backlog,
 	// a worker outage, or retries could otherwise grade and persist answers
 	// for an exam that was deactivated, deleted, or whose window has since
-	// closed. The status filter makes deleted exams (no row) and deactivated
-	// exams (status <> 'active') both fail the fetch; the end_time check
-	// closes the lingering-job window. A deterministic failure (not retried)
-	// without touching submissions is the correct outcome.
+	// closed. A deterministic failure (not retried) without touching
+	// submissions is the correct outcome — KECUALI device masih memegang
+	// approval 'approved' (entitlement, review alur ujian 14 Nov 2026):
+	//   - remote kill: pengawas menghentikan ujian mid-exam → klien
+	//     auto-submit (kontrak exam_terminated) → job tiba SETELAH status
+	//     di-flip. Tanpa toleransi ini jawaban siswa di-spool ke failed/ dan
+	//     tidak pernah dinilai;
+	//   - "Kirim Lagi" lewat deadline: handler menoleransi device approved,
+	//     tapi worker dulu menolaknya — jalur recovery tidak pernah utuh.
+	// Ujian terhapus (no row) tetap ditolak; ujian berjalan tanpa approval
+	// juga tetap ditolak (proteksi fix C untuk job tanpa entitlement).
 	var questionsJSON *string
 	var endTime *time.Time
+	var examStatus string
 	err := w.pool.QueryRow(ctx,
-		`SELECT questions_json, end_time FROM exams WHERE id = $1 AND status = 'active'`, job.ExamID).Scan(&questionsJSON, &endTime)
+		`SELECT questions_json, end_time, status FROM exams WHERE id = $1`, job.ExamID).Scan(&questionsJSON, &endTime, &examStatus)
 	if err != nil {
 		return nil, fmt.Errorf("fetch exam: %w", err)
 	}
-	if endTime != nil && time.Now().UTC().After(endTime.Add(60*time.Second)) {
-		return nil, errExamWindowClosed
+	examActive := examStatus == "active"
+	windowClosed := endTime != nil && time.Now().UTC().After(endTime.Add(60*time.Second))
+	if !examActive || windowClosed {
+		var approved bool
+		if err := w.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2 AND status = 'approved')`,
+			job.ExamID, job.MACAddress).Scan(&approved); err != nil {
+			return nil, fmt.Errorf("fetch approval entitlement: %w", err)
+		}
+		if !approved {
+			return nil, errExamWindowClosed
+		}
+		// Approved → job dinilai dan dipersist (remote kill / recovery).
 	}
 
 	questions, parseErr := models.ParseQuestionsJSON(questionsJSON)
@@ -626,7 +645,7 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 		identityPtr = &identityStr
 	}
 
-	var submissionID int// submitted_at is the SUBMISSION time (hasil page "Waktu Kumpul";
+	var submissionID int // submitted_at is the SUBMISSION time (hasil page "Waktu Kumpul";
 	// Durasi = submitted_at - start_time). The row is normally the approval
 	// placeholder from EnsureFreshSubmissionOnApproval, whose created_at is the
 	// APPROVAL moment (<= the client's start_time) — using created_at as the end

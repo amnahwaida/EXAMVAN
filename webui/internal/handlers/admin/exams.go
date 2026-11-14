@@ -790,6 +790,21 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
+		// Mid-exam gate (review alur ujian 14 Nov 2026): menghapus ujian yang
+		// sedang berjalan berarti menghapus submissions siswa secara live.
+		// Hentikan pengawasan dahulu; ujian stopped/tombstoned tetap bisa
+		// dihapus (kebijakan expiry).
+		gateExam, gateErr := models.GetExamByID(ctx, pool, examID)
+		if gateErr != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if examIsRunning(&gateExam) {
+			errorResponse(c, http.StatusConflict,
+				"Ujian sedang berjalan — hentikan pengawasan sebelum menghapus")
+			return
+		}
+
 		// Load the exam once: it is needed for the audit detail AND to decide
 		// whether R2 cleanup is mandatory (an exam with a stored PDF must have
 		// a working R2 backend before its row is removed).
@@ -902,7 +917,15 @@ func EditExam() gin.HandlerFunc {
 			return
 		}
 
+		// Mid-exam gate (review alur ujian 14 Nov 2026): MENGGANTI PDF saat
+		// siswa masih melihat PDF lama tidak diizinkan — halaman soal yang
+		// dikerjakan berbeda dari yang dinilai. Edit nama/jadwal tetap boleh.
 		file, header, fileErr := c.Request.FormFile("pdf_file")
+		if fileErr == nil && examIsRunning(&exam) {
+			errorResponse(c, http.StatusConflict,
+				"Ujian sedang berjalan — hentikan pengawasan sebelum mengganti PDF")
+			return
+		}
 		oldFilePath := "" // set when a replacement PDF is uploaded (cleanup target)
 		filename := ""    // set when a replacement PDF is uploaded (audit detail)
 
@@ -1524,6 +1547,21 @@ func SaveQuestions() gin.HandlerFunc {
 
 		if !checkExamOwnership(c, pool, examID) {
 			errorResponse(c, http.StatusForbidden, "Akses ditolak")
+			return
+		}
+
+		// Mid-exam gate (review alur ujian 14 Nov 2026): mengganti kunci
+		// jawaban/bobot saat ujian berjalan membuat penilaian inkonsisten
+		// antar siswa (yang sudah submit dinilai kunci lama). Hentikan
+		// pengawasan dahulu.
+		gateExam, gateErr := models.GetExamByID(ctx, pool, examID)
+		if gateErr != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if examIsRunning(&gateExam) {
+			errorResponse(c, http.StatusConflict,
+				"Ujian sedang berjalan — kunci soal tidak dapat diganti sekarang")
 			return
 		}
 
@@ -2436,6 +2474,16 @@ func StopExam() gin.HandlerFunc {
 // 12. POST /admin/exams/bulk-delete — Bulk delete exams
 // ---------------------------------------------------------------------------
 
+// examIsRunning reports whether students are (or could be) actively working:
+// the exam is active AND has been started by a pengawas. Destructive
+// mid-exam mutations (delete, question replacement, PDF replacement) are
+// refused in this state — review alur ujian 14 Nov 2026. Exams that were
+// stopped (inactive) or tombstoned are NOT running: deletion/removal must
+// remain possible for the expiry/policy flows.
+func examIsRunning(e *models.Exam) bool {
+	return e.IsActive() && e.ExamStartedAt != nil
+}
+
 func BulkDelete() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
@@ -2465,6 +2513,41 @@ func BulkDelete() gin.HandlerFunc {
 			examIDs = filtered
 			if len(examIDs) == 0 {
 				errorResponse(c, http.StatusBadRequest, "Tidak ada ujian yang dapat dihapus")
+				return
+			}
+		}
+
+		// Mid-exam gate (review alur ujian 14 Nov 2026): ujian yang sedang
+		// berjalan dilewatkan (bukan dihapus) — menghapusnya berarti
+		// menghapus submissions siswa secara live. Sisa ujian tetap
+		// dihapus; pesan menyebut yang dilewati.
+		var skippedRunning int
+		{
+			runningRows, err := pool.Query(ctx,
+				`SELECT id FROM exams WHERE id = ANY($1) AND status = 'active' AND exam_started_at IS NOT NULL`, examIDs)
+			if err == nil {
+				runningSet := map[int]bool{}
+				for runningRows.Next() {
+					var rid int
+					if runningRows.Scan(&rid) == nil {
+						runningSet[rid] = true
+					}
+				}
+				runningRows.Close()
+				if len(runningSet) > 0 {
+					filtered := make([]int, 0, len(examIDs))
+					for _, id := range examIDs {
+						if !runningSet[id] {
+							filtered = append(filtered, id)
+						}
+					}
+					skippedRunning = len(runningSet)
+					examIDs = filtered
+				}
+			}
+			if len(examIDs) == 0 {
+				errorResponse(c, http.StatusConflict,
+					"Semua ujian yang dipilih sedang berjalan — hentikan pengawasan sebelum menghapus")
 				return
 			}
 		}
@@ -2524,7 +2607,12 @@ func BulkDelete() gin.HandlerFunc {
 			}
 		}
 
-		successMessage(c, fmt.Sprintf("%d ujian berhasil dihapus", len(examIDs)))
+		if skippedRunning > 0 {
+			successMessage(c, fmt.Sprintf("%d ujian berhasil dihapus, %d dilewati karena sedang berjalan",
+				len(examIDs), skippedRunning))
+		} else {
+			successMessage(c, fmt.Sprintf("%d ujian berhasil dihapus", len(examIDs)))
+		}
 	}
 }
 
