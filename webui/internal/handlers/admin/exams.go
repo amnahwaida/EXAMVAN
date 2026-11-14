@@ -1550,20 +1550,19 @@ func SaveQuestions() gin.HandlerFunc {
 			return
 		}
 
-		// Mid-exam gate (review alur ujian 14 Nov 2026): mengganti kunci
-		// jawaban/bobot saat ujian berjalan membuat penilaian inkonsisten
-		// antar siswa (yang sudah submit dinilai kunci lama). Hentikan
-		// pengawasan dahulu.
+		// Mid-exam gate (review alur ujian 14 Nov 2026): saat ujian berjalan,
+		// bundle PENILAIAN (kunci/bobot soal) tidak boleh berubah — yang sudah
+		// submit dinilai kunci lama, yang belum kunci baru = inkonsisten.
+		// Jadwal, pengawas, congrats, dan pengaturan lain TETAP boleh
+		// disimpan (perpanjang waktu mid-exam adalah alur sah guru), dan
+		// perubahan jadwal di-broadcast ke klien (schedule_changed).
+		wasRunning := false
 		gateExam, gateErr := models.GetExamByID(ctx, pool, examID)
 		if gateErr != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		if examIsRunning(&gateExam) {
-			errorResponse(c, http.StatusConflict,
-				"Ujian sedang berjalan — kunci soal tidak dapat diganti sekarang")
-			return
-		}
+		wasRunning = examIsRunning(&gateExam)
 
 		var body struct {
 			Questions       []map[string]interface{} `json:"questions"`
@@ -1605,6 +1604,15 @@ func SaveQuestions() gin.HandlerFunc {
 			}
 			raw, _ := json.Marshal(body.Questions)
 			questionsJSON = string(raw)
+		}
+		if wasRunning {
+			// Ujian berjalan: pertahankan kunci/bobot lama (bundle penilaian
+			// beku), apapun yang dikirim client. Jika tidak, kunci jawaban
+			// bisa diganti mid-exam dan penilaian antar siswa inkonsisten.
+			questionsJSON = ""
+			if gateExam.QuestionsJSON != nil && *gateExam.QuestionsJSON != "" {
+				questionsJSON = *gateExam.QuestionsJSON
+			}
 		}
 
 		// Identity fields: divalidasi server-side (parity dengan validasi
@@ -1673,6 +1681,25 @@ func SaveQuestions() gin.HandlerFunc {
 			log.Printf("save questions error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan konfigurasi soal")
 			return
+		}
+
+		// Schedule_changed broadcast (review alur ujian 14 Nov 2026): klien
+		// meng-cache end_time dari payload join — perpanjang/persingkat
+		// jadwal mid-exam tidak tercermin sampai re-join. Saat ujian berjalan
+		// dan jadwal berubah, beri tahu ruangan agar deadline klien ikut
+		// bergeser. Hanya jadwal — kunci soal beku saat ujian berjalan.
+		scheduleChanged := (startTimePtr != nil && (gateExam.StartTime == nil || *startTimePtr != gateExam.StartTime.UTC().Format("2006-01-02T15:04:05Z"))) ||
+			(endTimePtr != nil && (gateExam.EndTime == nil || *endTimePtr != gateExam.EndTime.UTC().Format("2006-01-02T15:04:05Z")))
+		if wasRunning && scheduleChanged {
+			if hubVal, exists := c.Get("ws_hub"); exists && hubVal != nil {
+				if hub, ok := hubVal.(*websocket.Hub); ok {
+					endISO := ""
+					if endTimePtr != nil {
+						endISO = *endTimePtr
+					}
+					broadcastScheduleChanged(hub, examID, endISO)
+				}
+			}
 		}
 
 		// Save pengawas assignments
@@ -2083,6 +2110,16 @@ func recalcGoContext() context.Context {
 // generateExamToken is the token source for auto-generated exam tokens.
 // Var (bukan langsung helpers.GenerateExamToken) sebagai test seam: collision
 // retry (L10) bisa dibuat deterministik di test tanpa mock DB.
+// broadcastScheduleChanged adalah test seam untuk broadcast
+// schedule_changed saat jadwal ujian berjalan diubah (SaveQuestions).
+var broadcastScheduleChanged = func(hub *websocket.Hub, examID int, endUTC string) {
+	payload := gin.H{"exam_id": examID}
+	if endUTC != "" {
+		payload["end_time"] = endUTC
+	}
+	hub.BroadcastToRoom(strconv.Itoa(examID), "schedule_changed", payload)
+}
+
 var generateExamToken = helpers.GenerateExamToken
 
 // regenerateTokenUniqueViolationMessage maps a duplicate-key (SQLSTATE 23505)

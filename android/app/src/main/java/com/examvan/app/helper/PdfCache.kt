@@ -35,4 +35,24 @@ object PdfCache {
         val age = nowMs - file.lastModified()
         return age in 0..maxAgeMs
     }
+
+    // ------------------------------------------------------------------
+    // Pembersihan pasca-ujian (review klien 14 Nov 2026): naskah soal
+    // (the exam paper) tidak boleh menetap di perangkat siswa setelah
+    // ujian selesai. Dipanggil saat jawaban terkonfirmasi durable dan
+    // saat "Hapus Data Tersimpan".
+    // ------------------------------------------------------------------
+
+    /** Hapus cache PDF satu ujian. Return true bila file (ada dan) terhapus. */
+    fun clear(cacheDir: File, examId: Int): Boolean {
+        val f = pdfFile(cacheDir, examId)
+        return f.exists() && f.delete()
+    }
+
+    /** Hapus SEMUA cache PDF ujian (pola nama exam_*.pdf di cacheDir). */
+    fun clearAll(cacheDir: File): Int {
+        val files = cacheDir.listFiles { f -> f.name.startsWith("exam_") && f.name.endsWith(".pdf") }
+            ?: return 0
+        return files.count { it.delete() }
+    }
 }

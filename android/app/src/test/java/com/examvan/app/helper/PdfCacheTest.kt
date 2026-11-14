@@ -100,4 +100,51 @@ class PdfCacheTest {
         assertFalse(PdfCache.isCacheUsable(dir, System.currentTimeMillis())) // direktori
         dir.deleteRecursively()
     }
+
+    // ------------------------------------------------------------------
+    // Pembersihan pasca-ujian (review klien 14 Nov 2026): naskah soal
+    // tidak boleh menetap di perangkat siswa setelah jawaban durable /
+    // "Hapus Data Tersimpan". JUnit4: pesan di depan, kondisi di belakang.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun clear_removesExamPdfOnly() {
+        val dir = newTempDir()
+        val target = PdfCache.pdfFile(dir, 42).apply { writeText("%PDF-1.4") }
+        val other = File(dir, "exam_99.pdf").apply { writeText("%PDF-1.4") }
+        val unrelated = File(dir, "unrelated.txt").apply { writeText("x") }
+
+        val removed = PdfCache.clear(dir, 42)
+
+        assertTrue("pdf ujian terhapus", removed)
+        assertFalse("target hilang", target.exists())
+        assertTrue("cache ujian lain utuh", other.exists())
+        assertTrue("berkas non-PDF utuh", unrelated.exists())
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun clear_returnsFalseWhenFileMissing() {
+        val dir = newTempDir()
+        assertFalse("tanpa file -> false", PdfCache.clear(dir, 7))
+    }
+
+    @Test
+    fun clearAll_removesEveryExamPdfAndCounts() {
+        val dir = newTempDir()
+        listOf(1, 2, 3).forEach { PdfCache.pdfFile(dir, it).writeText("%PDF-1.4") }
+        File(dir, "unrelated.txt").writeText("x")
+
+        val removed = PdfCache.clearAll(dir)
+
+        assertEquals("3 pdf ujian terhapus", 3, removed)
+        assertTrue("berkas non-PDF utuh", File(dir, "unrelated.txt").exists())
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun clearAll_returnsZeroOnEmptyDir() {
+        val dir = newTempDir()
+        assertEquals("dir kosong -> nol", 0, PdfCache.clearAll(dir))
+    }
 }

@@ -30,6 +30,7 @@ import (
 
 	"github.com/examvan/webui/internal/config"
 	"github.com/examvan/webui/internal/middleware"
+	"github.com/examvan/webui/internal/websocket"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 
@@ -75,7 +76,7 @@ func setupMidExamGateFixture(t *testing.T, pool *pgxpool.Pool, username string) 
 
 // newMidExamGateRouter mirrors the production wiring for the four endpoints
 // under test, plus the /test/login/:id session seam and an R2 stub.
-func newMidExamGateRouter(pool *pgxpool.Pool, storageDir string) *gin.Engine {
+func newMidExamGateRouter(pool *pgxpool.Pool, storageDir string, hub *websocket.Hub) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	store := cookie.NewStore([]byte("examvan-it-secret-0123456789abcdef0123456789abcdef"))
@@ -84,6 +85,9 @@ func newMidExamGateRouter(pool *pgxpool.Pool, storageDir string) *gin.Engine {
 	r.Use(func(c *gin.Context) {
 		c.Set("db", pool)
 		c.Set("cfg", &config.Config{StoragePath: storageDir})
+		if hub != nil {
+			c.Set("ws_hub", hub)
+		}
 		c.Set("r2", newStubR2())
 	})
 
@@ -148,7 +152,7 @@ var _ = r2client.ErrCodeNotConfigured // keep import if stub covers it
 func TestDeleteExamRefusedWhileRunning(t *testing.T) {
 	pool := setupMidExamGatePool(t)
 	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-del-run")
-	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir()))
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
 	defer srv.Close()
 	client := loginMidGate(t, srv, superID)
 
@@ -165,7 +169,7 @@ func TestDeleteExamRefusedWhileRunning(t *testing.T) {
 func TestDeleteExamAllowedAfterStop(t *testing.T) {
 	pool := setupMidExamGatePool(t)
 	superID, _, stoppedID := setupMidExamGateFixture(t, pool, "midgate-del-stop")
-	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir()))
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
 	defer srv.Close()
 	client := loginMidGate(t, srv, superID)
 
@@ -178,28 +182,96 @@ func TestDeleteExamAllowedAfterStop(t *testing.T) {
 	}
 }
 
-func TestSaveQuestionsRefusedWhileRunning(t *testing.T) {
+func TestSaveQuestionsWhileRunningFreezesQuestionsButAppliesSchedule(t *testing.T) {
 	pool := setupMidExamGatePool(t)
 	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-sq-run")
-	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir()))
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
 	defer srv.Close()
 	client := loginMidGate(t, srv, superID)
 
+	// Kunci lama sebelum save.
+	var oldQuestions string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT questions_json FROM exams WHERE id=$1`, runningID).Scan(&oldQuestions); err != nil {
+		t.Fatalf("read questions: %v", err)
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
-		"questions":      []map[string]interface{}{{"number": 1, "type": "single_choice", "key": "x"}},
+		// Kunci BERBEDA dikirim UI — saat ujian berjalan harus DIABAIKAN.
+		"questions":      []map[string]interface{}{{"number": 1, "type": "single_choice", "key": "MANIPULATED"}},
 		"security_level": "medium",
+		"start_time":     "",
+		"end_time":       "2030-01-02 15:04",
 	})
 	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", runningID), body, "application/json")
-	if resp.StatusCode != http.StatusConflict {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, want 409 (body: %s)", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200 — jadwal/pengaturan harus tetap tersimpan (body: %s)", resp.StatusCode, b)
+	}
+
+	var questionsAfter string
+	var endAfter *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT questions_json, end_time::text FROM exams WHERE id=$1`, runningID).Scan(&questionsAfter, &endAfter); err != nil {
+		t.Fatalf("read exam after save: %v", err)
+	}
+	if questionsAfter != oldQuestions {
+		t.Errorf("questions_json berubah saat ujian berjalan — bundle penilaian wajib beku")
+	}
+	if endAfter == nil || !strings.Contains(*endAfter, "2030-01-02") {
+		t.Errorf("end_time baru tidak tersimpan: %v", endAfter)
+	}
+}
+
+func TestSaveQuestionsScheduleChangeBroadcastsWhileRunning(t *testing.T) {
+	pool := setupMidExamGatePool(t)
+	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-bcast")
+	hub := websocket.NewHub(nil)
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), hub))
+	defer srv.Close()
+	client := loginMidGate(t, srv, superID)
+
+	captured := [][]interface{}{}
+	orig := broadcastScheduleChanged
+	broadcastScheduleChanged = func(h *websocket.Hub, examID int, endUTC string) {
+		captured = append(captured, []interface{}{examID, endUTC})
+	}
+	t.Cleanup(func() { broadcastScheduleChanged = orig })
+
+	newEnd := "2030-01-02 15:04"
+	body, _ := json.Marshal(map[string]interface{}{
+		"questions":      nil,
+		"security_level": "medium",
+		"start_time":     "",
+		"end_time":       newEnd,
+	})
+	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", runningID), body, "application/json")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if len(captured) != 1 || captured[0][0] != runningID {
+		t.Fatalf("schedule_changed broadcast tidak terkirim: %v", captured)
+	}
+	endUTC := captured[0][1].(string)
+	if !strings.Contains(endUTC, "2030-01-02") {
+		t.Errorf("end_time broadcast salah: %q", endUTC)
+	}
+
+	// end_time benar-benar tersimpan UTC.
+	var endAfter *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT end_time::text FROM exams WHERE id=$1`, runningID).Scan(&endAfter); err != nil {
+		t.Fatalf("read end_time: %v", err)
+	}
+	if endAfter == nil || !strings.Contains(*endAfter, "2030-01-02") {
+		t.Errorf("end_time tidak tersimpan: %v", endAfter)
 	}
 }
 
 func TestEditExamRefusesPDFReplacementWhileRunning(t *testing.T) {
 	pool := setupMidExamGatePool(t)
 	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-edit-pdf")
-	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir()))
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
 	defer srv.Close()
 	client := loginMidGate(t, srv, superID)
 
@@ -220,7 +292,7 @@ func TestEditExamRefusesPDFReplacementWhileRunning(t *testing.T) {
 func TestEditExamAllowsNameOnlyWhileRunning(t *testing.T) {
 	pool := setupMidExamGatePool(t)
 	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-edit-name")
-	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir()))
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
 	defer srv.Close()
 	client := loginMidGate(t, srv, superID)
 
@@ -239,7 +311,7 @@ func TestEditExamAllowsNameOnlyWhileRunning(t *testing.T) {
 func TestBulkDeleteSkipsRunningExam(t *testing.T) {
 	pool := setupMidExamGatePool(t)
 	superID, runningID, stoppedID := setupMidExamGateFixture(t, pool, "midgate-bulk")
-	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir()))
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
 	defer srv.Close()
 	client := loginMidGate(t, srv, superID)
 

@@ -251,6 +251,19 @@ class ExamViewerActivity : BaseSecureActivity() {
                                     ).show()
                                 }
                             }
+                            "schedule_changed" -> {
+                                // Pengawas mengubah jadwal mid-exam (review
+                                // klien 14 Nov 2026): deadline lama yang
+                                // di-cache dari intent sudah basi — ambil
+                                // end_time baru dan restart countdown +
+                                // watchdog. Fail-secure: end_time kosong
+                                // diabaikan (deadline lama tetap berlaku).
+                                val newEnd = data["end_time"]?.toString() ?: ""
+                                if (newEnd.isNotEmpty()) {
+                                    endTime = newEnd
+                                    startCountdownTimer()
+                                }
+                            }
                         }
                     }
                 }

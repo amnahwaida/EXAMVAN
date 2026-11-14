@@ -234,6 +234,11 @@ object WebSocketManager {
                 // General notification
                 onEventCallback?.invoke("notification", data)
             }
+            "schedule_changed" -> {
+                // Jadwal ujian berjalan diubah pengawas (review klien 14 Nov
+                // 2026) — klien me-refresh deadline dari payload end_time.
+                onEventCallback?.invoke("schedule_changed", data)
+            }
         }
     }
 

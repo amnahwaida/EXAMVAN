@@ -20,6 +20,7 @@ import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.helper.UpdateManager
 import com.examvan.app.helper.ExamModePolicy
+import com.examvan.app.helper.PdfCache
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
@@ -470,6 +471,8 @@ class ServerConfigActivity : BaseSecureActivity() {
         // plaintext-nya: saat keystore corrupt, data yang benar-benar terbaca
         // ada di file fallback — tidak boleh tertinggal.
         val clearedAll = AppPrefs.clearAllData(this)
+        // Naskah soal (PDF cache) ikut dibersihkan (review klien 14 Nov 2026).
+        PdfCache.clearAll(cacheDir)
         // Fix permintaan produk: endpoint bawaan TIDAK BOLEH hilang setelah
         // hapus/reset data — field langsung dipulihkan ke examvan.my.id
         // (user tetap bebas menggantinya manual).

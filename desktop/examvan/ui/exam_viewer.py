@@ -1216,6 +1216,14 @@ class ExamViewerWindow(QMainWindow):
             log.warning("exam_terminated received — auto-submitting")
             self._sig_status.emit("Ujian dihentikan pengawas. Mengumpulkan jawaban...")
             self._auto_submit()
+        elif event == "schedule_changed":
+            # Pengawas mengubah jadwal mid-exam (review klien 14 Nov 2026):
+            # deadline lama yang di-cache dari payload join sudah basi.
+            # Fail-secure: tanpa end_time valid, deadline lama tetap berlaku.
+            new_end = data.get("end_time")
+            if new_end:
+                self._exam.end_time = new_end
+                self._timer_widget.set_end_time(new_end)
         # student_update / notification: diagnostik, tidak perlu aksi di desktop.
 
     # -------------------------------------------------------------------

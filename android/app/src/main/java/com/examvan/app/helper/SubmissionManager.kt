@@ -205,6 +205,9 @@ class SubmissionManager(
             .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
             .remove(AppPrefs.KEY_EXAM_START_TIME)
             .apply()
+        // Naskah soal tidak menetap di perangkat setelah jawaban durable
+        // (review klien 14 Nov 2026): cache PDF ujian ikut dibersihkan.
+        PdfCache.clear(context.cacheDir, examId)
     }
 
     companion object {

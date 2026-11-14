@@ -130,6 +130,27 @@ class ElapsedTimerWidget(QWidget):
             # Already past deadline — fire immediately
             self._end_mono = _time.monotonic() - 1
 
+    def set_end_time(self, end_time: Optional[str]) -> None:
+        """Terapkan end_time BARU otoritatif dari server (schedule_changed).
+
+        Review klien 14 Nov 2026: dulu end_time hanya dibaca sekali dari
+        payload join — perpanjangan/pemendekan jadwal mid-exam oleh pengawas
+        tidak pernah tercermin di klien. Ini BUKAN refresh_deadline (yang
+        fail-secure, tak pernah memperpanjang): server secara resmi
+        mendeklarasikan deadline baru, jadi _end_mono dihitung ulang PENUH
+        dari end_time baru tanpa clamp min() — netral jam perangkat tetap
+        dijaga oleh koreksi skew di compute_remaining_seconds.
+        """
+        self._end_time = end_time
+        self._fired_time_up = False
+        remaining = compute_remaining_seconds(
+            end_time, datetime.now(timezone.utc), api.get_server_skew_ms()
+        )
+        if remaining is None:
+            self._end_mono = None
+        else:
+            self._end_mono = _time.monotonic() + remaining
+
     def refresh_deadline(self) -> None:
         """Hitung ulang deadline dari wall clock, TANPA pernah memperpanjangnya.
 
