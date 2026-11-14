@@ -1,6 +1,9 @@
 package models
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestShortAnswerNumericTolerance (review alur ujian 14 Nov 2026, P3):
 // short_answer dulu dibandingkan sebagai string upper/trim murni, sehingga
@@ -66,5 +69,70 @@ func TestMCPartialAndMatchingSanity(t *testing.T) {
 	if half.Earned != 2 || half.StatusClass != StatusPartial {
 		t.Errorf("matching partial: got %.2f/%s, want 2.00/%s",
 			half.Earned, half.StatusClass, StatusPartial)
+	}
+}
+
+// TestRecalculateSkipsPlaceholders (review pasca-ujian 14 Nov 2026):
+// RecalculateAllScoresForExam dulu menulis score 0 ke placeholder siswa yang
+// TIDAK pernah submit (baris monitoring dari approval) — nilai "belum" berubah
+// jadi 0 di monitoring admin. Kontrak baru: baris placeholder (answers_json
+// kosong) dilewati; baris yang benar-benar submit ikut dinilai ulang dengan
+// kunci/bobot terbaru.
+func TestRecalculateSkipsPlaceholders(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	owner, err := CreateUser(ctx, pool, &AdminUser{
+		Username: "recalc-guru", Name: "Guru Recalc", PasswordHash: "x",
+		Status: UserStatusActive, Role: SerializeRoles([]string{RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	questionsJSON := `[{"number":1,"type":"multiple_choice","label":"S","weight":2,"key":"jakarta","options":["Jakarta","Bogor"]}]`
+	var examID int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+		                   security_level, questions_json, created_by, exam_started_at)
+		VALUES ('Ujian Recalc', 'rc.pdf', 1024, $1, $1, 'inactive', 'medium', $2, $3, CURRENT_TIMESTAMP)
+		RETURNING id`, "RC12345", questionsJSON, owner.ID).Scan(&examID); err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+
+	// Siswa A: sudah submit (jawaban lama dengan skor lama).
+	// Siswa B: placeholder (tanpa jawaban, tanpa nilai).
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, student_class,
+		                         answers_json, score, mac_address, submitted_at)
+		VALUES ($1, 'Siswa A', 'RA1', 'XII-A', '{"1":"salah-lama"}', 0, 'DEVICE:ra', CURRENT_TIMESTAMP)`, examID); err != nil {
+		t.Fatalf("insert submitted row: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, student_class,
+		                         mac_address, identity_data)
+		VALUES ($1, 'Siswa B', 'RB1', 'XII-A', 'DEVICE:rb')`, examID); err != nil {
+		t.Fatalf("insert placeholder row: %v", err)
+	}
+
+	if err := RecalculateAllScoresForExam(ctx, pool, examID); err != nil {
+		t.Fatalf("recalculate: %v", err)
+	}
+
+	var scoreA, scoreB *float64
+	if err := pool.QueryRow(ctx,
+		`SELECT score FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:ra'`, examID).Scan(&scoreA); err != nil {
+		t.Fatalf("read score A: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT score FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:rb'`, examID).Scan(&scoreB); err != nil {
+		t.Fatalf("read score B: %v", err)
+	}
+
+	if scoreA == nil {
+		t.Errorf("baris submitted harus dinilai ulang (bukan nil)")
+	}
+	if scoreB != nil {
+		t.Errorf("placeholder tidak boleh ditulis score (dapat %v) — nilai 'belum' jangan jadi 0", *scoreB)
 	}
 }

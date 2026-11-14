@@ -291,10 +291,10 @@ func SubmissionsPage() gin.HandlerFunc {
 				MaxScore:   maxScore,
 				ScorePct:   scorePct,
 				HasScore:   hasScore,
-			StartTime: startTime,
-			CreatedAt: createdAt,
-			EndAt:     formatISOUTC(submissionEnd(createdAt, submittedAt)),
-			MACAddress: macAddress,
+				StartTime:  startTime,
+				CreatedAt:  createdAt,
+				EndAt:      formatISOUTC(submissionEnd(createdAt, submittedAt)),
+				MACAddress: macAddress,
 			})
 		}
 		rows.Close()
@@ -321,8 +321,8 @@ func SubmissionsPage() gin.HandlerFunc {
 			exam, err := models.GetExamByID(ctx, pool, examFilter)
 			if err == nil {
 				_, _ = models.ParseQuestionsJSON(exam.QuestionsJSON)
-			var subCount int
-			pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`, examFilter).Scan(&subCount)
+				var subCount int
+				pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`, examFilter).Scan(&subCount)
 
 				// Creator name
 				var creatorName string
@@ -628,10 +628,40 @@ func DeleteSubmission() gin.HandlerFunc {
 			return
 		}
 
+		// Snapshot identitas siswa SEBELUM barisnya dihapus — detail audit
+		// harus selamat dari penghapusan (review pasca-ujian 14 Nov 2026:
+		// penghapusan hasil siswa dulu tanpa jejak audit, berbeda dengan
+		// DeleteExam yang mencatat).
+		var auditStudent, auditNumber, auditClass string
+		var auditExamID int
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(student_name, ''), COALESCE(exam_number, ''),
+			        COALESCE(student_class, ''), exam_id
+			 FROM submissions WHERE id = $1`, submissionID).
+			Scan(&auditStudent, &auditNumber, &auditClass, &auditExamID); err != nil {
+			errorResponse(c, http.StatusNotFound, "Hasil ujian tidak ditemukan")
+			return
+		}
+
 		if err := models.DeleteSubmission(ctx, pool, submissionID); err != nil {
 			log.Printf("delete submission error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menghapus hasil ujian")
 			return
+		}
+
+		// Audit trail best-effort: ditulis SETELAH baris terhapus (detail
+		// di-snapshot di atas), mengikuti pola DeleteExam — kegagalan audit
+		// tidak mengembalikan penghapusan.
+		detail := fmt.Sprintf("Hasil dihapus: %s", auditStudent)
+		if auditNumber != "" {
+			detail += fmt.Sprintf(" (%s)", auditNumber)
+		}
+		if auditClass != "" {
+			detail += " kelas " + auditClass
+		}
+		if err := models.CreateAdminAuditLog(ctx, pool, getCurrentUserID(c),
+			getCurrentUsername(c), models.ActionSubmissionDeleted, auditExamID, detail); err != nil {
+			log.Printf("audit submission deleted: %v", err)
 		}
 
 		successMessage(c, "Hasil ujian berhasil dihapus")

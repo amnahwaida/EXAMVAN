@@ -847,6 +847,13 @@ func RecalculateAllScoresForExam(ctx context.Context, pool *pgxpool.Pool, examID
 		if err := rows.Scan(&id, &answersRaw); err != nil {
 			return fmt.Errorf("recalculate scores: scan: %w", err)
 		}
+		// Placeholder siswa yang tidak pernah submit (answers_json kosong —
+		// baris monitoring dari approval) DILEWATI: recalculasi dulu menulis
+		// score 0 ke baris mereka, mengubah "belum mengerjakan" menjadi
+		// "nilai 0" di monitoring admin (review pasca-ujian 14 Nov 2026).
+		if answersRaw == nil || *answersRaw == "" {
+			continue
+		}
 		answers, _ := ParseAnswersJSON(answersRaw)
 		if answers == nil {
 			answers = map[string]interface{}{}

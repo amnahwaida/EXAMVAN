@@ -47,6 +47,10 @@ const (
 	// the survival path the schema comment describes, so the trail documents
 	// the deletion even after the exam is gone.
 	ActionExamDeleted = "exam_deleted"
+	// Post-exam results hygiene (review pasca-ujian 14 Nov 2026): hasil
+	// seorang siswa dihapus dari halaman Hasil Ujian — jejak audit tetap
+	// ada walau baris submissions-nya sudah hilang.
+	ActionSubmissionDeleted = "submission_deleted"
 	// An exam was created (UploadExam). Written AFTER the row committed (the
 	// exam_id FK targets the new row), opening the lifecycle trail: created →
 	// pdf_replaced → deleted.

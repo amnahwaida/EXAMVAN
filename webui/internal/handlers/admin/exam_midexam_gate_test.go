@@ -112,6 +112,7 @@ func newMidExamGateRouter(pool *pgxpool.Pool, storageDir string, hub *websocket.
 	api.POST("/exams/bulk-delete", BulkDelete())
 	api.POST("/exams/:exam_id/questions", SaveQuestions())
 	api.POST("/exams/:exam_id/edit", EditExam())
+	api.POST("/submissions/:id/delete", DeleteSubmission())
 	return r
 }
 
@@ -375,5 +376,56 @@ func TestSaveQuestionsScheduleOnlyWhileRunningDoesNotRecalculate(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("recalculasi dipanggil %d kali saat ujian berjalan — wajib 0", calls)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail penghapusan hasil siswa (review pasca-ujian 14 Nov 2026):
+// DeleteSubmission menghapus jawaban siswa tanpa jejak audit — berbeda dengan
+// DeleteExam yang mencatat. Kontrak: satu baris audit action
+// submission_deleted dengan detail menyebut siswa.
+// ---------------------------------------------------------------------------
+
+func TestDeleteSubmissionWritesAuditTrail(t *testing.T) {
+	pool := setupMidExamGatePool(t)
+	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-audit-del")
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
+	defer srv.Close()
+
+	// Submission siswa pada ujian tersebut.
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO submissions (exam_id, student_name, exam_number, student_class,
+		                         answers_json, score, mac_address)
+		VALUES ($1, 'Siswa Audit', 'AD1', 'XII-A', '{"1":"jakarta"}', 80, 'DEVICE:audit-del')`,
+		runningID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+	var subID int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT id FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:audit-del'`,
+		runningID).Scan(&subID); err != nil {
+		t.Fatalf("read submission id: %v", err)
+	}
+
+	client := loginMidGate(t, srv, superID)
+
+	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/submissions/%d/delete", subID), nil, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var action, detail string
+	var examIDNull int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT action, detail, COALESCE(exam_id, 0) FROM admin_audit_logs
+		WHERE action = 'submission_deleted' ORDER BY id DESC LIMIT 1`).
+		Scan(&action, &detail, &examIDNull); err != nil {
+		t.Fatalf("audit row submission_deleted tidak ditemukan: %v", err)
+	}
+	if !strings.Contains(detail, "Siswa Audit") {
+		t.Errorf("detail audit harus menyebut siswa: %q", detail)
+	}
+	if examIDNull != runningID {
+		t.Errorf("audit exam_id = %d, want %d", examIDNull, runningID)
 	}
 }
