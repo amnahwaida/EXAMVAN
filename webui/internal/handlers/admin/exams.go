@@ -1779,7 +1779,16 @@ func SaveQuestions() gin.HandlerFunc {
 		// not the HTTP request context which may be cancelled). L11: pakai job
 		// context aplikasi — goroutine tidak lagi lolos dari graceful shutdown
 		// (dibatalkan sebelum DB pool ditutup, main.go).
-		go recalculateScores(recalcGoContext(), pool, examID)
+		//
+		// Mid-exam gate (review alur ujian 14 Nov 2026): recalculasi HANYA
+		// bila ujian tidak sedang berjalan. Saat berjalan, kunci/bobot beku
+		// (skor submitted tidak berubah), dan recalculasi terhadap
+		// placeholder siswa yang masih mengerjakan menulis Nilai 0 di tengah
+		// ujian — pengawas bisa salah baca. Jadwal-only edit pada ujian
+		// berjalan = tanpa recalculasi.
+		if !wasRunning {
+			goRecalculateScores(recalcGoContext(), pool, examID)
+		}
 
 		successMessage(c, "Konfigurasi soal berhasil disimpan")
 	}
@@ -2118,6 +2127,13 @@ var broadcastScheduleChanged = func(hub *websocket.Hub, examID int, endUTC strin
 		payload["end_time"] = endUTC
 	}
 	hub.BroadcastToRoom(strconv.Itoa(examID), "schedule_changed", payload)
+}
+
+// goRecalculateScores adalah test seam untuk pemanggilan recalculasi skor
+// latar belakang (SaveQuestions). Test dapat meng-overrides untuk menjalankan
+// sinkron/merekam pemanggilan.
+var goRecalculateScores = func(ctx context.Context, pool *pgxpool.Pool, examID int) {
+	go recalculateScores(ctx, pool, examID)
 }
 
 var generateExamToken = helpers.GenerateExamToken

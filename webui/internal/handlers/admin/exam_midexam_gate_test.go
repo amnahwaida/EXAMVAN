@@ -335,3 +335,45 @@ func TestBulkDeleteSkipsRunningExam(t *testing.T) {
 		t.Errorf("pesan harus menyebut ujian yang dilewati: %q", out.Message)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Recalculasi skor mid-exam (review alur ujian 14 Nov 2026): SaveQuestions
+// schedule-only pada ujian BERJALAN tidak boleh memicu recalculasi —
+// placeholder siswa yang masih mengerjakan akan tertulis Nilai 0 di tengah
+// ujian. Seam goRecalculateScores dipakai untuk merekam pemanggilan.
+// ---------------------------------------------------------------------------
+
+func TestSaveQuestionsScheduleOnlyWhileRunningDoesNotRecalculate(t *testing.T) {
+	pool := setupMidExamGatePool(t)
+	superID, runningID, _ := setupMidExamGateFixture(t, pool, "midgate-recalc-run")
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
+	defer srv.Close()
+	client := loginMidGate(t, srv, superID)
+
+	// Placeholder siswa yang masih mengerjakan (tanpa jawaban, tanpa nilai).
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO submissions (exam_id, student_name, exam_number, student_class, mac_address)
+		VALUES ($1, 'Siswa Jalan', 'RJ1', 'XII-A', 'DEVICE:mid-run')`, runningID); err != nil {
+		t.Fatalf("insert placeholder: %v", err)
+	}
+
+	calls := 0
+	origGo := goRecalculateScores
+	goRecalculateScores = func(ctx context.Context, p *pgxpool.Pool, examID int) {
+		calls++
+	}
+	t.Cleanup(func() { goRecalculateScores = origGo })
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"questions":  nil,
+		"start_time": "",
+		"end_time":   "2030-06-01 10:00",
+	})
+	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", runningID), body, "application/json")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if calls != 0 {
+		t.Errorf("recalculasi dipanggil %d kali saat ujian berjalan — wajib 0", calls)
+	}
+}
