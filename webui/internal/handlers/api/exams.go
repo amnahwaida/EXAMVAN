@@ -1768,6 +1768,22 @@ func AccessLog() gin.HandlerFunc {
 		// --- MAC address ---
 		macAddress := sanitizeMAC(body.MACAddress)
 
+		// --- Entitlement gate (review presence 14 Nov 2026, ronde 2) -------
+		// presence menulis heartbeat key + baris monitoring atas MAC
+		// self-asserted. Gerbang lama menerima token MATCH saja — mode
+		// static-token berarti token dibagi sekelas, sehingga siswa bisa
+		// membuat presence fantom untuk MAC arbitrer. Kini presence menuntut
+		// approval 'approved' untuk MAC tersebut — entitlemen yang sama dengan
+		// toleransi submit; pengawas memblokir via Tolak per device.
+		var approvalStatus string
+		if err := pool.QueryRow(ctx,
+			"SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2",
+			examID, macAddress).Scan(&approvalStatus); err != nil || approvalStatus != "approved" {
+			// Anti-oracle: pesan 404 seragam, tanpa membuka keberadaan ujian.
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+
 		// --- Rate limit (per exam + device) ---
 		// Pola yang sama dengan SubmitExam: satu ruangan di belakang NAT sekolah
 		// berbagi satu IP, dan tiap perangkat mengirim login + heartbeat tiap
@@ -1977,6 +1993,17 @@ func CompleteExam() gin.HandlerFunc {
 			return
 		}
 		if !exam.IsActive() || !examtoken.Matches(exam, token) {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		// Entitlement gate (review presence 14 Nov 2026, ronde 2): penghapusan
+		// heartbeat untuk MAC arbitrer oleh pemegang token bersama = phantom
+		// offline di monitoring. Hanya device yang MEMANG ber-status approved
+		// untuk MAC tersebut boleh menutup sesinya sendiri.
+		var completeApproval string
+		if err := pool.QueryRow(ctx,
+			"SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2",
+			examID, macAddress).Scan(&completeApproval); err != nil || completeApproval != "approved" {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
