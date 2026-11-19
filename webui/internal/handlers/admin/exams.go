@@ -1497,6 +1497,7 @@ func GetQuestions() gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"success":            true,
 				"questions":          questions,
+				"exam_running":       examIsRunning(&exam),
 				"security_level":     securityLevel,
 				"strict_mode":        exam.StrictMode != 0,
 				"identity_fields":    identityFields,
@@ -1514,6 +1515,7 @@ func GetQuestions() gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"success":          true,
 				"questions":        questions,
+				"exam_running":     examIsRunning(&exam),
 				"security_level":   securityLevel,
 				"strict_mode":      exam.StrictMode != 0,
 				"identity_fields":  identityFields,
@@ -1602,6 +1604,7 @@ func SaveQuestions() gin.HandlerFunc {
 				errorResponse(c, http.StatusBadRequest, msg)
 				return
 			}
+			normalizeQuestionsPayload(body.Questions)
 			raw, _ := json.Marshal(body.Questions)
 			questionsJSON = string(raw)
 		}
@@ -1790,6 +1793,18 @@ func SaveQuestions() gin.HandlerFunc {
 			goRecalculateScores(recalcGoContext(), pool, examID)
 		}
 
+		if wasRunning {
+			// Jangan bersikap sukses-hijau polos: kunci/bobot yang dikirim
+			// client barusan DIBUANG oleh gate di atas (dibekukan). Tanpa
+			// sinyal ini guru percaya kunci baru sudah aktif — toast "berhasil
+			// disimpan" padahal jawaban tidak berubah di database.
+			c.JSON(http.StatusOK, gin.H{
+				"success":          true,
+				"questions_frozen": true,
+				"message":          "Pengaturan tersimpan. Kunci & bobot soal TIDAK diubah karena ujian sedang berjalan",
+			})
+			return
+		}
 		successMessage(c, "Konfigurasi soal berhasil disimpan")
 	}
 }
@@ -1836,7 +1851,11 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 			if !containsFold(opts, s) {
 				return fmt.Sprintf("Soal #%d (%s) kunci jawaban '%s' tidak ada di pilihan jawaban", num, questionTypeLabel(qtype), strings.TrimSpace(s))
 			}
-		case "true_false", "short_answer":
+		case "true_false":
+			if msg := validateTrueFalseKey(q); msg != "" {
+				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), msg)
+			}
+		case "short_answer":
 			s, ok := key.(string)
 			if !ok || strings.TrimSpace(s) == "" {
 				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
@@ -1873,13 +1892,21 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 			if !ok || len(m) == 0 {
 				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
 			}
+			// Item kiri/kanan wajib ada: klien Android melewatkan soal
+			// matching tanpa keduanya (NO_MATCHING_ITEMS) — ujian jadi
+			// kehilangan nomor soal secara diam-diam.
+			left := stringListValue(q["left_items"])
+			right := stringListValue(q["right_items"])
+			if len(left) == 0 || len(right) == 0 {
+				return fmt.Sprintf("Soal #%d (%s) belum memiliki item kiri/kanan — gunakan format \"Kiri: 1, 2, 3 | Kanan: A, B, C\"", num, questionTypeLabel(qtype))
+			}
 			// Setiap pasangan harus kiri-teks -> kanan-teks: nilai
 			// non-string membuat pencocokan jawaban tidak mungkin dan
 			// dipakai ulang sebagai 0.
-			for left, v := range m {
+			for leftKey, v := range m {
 				s, ok := v.(string)
 				if !ok || strings.TrimSpace(s) == "" {
-					return fmt.Sprintf("Soal #%d (%s) pasangan '%v' harus bernilai teks yang tidak kosong", num, questionTypeLabel(qtype), left)
+					return fmt.Sprintf("Soal #%d (%s) pasangan '%v' harus bernilai teks yang tidak kosong", num, questionTypeLabel(qtype), leftKey)
 				}
 			}
 		}
@@ -1887,11 +1914,73 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 	return ""
 }
 
+// validateTrueFalseKey validates both shapes of a true/false answer key:
+//
+//   - legacy single statement: key is the string "TRUE"/"FALSE" and no
+//     `statements` list is present;
+//   - multi statement: `statements` is a non-empty list of non-blank strings
+//     and key is a list of "TRUE"/"FALSE" values with exactly the same length
+//     (one answer per statement, matched by index).
+//
+// A list key without statements (or vice versa) is rejected instead of being
+// stored half-formed: the scoring path would otherwise compare a list against
+// a string and silently award zero to every student.
+func validateTrueFalseKey(q map[string]interface{}) string {
+	rawStatements, hasStatements := q["statements"]
+	if hasStatements && rawStatements != nil {
+		statements, ok := rawStatements.([]interface{})
+		if !ok || len(statements) == 0 {
+			return "daftar pernyataan harus berupa daftar teks yang tidak kosong"
+		}
+		for _, el := range statements {
+			s, ok := el.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return "setiap pernyataan harus berupa teks yang tidak kosong"
+			}
+		}
+		keys, ok := q["key"].([]interface{})
+		if !ok || len(keys) == 0 {
+			return "belum memiliki kunci jawaban untuk setiap pernyataan"
+		}
+		if len(keys) != len(statements) {
+			return fmt.Sprintf("jumlah kunci jawaban (%d) harus sama dengan jumlah pernyataan (%d)", len(keys), len(statements))
+		}
+		for _, el := range keys {
+			s, ok := el.(string)
+			if !ok {
+				return "kunci jawaban pernyataan harus berupa teks TRUE atau FALSE"
+			}
+			v := strings.ToUpper(strings.TrimSpace(s))
+			if v != "TRUE" && v != "FALSE" {
+				return fmt.Sprintf("kunci jawaban '%s' harus TRUE atau FALSE", strings.TrimSpace(s))
+			}
+		}
+		return ""
+	}
+
+	s, ok := q["key"].(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return "belum memiliki kunci jawaban"
+	}
+	v := strings.ToUpper(strings.TrimSpace(s))
+	if v != "TRUE" && v != "FALSE" {
+		return fmt.Sprintf("kunci jawaban '%s' harus TRUE atau FALSE", strings.TrimSpace(s))
+	}
+	return ""
+}
+
 // validateChoiceOptions checks the `options` list of a choice question: it must
 // be a non-empty list of non-blank strings. Returns the normalised options and
 // an empty message when usable, or the Indonesian error fragment otherwise.
+// Fallback ke `choices`: admin UI lama (dan data legacy di questions_json)
+// menyimpan daftar pilihan di bawah kunci `choices` — tanpa fallback, setiap
+// simpan soal pilgan/PG kompleks dari editor lama ditolak "belum memiliki
+// pilihan jawaban" padahal isian guru utuh.
 func validateChoiceOptions(q map[string]interface{}) ([]string, string) {
 	raw, ok := q["options"]
+	if !ok || raw == nil {
+		raw, ok = q["choices"]
+	}
 	if !ok || raw == nil {
 		return nil, "belum memiliki pilihan jawaban"
 	}
@@ -1914,6 +2003,86 @@ func validateChoiceOptions(q map[string]interface{}) ([]string, string) {
 		opts = append(opts, strings.TrimSpace(s))
 	}
 	return opts, ""
+}
+
+// stringListValue extracts a []string from a JSON-decoded value. Returns nil
+// for anything that is not a list of strings or an empty list.
+func stringListValue(raw interface{}) []string {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, el := range arr {
+		s, ok := el.(string)
+		if !ok {
+			return nil
+		}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// normalizeQuestionsPayload makes the stored questions_json canonical for ALL
+// consumers. Historically two field names diverged: the admin UI (and thus
+// legacy rows) writes `choices` + `left_items`/`right_items`, while Go
+// consumers (seed, desktop, API fixtures, validateChoiceOptions) expect
+// `options`. Android's answer sheet reads `choices`. Choice questions now
+// carry BOTH keys with identical content so no consumer breaks regardless of
+// which name it reads; matching items are left under their established names.
+// Must be called AFTER validateQuestionKeys — validation decides which list is
+// authoritative (options, with legacy choices fallback), this only mirrors it.
+func normalizeQuestionsPayload(questions []map[string]interface{}) {
+	for _, q := range questions {
+		if q == nil {
+			continue
+		}
+		qtype, _ := q["type"].(string)
+		switch qtype {
+		case "single_choice", "multiple_choice":
+			list := stringListValue(q["options"])
+			if list == nil {
+				list = stringListValue(q["choices"])
+			}
+			if list == nil {
+				continue
+			}
+			opts := make([]interface{}, len(list))
+			chs := make([]interface{}, len(list))
+			for i, s := range list {
+				opts[i] = s
+				chs[i] = s
+			}
+			q["options"] = opts
+			q["choices"] = chs
+		case "true_false":
+			// Multi-statement true/false: trim statements and canonicalise the
+			// key values to upper-case TRUE/FALSE so the scoring path (which
+			// compares upper-cased values) and the clients (which render the
+			// key as-is on the hasil page) always see the same shape.
+			statements := stringListValue(q["statements"])
+			if statements == nil {
+				continue
+			}
+			stmts := make([]interface{}, len(statements))
+			for i, s := range statements {
+				stmts[i] = strings.TrimSpace(s)
+			}
+			q["statements"] = stmts
+			keys := stringListValue(q["key"])
+			if keys == nil {
+				continue
+			}
+			normKeys := make([]interface{}, len(keys))
+			for i, k := range keys {
+				normKeys[i] = strings.ToUpper(strings.TrimSpace(k))
+			}
+			q["key"] = normKeys
+		}
+	}
 }
 
 // containsFold reports whether needle is present in opts, ignoring case and

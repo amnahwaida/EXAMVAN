@@ -503,6 +503,10 @@ function openQuestionsModal(examId, examName) {
                 }
                 parseSchedule(res.start_time, startDateInput, startInput);
                 parseSchedule(res.end_time, endDateInput, endInput);
+                // Gate mid-exam: banner peringatan saat ujian berjalan —
+                // kunci/bobot akan dibekukan server meski tombol Simpan hijau.
+                const runningBanner = document.getElementById('examRunningBanner');
+                if (runningBanner) runningBanner.style.display = res.exam_running ? 'block' : 'none';
                 // Congratulations message (nullable — empty when unset)
                 const congratsEl = document.getElementById('examCongratsMessage');
                 if (congratsEl) congratsEl.value = res.congrats_message || '';
@@ -562,6 +566,20 @@ function closeQuestionsModal(force) {
         var t = e.target;
         if (t && t.classList && t.classList.contains('q-type-select')) {
             onQuestionTypeChange(t);
+        }
+    });
+    // Koreksi guru menghapus penanda kartu invalid (outline merah) saat isi
+    // kartu diedit — penanda hanya hidup sampai nilainya disentuh lagi.
+    qModal.addEventListener('input', function (e) {
+        var t = e.target;
+        if (t && t.classList && (t.classList.contains('q-key-input') || t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input'))) {
+            var card = t.closest('.question-editor-card');
+            if (card) {
+                card.style.outline = '';
+                if (t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input')) {
+                    renderQuestionAssist(card);
+                }
+            }
         }
     });
 
@@ -639,19 +657,313 @@ function setPanelColor(value) {
     if (hexInput) hexInput.value = hex;
 }
 
+// Sinkronkan input kunci tersembunyi dengan pilihan Benar/Salah per
+// pernyataan. Input kunci tetap menjadi satu-satunya sumber yang dibaca
+// getQuestionsFromEditor / findQuestionCardProblems, sehingga format JSON
+// yang dikirim ke server tidak berubah.
+function syncTrueFalseKey(card) {
+    if (!card) return;
+    const keyInput = card.querySelector('.q-key-input');
+    const selects = card.querySelectorAll('.q-tf-answer-select');
+    if (!keyInput || !selects || selects.length === 0) return;
+    keyInput.value = Array.from(selects).map(s => s.value).join(', ');
+}
+
+// Tampilkan satu kontrol Benar/Salah untuk SETIAP pernyataan. Jumlah kontrol
+// mengikuti jumlah baris pernyataan secara otomatis — guru tidak perlu
+// mengetik daftar kunci secara manual. Format satu pernyataan (tanpa daftar)
+// tetap memakai input Kunci Jawaban lama.
+function renderTrueFalseAnswerRows(card) {
+    if (!card) return;
+    const typeSel = card.querySelector('.q-type-select');
+    const type = typeSel ? typeSel.value : '';
+    const tfGroup = card.querySelector('.q-tf-answers-group');
+    const keyGroup = card.querySelector('.q-key-group');
+    const list = card.querySelector('.q-tf-answer-list');
+    const statementsInput = card.querySelector('.q-statements-input');
+    const keyInput = card.querySelector('.q-key-input');
+    if (!tfGroup || !list) return;
+
+    if (type !== 'true_false') {
+        tfGroup.style.display = 'none';
+        if (keyGroup) keyGroup.style.display = 'flex';
+        return;
+    }
+
+    const statements = statementsInput
+        ? statementsInput.value.split('\n').map(x => x.trim()).filter(x => x)
+        : [];
+
+    if (statements.length === 0) {
+        tfGroup.style.display = 'none';
+        if (keyGroup) keyGroup.style.display = 'flex';
+        return;
+    }
+
+    tfGroup.style.display = 'flex';
+    if (keyGroup) keyGroup.style.display = 'none';
+
+    const existing = Array.from(list.querySelectorAll('.q-tf-answer-select')).map(s => s.value);
+    const keyRaw = keyInput ? keyInput.value.trim() : '';
+    const keyValues = keyRaw
+        ? keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x)
+        : [];
+
+    list.innerHTML = '';
+    statements.forEach((statement, idx) => {
+        let value = existing[idx];
+        if (value !== 'TRUE' && value !== 'FALSE') value = keyValues[idx];
+        if (value !== 'TRUE' && value !== 'FALSE') value = 'TRUE';
+
+        const row = document.createElement('div');
+        row.className = 'q-tf-answer-row';
+
+        const label = document.createElement('span');
+        label.className = 'q-tf-answer-label';
+        label.textContent = `${idx + 1}. ${statement}`;
+
+        const select = document.createElement('select');
+        select.className = 'q-tf-answer-select';
+        [['TRUE', 'Benar'], ['FALSE', 'Salah']].forEach(([val, text]) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = text;
+            if (val === value) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.addEventListener('change', function () {
+            syncTrueFalseKey(card);
+            markQuestionsConfigDirty();
+        });
+
+        row.appendChild(label);
+        row.appendChild(select);
+        list.appendChild(row);
+    });
+
+    syncTrueFalseKey(card);
+}
+
+function splitEditorLines(value) {
+    return String(value || '').split('\n').map(x => x.trim()).filter(x => x);
+}
+
+function splitEditorCsv(value) {
+    return String(value || '').split(',').map(x => x.trim()).filter(x => x);
+}
+
+function syncChoiceKey(card) {
+    if (!card) return;
+    const keyInput = card.querySelector('.q-key-input');
+    const typeSel = card.querySelector('.q-type-select');
+    if (!keyInput || !typeSel) return;
+    const checked = Array.from(card.querySelectorAll('.q-choice-key-input:checked')).map(el => el.value);
+    keyInput.value = typeSel.value === 'single_choice'
+        ? (checked.length ? checked[0] : '')
+        : checked.join(', ');
+}
+
+function renderChoiceKeyOptions(card) {
+    if (!card) return;
+    const list = card.querySelector('.q-choice-key-list');
+    const optionsInput = card.querySelector('.q-options-input');
+    const keyInput = card.querySelector('.q-key-input');
+    const typeSel = card.querySelector('.q-type-select');
+    if (!list || !optionsInput || !keyInput || !typeSel) return;
+
+    const type = typeSel.value;
+    const options = splitEditorCsv(optionsInput.value);
+    const previous = Array.from(list.querySelectorAll('.q-choice-key-input:checked')).map(el => el.value);
+    const fromKey = splitEditorCsv(keyInput.value);
+    const selected = (previous.length ? previous : fromKey).map(x => x.toUpperCase());
+    const valid = selected.filter(v => options.some(o => o.toUpperCase() === v));
+
+    list.innerHTML = '';
+    if (options.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'q-assist-hint';
+        hint.textContent = 'Isi pilihan jawaban terlebih dahulu.';
+        list.appendChild(hint);
+        return;
+    }
+
+    const groupName = 'q-choice-' + Math.random().toString(36).slice(2);
+    options.forEach((option, idx) => {
+        const row = document.createElement('label');
+        row.className = 'q-choice-row';
+
+        const input = document.createElement('input');
+        input.type = type === 'single_choice' ? 'radio' : 'checkbox';
+        input.className = 'q-choice-key-input';
+        input.value = option;
+        input.name = groupName;
+        if (type === 'single_choice') {
+            input.checked = valid.length ? valid[0] === option.toUpperCase() : idx === 0;
+        } else {
+            input.checked = valid.includes(option.toUpperCase());
+        }
+        input.addEventListener('change', function () {
+            syncChoiceKey(card);
+            markQuestionsConfigDirty();
+        });
+
+        const text = document.createElement('span');
+        text.textContent = option;
+        row.appendChild(input);
+        row.appendChild(text);
+        list.appendChild(row);
+    });
+
+    syncChoiceKey(card);
+}
+
+function syncMatchingKey(card) {
+    if (!card) return;
+    const keyInput = card.querySelector('.q-key-input');
+    const selects = card.querySelectorAll('.q-matching-select');
+    if (!keyInput || selects.length === 0) return;
+    keyInput.value = Array.from(selects)
+        .map(select => `${select.dataset.left}:${select.value}`)
+        .join(', ');
+}
+
+function renderMatchingPairs(card) {
+    if (!card) return;
+    const list = card.querySelector('.q-matching-pairs-list');
+    const leftInput = card.querySelector('.q-left-items-input');
+    const rightInput = card.querySelector('.q-right-items-input');
+    const keyInput = card.querySelector('.q-key-input');
+    if (!list || !leftInput || !rightInput || !keyInput) return;
+
+    const left = splitEditorLines(leftInput.value);
+    const right = splitEditorLines(rightInput.value);
+    const previous = {};
+    list.querySelectorAll('.q-matching-select').forEach(select => {
+        previous[select.dataset.left] = select.value;
+    });
+    const fromKey = {};
+    splitEditorCsv(keyInput.value).forEach(pair => {
+        const idx = pair.indexOf(':');
+        if (idx > 0) {
+            fromKey[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim().toUpperCase();
+        }
+    });
+
+    list.innerHTML = '';
+    if (left.length === 0 || right.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'q-assist-hint';
+        hint.textContent = 'Isi minimal satu item kiri dan satu item kanan.';
+        list.appendChild(hint);
+        return;
+    }
+
+    left.forEach((item, idx) => {
+        let value = previous[item];
+        if (!value || !right.some(r => r.toUpperCase() === String(value).toUpperCase())) {
+            value = fromKey[item];
+        }
+        if (!value || !right.some(r => r.toUpperCase() === String(value).toUpperCase())) {
+            value = right[idx] || right[0];
+        }
+
+        const row = document.createElement('div');
+        row.className = 'q-matching-row';
+
+        const label = document.createElement('span');
+        label.className = 'q-matching-label';
+        label.textContent = item;
+
+        const select = document.createElement('select');
+        select.className = 'q-matching-select';
+        select.dataset.left = item;
+        right.forEach(optionValue => {
+            const option = document.createElement('option');
+            option.value = optionValue;
+            option.textContent = optionValue;
+            if (optionValue.toUpperCase() === String(value).toUpperCase()) option.selected = true;
+            select.appendChild(option);
+        });
+        select.addEventListener('change', function () {
+            syncMatchingKey(card);
+            markQuestionsConfigDirty();
+        });
+
+        row.appendChild(label);
+        row.appendChild(select);
+        list.appendChild(row);
+    });
+
+    syncMatchingKey(card);
+}
+
+function renderQuestionAssist(card) {
+    if (!card) return;
+    const typeSel = card.querySelector('.q-type-select');
+    const type = typeSel ? typeSel.value : '';
+    const keyGroup = card.querySelector('.q-key-group');
+    const choiceGroup = card.querySelector('.q-choice-key-group');
+    const matchingGroup = card.querySelector('.q-matching-group');
+    const tfGroup = card.querySelector('.q-tf-answers-group');
+    const optionsInput = card.querySelector('.q-options-input');
+    const leftInput = card.querySelector('.q-left-items-input');
+    const rightInput = card.querySelector('.q-right-items-input');
+
+    if (choiceGroup) choiceGroup.style.display = 'none';
+    if (matchingGroup) matchingGroup.style.display = 'none';
+    if (tfGroup) tfGroup.style.display = 'none';
+    if (keyGroup) keyGroup.style.display = 'flex';
+
+    if (type === 'true_false') {
+        renderTrueFalseAnswerRows(card);
+        return;
+    }
+
+    if (type === 'single_choice' || type === 'multiple_choice') {
+        const options = optionsInput ? splitEditorCsv(optionsInput.value) : [];
+        if (options.length > 0) {
+            if (choiceGroup) choiceGroup.style.display = 'flex';
+            if (keyGroup) keyGroup.style.display = 'none';
+            renderChoiceKeyOptions(card);
+        }
+        return;
+    }
+
+    if (type === 'matching') {
+        if (matchingGroup) matchingGroup.style.display = 'flex';
+        const left = leftInput ? splitEditorLines(leftInput.value) : [];
+        const right = rightInput ? splitEditorLines(rightInput.value) : [];
+        if (left.length > 0 && right.length > 0) {
+            if (keyGroup) keyGroup.style.display = 'none';
+            renderMatchingPairs(card);
+        }
+    }
+}
+
 function createNewQuestionCard(q, num) {
     const type = q.type || 'single_choice';
     const key = q.key || '';
     const weight = q.weight !== undefined ? q.weight : 1.0;
     const partial = q.partial_scoring ? 'checked' : '';
-    const partialVisibility = (type === 'multiple_choice' || type === 'matching') ? 'block' : 'none';
-    const optionsVisibility = (type === 'true_false' || type === 'short_answer') ? 'none' : 'block';
+    const partialVisibility = (type === 'multiple_choice' || type === 'matching' || type === 'true_false') ? 'block' : 'none';
+    const optionsVisibility = (type === 'true_false' || type === 'short_answer' || type === 'matching') ? 'none' : 'block';
+    const statementsVisibility = type === 'true_false' ? 'block' : 'none';
+    const statements = Array.isArray(q.statements) ? q.statements : [];
+    const statementsVal = statements.join('\n');
     
     let optionsVal = '';
+    let matchingLeftVal = '1\n2\n3';
+    let matchingRightVal = 'A\nB\nC';
     if (type === 'single_choice' || type === 'multiple_choice') {
-        optionsVal = q.choices ? q.choices.join(', ') : 'A, B, C, D, E';
+        // Data lama disimpan sebagai `choices`, format kanonik baru `options`.
+        const opts = q.options || q.choices;
+        optionsVal = opts && opts.length ? opts.join(', ') : 'A, B, C, D, E';
     } else if (type === 'matching') {
-        optionsVal = q.left_items && q.right_items ? `Kiri: ${q.left_items.join(', ')} | Kanan: ${q.right_items.join(', ')}` : 'Kiri: 1, 2, 3 | Kanan: A, B, C';
+        const left = Array.isArray(q.left_items) && q.left_items.length ? q.left_items : ['1', '2', '3'];
+        const right = Array.isArray(q.right_items) && q.right_items.length ? q.right_items : ['A', 'B', 'C'];
+        matchingLeftVal = left.join('\n');
+        matchingRightVal = right.join('\n');
+        optionsVal = `Kiri: ${left.join(', ')} | Kanan: ${right.join(', ')}`;
     }
     
     let keyVal = '';
@@ -695,9 +1007,29 @@ function createNewQuestionCard(q, num) {
                     <input type="checkbox" class="q-partial-checkbox" ${partial}> Parsial
                 </label>
             </div>
-            <div class="q-field-group">
+            <div class="q-field-group q-statements-group" style="display: ${statementsVisibility};">
+                <label>Pernyataan Benar/Salah (satu per baris)</label>
+                <textarea class="q-statements-input" rows="3" placeholder="Pernyataan 1&#10;Pernyataan 2">${escapeHtml(statementsVal)}</textarea>
+            </div>
+            <div class="q-field-group q-key-group">
                 <label>Kunci Jawaban</label>
-                <input type="text" class="q-key-input" value="${escapeHtml(keyVal)}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B">
+                <input type="text" class="q-key-input" value="${escapeHtml(keyVal)}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B | Benar/Salah: TRUE,FALSE">
+            </div>
+            <div class="q-field-group q-tf-answers-group" style="display: none;">
+                <label>Kunci Benar/Salah per Pernyataan</label>
+                <div class="q-tf-answer-list"></div>
+            </div>
+            <div class="q-field-group q-choice-key-group" style="display: none;">
+                <label>Kunci Jawaban (pilih yang benar)</label>
+                <div class="q-choice-key-list"></div>
+            </div>
+            <div class="q-field-group q-matching-group" style="display: none;">
+                <label>Item Kiri (satu per baris)</label>
+                <textarea class="q-left-items-input" rows="3" placeholder="1&#10;2&#10;3">${escapeHtml(matchingLeftVal)}</textarea>
+                <label>Item Kanan (satu per baris)</label>
+                <textarea class="q-right-items-input" rows="3" placeholder="A&#10;B&#10;C">${escapeHtml(matchingRightVal)}</textarea>
+                <label>Pasangan Benar</label>
+                <div class="q-matching-pairs-list"></div>
             </div>
             <div class="q-field-group q-options-group" style="display: ${optionsVisibility};">
                 <label>Pilihan</label>
@@ -706,6 +1038,7 @@ function createNewQuestionCard(q, num) {
         </div>
         <button class="btn-sm btn-delete btn-remove-q" data-action="question-remove" title="Hapus Soal"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>
     `;
+    renderQuestionAssist(card);
     return card;
 }
 
@@ -1213,11 +1546,15 @@ function onQuestionTypeChange(selectEl) {
     const card = selectEl.closest('.question-editor-card');
     const optionsInput = card.querySelector('.q-options-input');
     const optionsGroup = card.querySelector('.q-options-group');
+    const statementsInput = card.querySelector('.q-statements-input');
+    const statementsGroup = card.querySelector('.q-statements-group');
+    const leftItemsInput = card.querySelector('.q-left-items-input');
+    const rightItemsInput = card.querySelector('.q-right-items-input');
     const keyInput = card.querySelector('.q-key-input');
     const partialGroup = card.querySelector('.q-partial-group');
     const type = selectEl.value;
     
-    if (type === 'multiple_choice' || type === 'matching') {
+    if (type === 'multiple_choice' || type === 'matching' || type === 'true_false') {
         partialGroup.style.display = 'block';
     } else {
         partialGroup.style.display = 'none';
@@ -1225,7 +1562,8 @@ function onQuestionTypeChange(selectEl) {
         if (partialCb) partialCb.checked = false;
     }
     
-    if (type === 'true_false' || type === 'short_answer') {
+    if (statementsGroup) statementsGroup.style.display = type === 'true_false' ? 'block' : 'none';
+    if (type === 'true_false' || type === 'short_answer' || type === 'matching') {
         optionsGroup.style.display = 'none';
     } else {
         optionsGroup.style.display = 'block';
@@ -1239,14 +1577,18 @@ function onQuestionTypeChange(selectEl) {
         keyInput.value = 'A, C';
     } else if (type === 'true_false') {
         optionsInput.value = '';
+        if (statementsInput) statementsInput.value = '';
         keyInput.value = 'TRUE';
     } else if (type === 'matching') {
+        if (leftItemsInput) leftItemsInput.value = '1\n2\n3';
+        if (rightItemsInput) rightItemsInput.value = 'A\nB\nC';
         optionsInput.value = 'Kiri: 1, 2, 3 | Kanan: A, B, C';
         keyInput.value = '1:A, 2:B, 3:C';
     } else if (type === 'short_answer') {
         optionsInput.value = '';
         keyInput.value = '';
     }
+    renderQuestionAssist(card);
 }
 
 // ===== T15: guard penggantian isi editor soal ==============================
@@ -1284,10 +1626,10 @@ function quickGenerateQuestions() {
     for (let i = 1; i <= qty; i++) {
         let q = { number: i, type: type, weight: 1.0 };
         if (type === 'single_choice') {
-            q.choices = ['A', 'B', 'C', 'D', 'E'];
+            q.options = ['A', 'B', 'C', 'D', 'E'];
             q.key = 'A';
         } else if (type === 'multiple_choice') {
-            q.choices = ['A', 'B', 'C', 'D', 'E'];
+            q.options = ['A', 'B', 'C', 'D', 'E'];
             q.key = ['A'];
         } else if (type === 'true_false') {
             q.key = 'TRUE';
@@ -1296,6 +1638,8 @@ function quickGenerateQuestions() {
             q.right_items = ['A', 'B', 'C'];
             q.key = { '1': 'A', '2': 'B', '3': 'C' };
         } else if (type === 'short_answer') {
+            // Kunci dibiarkan kosong agar guru mengisinya; saveQuestionsConfig
+            // menandai kartu dengan kunci kosong sebelum mengirim ke server.
             q.key = '';
         }
         questions.push(q);
@@ -1312,31 +1656,42 @@ function getQuestionsFromEditor() {
         const type = card.querySelector('.q-type-select').value;
         const keyRaw = card.querySelector('.q-key-input').value.trim();
         const optionsRaw = card.querySelector('.q-options-input').value.trim();
+        const statementsInput = card.querySelector('.q-statements-input');
+        const statementsRaw = statementsInput ? statementsInput.value : '';
         const weight = parseFloat(card.querySelector('.q-weight-input').value) || 1.0;
         const partialCheckbox = card.querySelector('.q-partial-checkbox');
-        const partialScoring = (type === 'multiple_choice' || type === 'matching') && partialCheckbox ? partialCheckbox.checked : false;
+        const partialScoring = (type === 'multiple_choice' || type === 'matching' || type === 'true_false') && partialCheckbox ? partialCheckbox.checked : false;
         
         let q = { number: number, type: type, weight: weight, partial_scoring: partialScoring };
         
         if (type === 'single_choice' || type === 'multiple_choice') {
-            q.choices = optionsRaw.split(',').map(x => x.trim()).filter(x => x);
-            if (q.choices.length === 0) q.choices = ['A', 'B', 'C', 'D', 'E'];
+            q.options = optionsRaw.split(',').map(x => x.trim()).filter(x => x);
+            if (q.options.length === 0) q.options = ['A', 'B', 'C', 'D', 'E'];
         } else if (type === 'matching') {
-            const parts = optionsRaw.split('|');
-            let left = ['1', '2', '3'];
-            let right = ['A', 'B', 'C'];
-            
-            parts.forEach(p => {
-                const sub = p.split(':');
-                if (sub.length === 2) {
-                    const label = sub[0].trim().toLowerCase();
-                    const val = sub[1].split(',').map(x => x.trim()).filter(x => x);
-                    if (label.includes('kiri')) left = val;
-                    else if (label.includes('kanan')) right = val;
-                }
-            });
-            q.left_items = left;
-            q.right_items = right;
+            const leftInput = card.querySelector('.q-left-items-input');
+            const rightInput = card.querySelector('.q-right-items-input');
+            if (leftInput && rightInput) {
+                q.left_items = splitEditorLines(leftInput.value);
+                q.right_items = splitEditorLines(rightInput.value);
+                if (q.left_items.length === 0) q.left_items = ['1', '2', '3'];
+                if (q.right_items.length === 0) q.right_items = ['A', 'B', 'C'];
+            } else {
+                const parts = optionsRaw.split('|');
+                let left = ['1', '2', '3'];
+                let right = ['A', 'B', 'C'];
+
+                parts.forEach(p => {
+                    const sub = p.split(':');
+                    if (sub.length === 2) {
+                        const label = sub[0].trim().toLowerCase();
+                        const val = sub[1].split(',').map(x => x.trim()).filter(x => x);
+                        if (label.includes('kiri')) left = val;
+                        else if (label.includes('kanan')) right = val;
+                    }
+                });
+                q.left_items = left;
+                q.right_items = right;
+            }
         }
         
         if (type === 'single_choice') {
@@ -1344,16 +1699,29 @@ function getQuestionsFromEditor() {
         } else if (type === 'multiple_choice') {
             q.key = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
         } else if (type === 'true_false') {
-            q.key = keyRaw.toUpperCase();
+            const statements = statementsRaw.split('\n').map(x => x.trim()).filter(x => x);
+            if (statements.length > 0) {
+                q.statements = statements;
+                q.key = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
+            } else {
+                q.key = keyRaw.toUpperCase();
+            }
         } else if (type === 'matching') {
             const keyObj = {};
-            const pairs = keyRaw.split(',');
-            pairs.forEach(pair => {
-                const item = pair.split(':');
-                if (item.length === 2) {
-                    keyObj[item[0].trim()] = item[1].trim().toUpperCase();
-                }
-            });
+            const selects = card.querySelectorAll('.q-matching-select');
+            if (selects.length > 0) {
+                selects.forEach(select => {
+                    keyObj[select.dataset.left] = select.value.toUpperCase();
+                });
+            } else {
+                const pairs = keyRaw.split(',');
+                pairs.forEach(pair => {
+                    const item = pair.split(':');
+                    if (item.length === 2) {
+                        keyObj[item[0].trim()] = item[1].trim().toUpperCase();
+                    }
+                });
+            }
             q.key = keyObj;
         } else if (type === 'short_answer') {
             q.key = keyRaw;
@@ -1389,12 +1757,13 @@ function exportXMLQuestions() {
     xml += '<questions>\n';
     
     questions.forEach(q => {
-        const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching') ? ` partial_scoring="${xmlEscape(q.partial_scoring)}"` : '';
+        const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching' || q.type === 'true_false') ? ` partial_scoring="${xmlEscape(q.partial_scoring)}"` : '';
         xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}>\n`;
         
         if (q.type === 'single_choice' || q.type === 'multiple_choice') {
-            if (q.choices && q.choices.length > 0) {
-                xml += `        <choices>${xmlEscape(q.choices.join(', '))}</choices>\n`;
+            const exportOpts = q.options || q.choices;
+            if (exportOpts && exportOpts.length > 0) {
+                xml += `        <choices>${xmlEscape(exportOpts.join(', '))}</choices>\n`;
             }
         } else if (q.type === 'matching') {
             if (q.left_items && q.left_items.length > 0) {
@@ -1403,10 +1772,12 @@ function exportXMLQuestions() {
             if (q.right_items && q.right_items.length > 0) {
                 xml += `        <right_items>${xmlEscape(q.right_items.join(', '))}</right_items>\n`;
             }
+        } else if (q.type === 'true_false' && q.statements && q.statements.length > 0) {
+            xml += `        <statements>${xmlEscape(q.statements.join('\n'))}</statements>\n`;
         }
         
         let keyStr = '';
-        if (q.type === 'multiple_choice' && Array.isArray(q.key)) {
+        if ((q.type === 'multiple_choice' || q.type === 'true_false') && Array.isArray(q.key)) {
             keyStr = q.key.join(', ');
         } else if (q.type === 'matching' && q.key && typeof q.key === 'object') {
             const pairs = [];
@@ -1446,6 +1817,50 @@ function clearSchedule() {
     });
 }
 
+// Validasi pre-save: kunci kosong dan kunci di luar daftar pilihan ditangkap
+// di sisi klien agar guru langsung diarahkan ke kartu yang bermasalah —
+// server hanya membalas toast generik yang tidak menunjuk lokasi soalnya.
+function findQuestionCardProblems() {
+    const problems = [];
+    document.querySelectorAll('.question-editor-card').forEach(card => {
+        card.style.outline = '';
+        const numInput = card.querySelector('.q-number');
+        const num = numInput ? numInput.value : '?';
+        const typeSel = card.querySelector('.q-type-select');
+        const type = typeSel ? typeSel.value : '';
+        const keyInput = card.querySelector('.q-key-input');
+        const keyRaw = keyInput ? keyInput.value.trim() : '';
+        const optionsInput = card.querySelector('.q-options-input');
+        const optionsRaw = optionsInput ? optionsInput.value.trim() : '';
+        const statementsInput = card.querySelector('.q-statements-input');
+        const statementsRaw = statementsInput ? statementsInput.value : '';
+        const statements = statementsRaw.split('\n').map(x => x.trim()).filter(x => x);
+        let msg = '';
+        if (!keyRaw) {
+            msg = 'belum memiliki kunci jawaban';
+        } else if (type === 'true_false') {
+            const keys = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
+            const invalid = keys.filter(k => k !== 'TRUE' && k !== 'FALSE');
+            if (invalid.length) {
+                msg = `kunci jawaban '${invalid.join(', ')}' harus TRUE atau FALSE`;
+            } else if (statements.length > 0 && keys.length !== statements.length) {
+                msg = `jumlah kunci jawaban (${keys.length}) harus sama dengan jumlah pernyataan (${statements.length})`;
+            } else if (statements.length === 0 && keys.length !== 1) {
+                msg = 'satu soal Benar/Salah tanpa daftar pernyataan hanya boleh memiliki satu kunci';
+            }
+        } else if ((type === 'single_choice' || type === 'multiple_choice') && optionsRaw) {
+            const opts = optionsRaw.split(',').map(x => x.trim().toLowerCase()).filter(x => x);
+            const keys = keyRaw.split(',').map(x => x.trim().toLowerCase()).filter(x => x);
+            const missing = keys.filter(k => !opts.includes(k));
+            if (missing.length) {
+                msg = `kunci jawaban '${missing.join(', ')}' tidak ada di pilihan jawaban`;
+            }
+        }
+        if (msg) problems.push({ num: num, msg: msg, card: card });
+    });
+    return problems;
+}
+
 function saveQuestionsConfig() {
     if (!activeExamId) return;
 
@@ -1457,6 +1872,18 @@ function saveQuestionsConfig() {
     var restoreBtn = function() { btn.disabled = false; btn.innerHTML = originalHtml; };
 
     const questions = getQuestionsFromEditor();
+
+    const problems = findQuestionCardProblems();
+    if (problems.length > 0) {
+        problems.forEach(p => { p.card.style.outline = '2px solid #ef4444'; });
+        if (problems[0].card.scrollIntoView) {
+            problems[0].card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        showToast(`Soal #${problems[0].num} ${problems[0].msg}${problems.length > 1 ? ` (+${problems.length - 1} soal lain)` : ''} — perbaiki sebelum menyimpan`, 'error');
+        restoreBtn();
+        return;
+    }
+
     const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
     const strictMode = securityLevel === 'high';
 
@@ -1485,7 +1912,13 @@ function saveQuestionsConfig() {
         .then(r => r.json())
         .then(res => {
             if (res.success) {
-                showToast(res.message, 'success');
+                // Gate mid-exam: kunci/bobot dibekukan server — jangan tampil
+                // hijau "berhasil" yang menyamarkan fakta kunci TIDAK berubah.
+                if (res.questions_frozen) {
+                    showToast(res.message, 'warning', 8000);
+                } else {
+                    showToast(res.message, 'success');
+                }
                 resetQuestionsConfigDirty(); // S2: sudah tersimpan — tutup tanpa konfirmasi buang
                 // R31: tanpa reload penuh (pola R6 hapus-tanpa-reload) — posisi
                 // scroll & pagination daftar ujian dipertahankan. Modal ditutup
@@ -2734,22 +3167,32 @@ function importXMLQuestions(event) {
                 const weight = parseFloat(node.getAttribute("weight")) || 1.0;
                 const partialScoring = node.getAttribute("partial_scoring") === "true";
                 
-                let choices = [];
-                const choicesNode = node.getElementsByTagName("choices")[0];
-                if (choicesNode) {
-                    choices = choicesNode.textContent.split(',').map(x => x.trim()).filter(x => x);
-                }
-                
-                let left_items = [];
-                const leftNode = node.getElementsByTagName("left_items")[0];
-                if (leftNode) {
-                    left_items = leftNode.textContent.split(',').map(x => x.trim()).filter(x => x);
-                }
-                
-                let right_items = [];
-                const rightNode = node.getElementsByTagName("right_items")[0];
-                if (rightNode) {
-                    right_items = rightNode.textContent.split(',').map(x => x.trim()).filter(x => x);
+                // Terima <options> maupun <choices> (nama field legacy).
+                const parseCSVNode = (tag) => {
+                    const n = node.getElementsByTagName(tag)[0];
+                    if (!n) return null;
+                    const list = n.textContent.split(',').map(x => x.trim()).filter(x => x);
+                    return list.length ? list : null;
+                };
+                // Pernyataan true/false dipisah baris agar teks yang
+                // mengandung koma tetap utuh.
+                const parseLinesNode = (tag) => {
+                    const n = node.getElementsByTagName(tag)[0];
+                    if (!n) return null;
+                    const list = n.textContent.split(/\r?\n/).map(x => x.trim()).filter(x => x);
+                    return list.length ? list : null;
+                };
+                let left_items = null;
+                let right_items = null;
+                let qOpts = null;
+                let statements = null;
+                if (type === 'single_choice' || type === 'multiple_choice') {
+                    qOpts = parseCSVNode('options') || parseCSVNode('choices');
+                } else if (type === 'matching') {
+                    left_items = parseCSVNode('left_items');
+                    right_items = parseCSVNode('right_items');
+                } else if (type === 'true_false') {
+                    statements = parseLinesNode('statements');
                 }
                 
                 let key = '';
@@ -2757,6 +3200,8 @@ function importXMLQuestions(event) {
                 if (keyNode) {
                     const keyRaw = keyNode.textContent.trim();
                     if (type === 'multiple_choice') {
+                        key = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
+                    } else if (type === 'true_false' && statements && statements.length > 0) {
                         key = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
                     } else if (type === 'matching') {
                         const keyObj = {};
@@ -2775,16 +3220,18 @@ function importXMLQuestions(event) {
                     }
                 }
                 
-                questions.push({
+                const qData = {
                     number: number,
                     type: type,
                     weight: weight,
                     partial_scoring: partialScoring,
-                    choices: choices,
-                    left_items: left_items,
-                    right_items: right_items,
                     key: key
-                });
+                };
+                if (qOpts) qData.options = qOpts;
+                if (left_items) qData.left_items = left_items;
+                if (right_items) qData.right_items = right_items;
+                if (statements) qData.statements = statements;
+                questions.push(qData);
             }
             
             // Sort by number to ensure sequential ordering
@@ -2822,7 +3269,7 @@ Setiap butir soal ditulis sebagai elemen <question> dengan atribut wajib:
   - matching (Menjodohkan / Mencocokkan)
   - short_answer (Isian Singkat)
 - weight: Bobot nilai soal (default "1.0", bertipe desimal, misal: "1.0", "1.5", "2.0", dst).
-- partial_scoring: Nilai parsial untuk tipe multiple_choice atau matching. Bernilai "true" jika siswa mendapat poin proporsional atas jawaban yang sebagian benar, atau "false" jika harus benar seluruhnya.
+- partial_scoring: Nilai parsial untuk tipe multiple_choice, matching, atau true_false multi-pernyataan. Bernilai "true" jika siswa mendapat poin proporsional atas jawaban yang sebagian benar, atau "false" jika harus benar seluruhnya.
 
 ### 3. Skema Konten Per Tipe Soal
 
@@ -2847,10 +3294,19 @@ Contoh:
 
 #### C. Tipe true_false (Pernyataan Benar / Salah)
 - Tidak membutuhkan tag <choices>.
-- Tag <key> hanya boleh berisi salah satu dari nilai kapital: TRUE atau FALSE.
-Contoh:
+- SATU nomor boleh memuat BEBERAPA pernyataan. Tulis tag <statements> berisi daftar pernyataan, SATU PERNYATAAN PER BARIS (newline), agar teks yang mengandung koma tetap utuh.
+- Tag <key> berisi daftar nilai kapital TRUE atau FALSE dipisahkan koma, dengan URUTAN dan JUMLAH yang sama dengan pernyataan.
+- Tambahkan atribut partial_scoring="true" bila setiap pernyataan benar bernilai proporsional. Tanpa itu, semua pernyataan harus benar untuk mendapat nilai penuh.
+Contoh satu pernyataan (format lama tetap didukung):
 <question number="3" type="true_false" weight="1.0">
     <key>TRUE</key>
+</question>
+Contoh beberapa pernyataan:
+<question number="3" type="true_false" weight="2.0" partial_scoring="true">
+    <statements>Ibu kota Indonesia adalah Jakarta.
+2 + 2 = 5
+Air membeku pada suhu 0 derajat Celsius.</statements>
+    <key>TRUE, FALSE, TRUE</key>
 </question>
 
 #### D. Tipe matching (Menjodohkan / Mencocokkan)

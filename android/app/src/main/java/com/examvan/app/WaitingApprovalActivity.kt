@@ -44,6 +44,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     private var endTime: String? = null
     private var securityLevel: String = com.examvan.app.helper.ExamModePolicy.DEFAULT_LEVEL
     private var strictMode: Boolean = false
+    private var questionsJson: String? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var isWaiting = true
@@ -110,6 +111,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
             intent.getStringExtra("security_level")
         )
         strictMode = intent.getBooleanExtra("strict_mode", false)
+        questionsJson = intent.getStringExtra("questions_json")
     }
 
     private fun populateExamInfo() {
@@ -253,7 +255,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                             else -> {
                                 // Still pending, update UI to show connected
                                 showConnected()
-                                handler.postDelayed(this, 5000)
+                                scheduleNextPoll()
                             }
                         }
                     }
@@ -261,15 +263,35 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                 onError = { statusCode, errorMsg ->
                     runOnUiThread {
                         if (!isWaiting) return@runOnUiThread
-                        if (statusCode == ApiClient.HTTP_UPGRADE_REQUIRED) {
-                            onUpdateRequired()
-                        } else {
-                            showConnectionWarning(errorMsg)
-                            handler.postDelayed(this, 5000)
+                        when (statusCode) {
+                            ApiClient.HTTP_UPGRADE_REQUIRED -> onUpdateRequired()
+                            ApiClient.HTTP_REPEAT_REQUIRED -> onRepeatRequired(errorMsg)
+                            else -> {
+                                showConnectionWarning(errorMsg)
+                                scheduleNextPoll()
+                            }
                         }
                     }
                 }
             )
+        }
+    }
+
+    /**
+     * Jadwalkan SATU iterasi poll berikutnya.
+     *
+     * Sebelumnya callback memanggil handler.postDelayed(this, 5000) langsung.
+     * Bila activity sempat onStop saat request masih in-flight, callback yang
+     * datang terlambat tetap menjadwalkan rantai baru; onStart lalu menjadwalkan
+     * rantai lain — dua loop paralel mengirim request tiap 5 dtk, menembus
+     * rate-limit per-device (30/menit) dan membuat permintaan approval kadang
+     * tidak sampai ke pengawas. Helper ini menghapus callback lama dan hanya
+     * menjadwalkan saat activity benar-benar aktif.
+     */
+    private fun scheduleNextPoll() {
+        handler.removeCallbacks(pollRunnable)
+        if (isWaiting && pollGate.shouldRun()) {
+            handler.postDelayed(pollRunnable, 5000)
         }
     }
 
@@ -342,23 +364,53 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                     binding.btnCancel.text = getString(R.string.approval_btn_cancel)
                     binding.btnCancel.setOnClickListener { showCancelConfirmation() }
 
-                    // Resume polling
+                    // Resume polling (satu rantai saja)
                     isWaiting = true
                     startPulseAnimation()
                     startDotsAnimation()
+                    handler.removeCallbacks(pollRunnable)
                     handler.post(pollRunnable)
                 }
             },
             onError = { statusCode, errorMsg ->
                 runOnUiThread {
-                    if (statusCode == ApiClient.HTTP_UPGRADE_REQUIRED) {
-                        onUpdateRequired()
-                    } else {
-                        showConnectionWarning(errorMsg)
+                    when (statusCode) {
+                        ApiClient.HTTP_UPGRADE_REQUIRED -> onUpdateRequired()
+                        ApiClient.HTTP_REPEAT_REQUIRED -> onRepeatRequired(errorMsg)
+                        else -> showConnectionWarning(errorMsg)
                     }
                 }
             }
         )
+    }
+
+    /**
+     * Siswa sudah punya submission untuk ujian ini dan belum diberi izin
+     * mengulang. Server menolak SEBELUM membuat baris approval, jadi pengawas
+     * memang tidak akan pernah melihat permintaan ini — berhenti polling dan
+     * jelaskan, jangan biarkan siswa menunggu/mencoba berulang tanpa hasil.
+     */
+    private fun onRepeatRequired(message: String) {
+        isWaiting = false
+        stopAnimations()
+
+        binding.tvWaitingIcon.text = "✕"
+        binding.tvWaitingTitle.text = getString(R.string.approval_repeat_title)
+        binding.tvWaitingSubtitle.text = getString(R.string.approval_repeat_subtitle)
+        binding.progressCircular.visibility = View.GONE
+        binding.tvPollingDots.visibility = View.GONE
+
+        binding.layoutRejected.visibility = View.VISIBLE
+        binding.layoutWarning.visibility = View.GONE
+        binding.tvRejectedTitle.text = getString(R.string.approval_repeat_title)
+        binding.tvRejectedMessage.text = message.ifBlank {
+            getString(R.string.approval_repeat_message)
+        }
+        // "Minta Izin Lagi" tidak akan membantu: gerbang repeat berjalan
+        // sebelum insert/auto-approve. Sembunyikan, sisakan tombol Kembali.
+        binding.btnRetryRequest.visibility = View.GONE
+        binding.btnCancel.text = getString(R.string.approval_btn_back)
+        binding.btnCancel.setOnClickListener { finish() }
     }
 
     private fun showConnected() {
@@ -454,6 +506,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
             putExtra("end_time", endTime)
             putExtra("security_level", securityLevel)
             putExtra("strict_mode", strictMode)
+            questionsJson?.takeIf { it.isNotBlank() }?.let { putExtra("questions_json", it) }
         }
         startActivity(intent)
         finish() // Close this waiting screen

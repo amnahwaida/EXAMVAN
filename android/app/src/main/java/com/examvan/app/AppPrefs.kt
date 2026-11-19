@@ -81,6 +81,19 @@ object AppPrefs {
         return true
     }
 
+    /**
+     * Warm up the encrypted prefs backends OFF the main thread (dipanggil dari
+     * Application.onCreate). Membuka EncryptedSharedPreferences berarti disk
+     * I/O + operasi Android Keystore; di perangkat Android 10 kelas bawah ini
+     * bisa memakan ratusan milidetik. Dengan prewarm, pembacaan pertama di
+     * Activity biasanya sudah memakai instance yang siap.
+     */
+    fun prewarm(context: Context) {
+        try { getConfigPrefs(context) } catch (_: Exception) { }
+        try { getExamPrefs(context) } catch (_: Exception) { }
+        try { getDevicePrefs(context) } catch (_: Exception) { }
+    }
+
     fun getConfigPrefs(context: Context): SharedPreferences {
         return configPrefs ?: synchronized(this) {
             configPrefs ?: createPrefs(context, PREFS_CONFIG).also { configPrefs = it }

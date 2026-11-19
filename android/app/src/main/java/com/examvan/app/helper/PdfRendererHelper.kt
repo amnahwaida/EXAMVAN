@@ -182,8 +182,10 @@ class PdfRendererHelper(
                         val renderer = PdfRenderer(fileDescriptor!!)
                         pdfRenderer = renderer
                         renderer.pageCount
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Gagal membuka file PDF", e)
+                    } catch (t: Throwable) {
+                        // Throwable (bukan Exception): OOM saat parse PDF besar
+                        // juga harus ditangani, bukan meninggalkan layar putih.
+                        Log.e(TAG, "Gagal membuka file PDF", t)
                         null
                     }
                 }
@@ -201,9 +203,11 @@ class PdfRendererHelper(
                     pendingRestorePage = PENDING_PAGE_NONE
                     p
                 } else 0
-                showPdfViewer()
-                onPdfReady?.invoke()
-                renderPage(currentPage)
+                // Viewer baru ditampilkan SETELAH bitmap pertama berhasil
+                // dirender. Dulu showPdfViewer() dipanggil lebih dulu sehingga
+                // perangkat yang gagal render (GPU/OOM) menampilkan layar putih
+                // tanpa pesan apa pun.
+                renderPage(currentPage, revealOnSuccess = true)
             }
         }
     }
@@ -235,7 +239,7 @@ class PdfRendererHelper(
      *   are discarded instead of updating the UI
      * - No race window where two renders run concurrently
      */
-    fun renderPage(pageIndex: Int) {
+    fun renderPage(pageIndex: Int, revealOnSuccess: Boolean = false) {
         val renderer = pdfRenderer ?: return
         if (pageIndex < 0 || pageIndex >= renderer.pageCount) return
 
@@ -250,31 +254,25 @@ class PdfRendererHelper(
 
                 val bitmap = withContext(Dispatchers.Default) {
                     try {
-                        val page = renderer.openPage(pageIndex)
-
-                        val screenWidth = context.resources.displayMetrics.widthPixels
-                        var targetWidth = (screenWidth * 2).coerceAtMost(2048)
-                        targetWidth = targetWidth.coerceAtMost(page.width * 2)
-
-                        val aspectRatio = page.height.toFloat() / page.width.toFloat()
-                        val targetHeight = (targetWidth * aspectRatio).toInt().coerceAtMost(4096)
-
-                        val bmpConfig = if (isLowRamDevice) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
-                        val bmp = Bitmap.createBitmap(targetWidth, targetHeight, bmpConfig)
-                        bmp.eraseColor(Color.WHITE)
-
-                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        page.close()
-                        bmp
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error rendering page $pageIndex", e)
+                        renderPageBitmap(renderer, pageIndex)
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Error rendering page $pageIndex", t)
                         null
                     }
                 }
 
                 // Guard: only apply if this is still the most recent render request
-                if (myVersion != renderVersion || bitmap == null) {
+                if (myVersion != renderVersion) {
                     bitmap?.recycle() // orphan bitmap — free immediately
+                    return@withLock
+                }
+                if (bitmap == null) {
+                    // Jangan tinggalkan viewer kosong/putih tanpa penjelasan.
+                    if (revealOnSuccess) {
+                        withContext(Dispatchers.Main) {
+                            onError?.invoke("Gagal menampilkan halaman PDF")
+                        }
+                    }
                     return@withLock
                 }
 
@@ -283,6 +281,10 @@ class PdfRendererHelper(
                 withContext(Dispatchers.Main) {
                     binding.ivPdfPage.resetZoom()
                     binding.ivPdfPage.setImageBitmap(bitmap)
+                    if (revealOnSuccess) {
+                        showPdfViewer()
+                        onPdfReady?.invoke()
+                    }
                 }
                 oldBitmap?.recycle()
 
@@ -290,6 +292,83 @@ class PdfRendererHelper(
                     updatePageIndicator()
                 }
             }
+        }
+    }
+
+    /**
+     * Render satu halaman ke bitmap. Mencoba resolusi normal dulu; bila gagal
+     * (termasuk OutOfMemoryError yang TIDAK tertangkap `catch (Exception)`)
+     * ulangi dengan setengah resolusi.
+     *
+     * WAJIB ARGB_8888: PdfRenderer.Page.render() melempar
+     * IllegalArgumentException("Unsupported pixel format") untuk konfigurasi
+     * lain (mis. RGB_565) — inilah penyebab Realme C11 (low-RAM) gagal total.
+     * Penghematan memori dilakukan lewat resolusi, bukan format bitmap.
+     */
+    private fun renderPageBitmap(renderer: PdfRenderer, pageIndex: Int): Bitmap? {
+        val page = try {
+            renderer.openPage(pageIndex)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Gagal membuka halaman $pageIndex", t)
+            return null
+        }
+
+        try {
+            val screenWidth = context.resources.displayMetrics.widthPixels
+            // Perangkat low-RAM (umumnya Android 10 RAM 2GB, mis. Realme C11)
+            // diberi batas lebih rendah: teks soal tetap tajam di layar 720p,
+            // tapi memori bitmap turun ~55% sehingga kecil kemungkinan OOM
+            // saat dua bitmap sempat hidup bersamaan.
+            val maxWidth = if (isLowRamDevice) 1024 else 2048
+            val maxHeight = if (isLowRamDevice) 1536 else 4096
+            var targetWidth = (screenWidth * 2).coerceAtMost(maxWidth)
+            targetWidth = targetWidth.coerceAtMost(page.width * 2)
+
+            val aspectRatio = page.height.toFloat() / page.width.toFloat()
+            var targetHeight = (targetWidth * aspectRatio).toInt()
+            if (targetHeight > maxHeight) {
+                // Turunkan lebar proporsional — jangan hanya memotong tinggi,
+                // karena halaman jadi gepeng.
+                targetHeight = maxHeight
+                targetWidth = (targetHeight / aspectRatio).toInt().coerceAtLeast(1)
+            }
+            if (targetWidth <= 0 || targetHeight <= 0) {
+                Log.e(TAG, "Ukuran halaman tidak valid: ${page.width}x${page.height}")
+                return null
+            }
+
+            return try {
+                createAndRender(page, targetWidth, targetHeight)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Render ${targetWidth}x$targetHeight gagal, coba resolusi lebih rendah", t)
+                val w = (targetWidth / 2).coerceAtLeast(1)
+                val h = (targetHeight / 2).coerceAtLeast(1)
+                try {
+                    createAndRender(page, w, h)
+                } catch (t2: Throwable) {
+                    Log.e(TAG, "Render fallback ${w}x$h juga gagal", t2)
+                    null
+                }
+            }
+        } finally {
+            try { page.close() } catch (_: Throwable) { }
+        }
+    }
+
+    private fun createAndRender(
+        page: PdfRenderer.Page,
+        width: Int,
+        height: Int
+    ): Bitmap {
+        // ARGB_8888 wajib untuk PdfRenderer — jangan diganti RGB_565.
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        try {
+            bmp.eraseColor(Color.WHITE)
+            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            return bmp
+        } catch (t: Throwable) {
+            bmp.recycle()
+            throw t
         }
     }
 

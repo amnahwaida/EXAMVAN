@@ -25,6 +25,7 @@ object QuestionRenderPolicy {
     data class Render(
         val type: String,
         val choices: List<String>?,      // single/multiple choice
+        val statements: List<String>?,   // true_false multi-pernyataan
         val leftItems: List<String>?,    // matching
         val rightItems: List<String>?    // matching
     ) : Decision()
@@ -38,6 +39,11 @@ object QuestionRenderPolicy {
         val choices = when (type) {
             "single_choice", "multiple_choice" -> QuestionParsing.stringList(q["choices"])
             else -> null
+        }
+        val statements = if (type == "true_false") {
+            QuestionParsing.stringList(q["statements"]).takeIf { it.isNotEmpty() }
+        } else {
+            null
         }
         val leftItems = if (type == "matching") QuestionParsing.stringList(q["left_items"]) else null
         val rightItems = if (type == "matching") QuestionParsing.stringList(q["right_items"]) else null
@@ -53,7 +59,7 @@ object QuestionRenderPolicy {
             type == "matching" && (leftItems.isNullOrEmpty() || rightItems.isNullOrEmpty()) ->
                 Skip(SkipReason.NO_MATCHING_ITEMS)
 
-            else -> Render(type, choices, leftItems, rightItems)
+            else -> Render(type, choices, statements, leftItems, rightItems)
         }
     }
 }

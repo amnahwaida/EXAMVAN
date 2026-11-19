@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -53,7 +54,7 @@ class ApiClientFlowSimulationTest {
            "created_at":"2026-08-16T00:00:00Z"}}
     """.trimIndent()
 
-    private val approvalPendingJson = """{"status":"pending"}"""
+    private val approvalPendingJson = """{"success":true,"status":"pending"}"""
 
     private val submitQueuedJson = """
         {"success":true,"message":"Jawaban diterima, sedang dikoreksi",
@@ -187,6 +188,69 @@ class ApiClientFlowSimulationTest {
         assertEquals("/api/exams/1/result", resultReq!!.path?.substringBefore("?"))
         assertTrue("result harus membawa mac_address", resultReq.path?.contains("mac_address=") == true)
         assertTrue("result harus membawa job_id", resultReq.path?.contains("job_id=job-7f3a") == true)
+    }
+
+    @Test
+    fun submit_nullCongratsMessage_isTreatedAsUnset() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"success":true,"message":"Jawaban berhasil dikirim","score":80,"congrats_message":null}"""
+        ))
+
+        val submit = awaitObject<ApiClient.SubmitResult> { cb ->
+            ApiClient.submitExam(
+                examId = 1, token = "ABC12345", studentName = "Siswa Uji",
+                examNumber = "01", studentClass = "9A",
+                answers = mapOf("1" to "A"),
+                startTime = "2026-08-16T00:00:00Z", macAddress = "DEVICE:test123",
+                onSuccess = cb, onError = { error(it) }
+            )
+        }
+
+        assertTrue(submit.success)
+        assertNull("null JSON harus jadi null, bukan string \"null\"", submit.congratsMessage)
+    }
+
+    @Test
+    fun submit_customCongratsMessage_isPreserved() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"success":true,"message":"Jawaban berhasil dikirim","congrats_message":"Selamat, Budi!"}"""
+        ))
+
+        val submit = awaitObject<ApiClient.SubmitResult> { cb ->
+            ApiClient.submitExam(
+                examId = 1, token = "ABC12345", studentName = "Siswa Uji",
+                examNumber = "01", studentClass = "9A",
+                answers = mapOf("1" to "A"),
+                startTime = "2026-08-16T00:00:00Z", macAddress = "DEVICE:test123",
+                onSuccess = cb, onError = { error(it) }
+            )
+        }
+
+        assertEquals("Selamat, Budi!", submit.congratsMessage)
+    }
+
+    @Test
+    fun requestApproval_repeatRequired_isSurfacedAsDedicatedError() {
+        // Server menjawab HTTP 200 + success=false untuk siswa yang sudah
+        // punya submission tanpa izin mengulang. Ini BUKAN pending: client
+        // harus berhenti polling dan menampilkan pesan, bukan menunggu
+        // selamanya (gejala: permintaan tidak pernah muncul di pengawas).
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"success":false,"status":"repeat_required","message":"Ujian ini sudah Anda kerjakan. Hubungi pengawas."}"""
+        ))
+
+        val (code, message) = awaitPair<Int, String> { cb ->
+            ApiClient.requestApproval(
+                examId = 1, macAddress = "DEVICE:test123", studentName = "Siswa Uji",
+                examNumber = "01", studentClass = "9A", identityDataStr = "{}",
+                token = "ABC12345",
+                onSuccess = { error("repeat_required tidak boleh dianggap pending") },
+                onError = { c, m -> cb(c to m) }
+            )
+        }
+
+        assertEquals(ApiClient.HTTP_REPEAT_REQUIRED, code)
+        assertEquals("Ujian ini sudah Anda kerjakan. Hubungi pengawas.", message)
     }
 
     @Test

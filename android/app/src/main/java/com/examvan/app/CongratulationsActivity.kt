@@ -37,6 +37,12 @@ class CongratulationsActivity : BaseSecureActivity() {
         setContentView(binding.root)
         applyEdgeToEdgeInsets(binding.rootLayout)
 
+        // Setelah submit, layar ucapan bukan lagi bagian ujian terkunci.
+        // Sebagian OEM (MIUI/Redmi) menunda unpin bila stopLockTask hanya
+        // dipanggil dari activity ujian yang sedang finish — panggil ulang di
+        // sini agar siswa bisa keluar aplikasi dari menu token.
+        try { stopLockTask() } catch (_: Exception) { }
+
         // Extract intent data
         serverUrl = intent.getStringExtra("server_url") ?: ""
         examToken = intent.getStringExtra("exam_token") ?: ""

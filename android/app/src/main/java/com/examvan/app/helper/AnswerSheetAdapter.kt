@@ -121,8 +121,12 @@ internal class AnswerSheetAdapter(
                 AnswerSheetItem.TYPE_SINGLE_CHOICE ->
                     bindRadio(item.number, item.choices!!, labelSuffix = null)
                 AnswerSheetItem.TYPE_TRUE_FALSE ->
-                    bindRadio(item.number, listOf("TRUE", "FALSE"),
-                        labelSuffix = R.string.answer_sheet_true_false_suffix)
+                    if (item.statements.isNullOrEmpty()) {
+                        bindRadio(item.number, listOf("TRUE", "FALSE"),
+                            labelSuffix = R.string.answer_sheet_true_false_suffix)
+                    } else {
+                        bindTrueFalseMulti(item.number, item.statements)
+                    }
                 AnswerSheetItem.TYPE_MULTIPLE_CHOICE ->
                     bindMultiple(item.number, item.choices!!)
                 AnswerSheetItem.TYPE_MATCHING ->
@@ -170,6 +174,72 @@ internal class AnswerSheetAdapter(
                 rb.setOnCheckedChangeListener { _, _ -> onAnswerChanged(number, option) }
                 group.addView(rb)
             }
+        }
+
+        // ── True/False multi-pernyataan ──────────────────────────────────
+
+        private fun bindTrueFalseMulti(number: Int, statements: List<String>) {
+            view.findViewById<TextView>(R.id.tvQuestionLabel).text =
+                questionLabel(number, R.string.answer_sheet_true_false_suffix)
+            val group = view.findViewById<RadioGroup>(R.id.rgChoices)
+            val layout = view.findViewById<LinearLayout>(R.id.layoutCheckboxes)
+            group.visibility = View.GONE
+            group.removeAllViews()
+            layout.visibility = View.VISIBLE
+            layout.removeAllViews()
+
+            val selected = currentStringList(number) ?: emptyList()
+            for ((index, statement) in statements.withIndex()) {
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, 4, 0, 8)
+                }
+                val label = TextView(context).apply {
+                    text = "${index + 1}. $statement"
+                    setTextColor(ContextCompat.getColor(context, R.color.on_surface))
+                    textSize = 14f
+                }
+                val choices = RadioGroup(context).apply {
+                    orientation = RadioGroup.HORIZONTAL
+                }
+                val saved = selected.getOrNull(index)
+                for (value in listOf("TRUE", "FALSE")) {
+                    val rb = RadioButton(context).apply {
+                        text = value
+                        setTextColor(ContextCompat.getColor(context, R.color.on_surface))
+                        buttonTintList = ContextCompat.getColorStateList(context, R.color.primary)
+                        textSize = 14f
+                        setPaddingRelative(4, 0, 16, 0)
+                        // State dulu, listener belakangan — bind tidak memicu event.
+                        isChecked = value == saved
+                    }
+                    rb.setOnCheckedChangeListener { _, _ ->
+                        emitTrueFalseMulti(layout, number, statements.size)
+                    }
+                    choices.addView(rb)
+                }
+                row.addView(label)
+                row.addView(choices)
+                layout.addView(row)
+            }
+        }
+
+        private fun emitTrueFalseMulti(layout: LinearLayout, number: Int, count: Int) {
+            val selected = MutableList(count) { "" }
+            var answered = false
+            for (i in 0 until layout.childCount) {
+                val row = layout.getChildAt(i) as? LinearLayout ?: continue
+                for (j in 0 until row.childCount) {
+                    val group = row.getChildAt(j) as? RadioGroup ?: continue
+                    val checked = group.checkedRadioButtonId
+                    if (checked != -1) {
+                        val rb = group.findViewById<RadioButton>(checked)
+                        selected[i] = rb?.text?.toString() ?: ""
+                        if (selected[i].isNotEmpty()) answered = true
+                    }
+                }
+            }
+            if (answered) onAnswerChanged(number, selected) else onAnswerRemoved(number)
         }
 
         // ── Multiple choice ──────────────────────────────────────────────

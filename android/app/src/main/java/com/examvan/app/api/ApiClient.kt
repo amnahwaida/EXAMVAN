@@ -37,6 +37,15 @@ object ApiClient {
      */
     const val HTTP_UPGRADE_REQUIRED = 426
 
+    /**
+     * Synthetic error code for request-approval when the server answers
+     * HTTP 200 with success=false/status=repeat_required (the student already
+     * has a submission and no repeat grant). Kept distinct from real HTTP
+     * statuses so the waiting screen can stop polling and explain instead of
+     * treating it as a transient network error.
+     */
+    const val HTTP_REPEAT_REQUIRED = -2
+
     /** Submit-response status of the async path (202): answers are QUEUED, not durable yet. */
     const val SUBMIT_STATUS_QUEUED = "queued"
 
@@ -345,7 +354,22 @@ object ApiClient {
                         val body = it.body?.string() ?: ""
                         val resJson = org.json.JSONObject(body)
                         val status = resJson.optString("status", "pending")
-                        onSuccess(status)
+                        val message = resJson.optString(
+                            "message",
+                            "Ujian ini sudah Anda kerjakan. Hubungi pengawas bila perlu izin mengulang."
+                        )
+                        // Server mengembalikan HTTP 200 + success=false untuk
+                        // siswa yang sudah punya submission tanpa izin ulang.
+                        // Dulu ini jatuh ke cabang "pending" dan polling
+                        // berjalan selamanya — permintaan tidak pernah muncul
+                        // di pengawas, siswa mencoba berulang kali.
+                        if (status == "repeat_required" ||
+                            (!resJson.optBoolean("success", true) && message.isNotBlank())
+                        ) {
+                            onError(HTTP_REPEAT_REQUIRED, message)
+                        } else {
+                            onSuccess(status)
+                        }
                     } catch (e: Exception) {
                         onError(it.code, "Response tidak valid")
                     }
@@ -580,7 +604,8 @@ object ApiClient {
                 SubmitResult(
                     success = true,
                     message = json.optString("message", "Ujian berhasil dikumpulkan"),
-                    congratsMessage = json.optString("congrats_message", "").ifBlank { null },
+                    congratsMessage = if (json.isNull("congrats_message")) null
+                    else json.optString("congrats_message", "").ifBlank { null },
                     status = json.optString("status", "").ifBlank { null },
                     jobId = json.optString("job_id", "").ifBlank { null }
                 )

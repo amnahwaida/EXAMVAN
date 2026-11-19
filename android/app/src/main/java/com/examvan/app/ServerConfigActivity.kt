@@ -35,6 +35,13 @@ import org.json.JSONObject
  */
 class ServerConfigActivity : BaseSecureActivity() {
 
+    private companion object {
+        // Batas aman ukuran questions_json yang ikut Intent. Binder transaction
+        // dibatasi ~1MB (UTF-16 = 2 byte/char), jadi 200k char (~400KB) memberi
+        // ruang untuk extras lain. Di atas ini, prefs/re-fetch yang menjadi sumber.
+        private const val MAX_QUESTIONS_EXTRA_CHARS = 200_000
+    }
+
     private lateinit var binding: ActivityServerConfigBinding
 
 
@@ -105,9 +112,10 @@ class ServerConfigActivity : BaseSecureActivity() {
         // Set version from BuildConfig instead of hardcoded string
         binding.tvVersion.text = "EXAMVAN v${BuildConfig.VERSION_NAME}"
 
-        // Tampilkan tombol clear data hanya jika ada data tersimpan
-        val hasSavedUrl = savedUrl.isNotEmpty() || savedToken.isNotEmpty()
-        binding.btnClearData.visibility = if (hasSavedUrl) View.VISIBLE else View.GONE
+        // Permintaan produk: akses "Hapus Data Tersimpan" harus SELALU tampak,
+        // termasuk saat belum ada data — supaya siswa tidak bingung mencari
+        // tombol saat perlu mereset perangkat.
+        binding.btnClearData.visibility = View.VISIBLE
         binding.btnClearData.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Hapus Data Tersimpan")
@@ -379,12 +387,15 @@ class ServerConfigActivity : BaseSecureActivity() {
             val strictMode = exam.strict_mode ?: false
             val panelColor = exam.panel_color ?: ""
             // Safe accessor: tidak crash saat keystore corrupt (fallback plaintext).
+            // apply() (bukan commit): tidak memblokir main thread pada disk
+            // I/O. ExamViewer menerima questions_json lewat Intent, jadi tidak
+            // bergantung pada flush prefs yang berjalan asinkron.
             AppPrefs.getExamPrefsSafe(this@ServerConfigActivity).edit()
                 .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
                 .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
                 .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
                 .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
-                .commit()
+                .apply()
 
             // Extract legacy fields for backward compat with ExamViewer with smart fallbacks for custom keys
             var name = identityJson.optString("student_name", "")
@@ -431,7 +442,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 }
             }
 
-            navigateToWaitingApproval(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time, securityLevel, strictMode)
+            navigateToWaitingApproval(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time, securityLevel, strictMode, questionsJson)
         }
 
         alertDialog.show()
@@ -443,7 +454,7 @@ class ServerConfigActivity : BaseSecureActivity() {
         }
     }
 
-    private fun navigateToWaitingApproval(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityDataStr: String, endTime: String?, securityLevel: String, strictMode: Boolean) {
+    private fun navigateToWaitingApproval(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityDataStr: String, endTime: String?, securityLevel: String, strictMode: Boolean, questionsJson: String) {
         val intent = Intent(this, WaitingApprovalActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
@@ -456,8 +467,22 @@ class ServerConfigActivity : BaseSecureActivity() {
             putExtra("end_time", endTime)
             putExtra("security_level", securityLevel)
             putExtra("strict_mode", strictMode)
+            // Fallback tahan-banting: lembar jawaban tidak lagi bergantung
+            // penuh pada prefs terenkripsi (yang bisa gagal dibaca di sebagian
+            // perangkat Samsung/keystore). Ukuran dibatasi agar aman Binder.
+            if (questionsJson.isNotBlank() && questionsJson.length <= MAX_QUESTIONS_EXTRA_CHARS) {
+                putExtra("questions_json", questionsJson)
+            }
         }
         startActivity(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Jaring pengaman OEM: bila screen pinning masih tersisa saat kembali
+        // ke menu token (stopLockTask tertunda di activity ujian yang finish),
+        // lepas di sini. Saat tidak di-pin, IllegalStateException diabaikan.
+        try { stopLockTask() } catch (_: Exception) { }
     }
 
     /**
@@ -481,7 +506,6 @@ class ServerConfigActivity : BaseSecureActivity() {
         )
         binding.etToken.setText("")
         if (clearedAll) {
-            binding.btnClearData.visibility = View.GONE
             showError("Data tersimpan berhasil dihapus")
         } else {
             showError("Gagal menghapus data tersimpan: enkripsi tidak tersedia di perangkat ini.")

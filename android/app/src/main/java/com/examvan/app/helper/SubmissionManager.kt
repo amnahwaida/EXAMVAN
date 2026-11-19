@@ -425,6 +425,11 @@ class SubmissionManager(
         // Flag dipegang selama transisi ke layar congratulation — menutup
         // celah focus-blip sesaat sebelum activity baru tampil.
         holdAppDialog(AppDialogIds.SUBMIT_CONGRATS)
+        // Lepas pin lagi tepat sebelum navigasi. Idempoten: aman bila sudah
+        // dilepas di onSuccess. Di sebagian OEM (Realme/ColorOS) stopLockTask
+        // bisa tertunda, dan activity baru yang dijalankan sebagai task BARU
+        // akan ditolak selama pin masih aktif — siswa terjebak.
+        try { deactivateLockTask?.invoke() } catch (_: Throwable) { }
         try {
             val intent = Intent(context, CongratulationsActivity::class.java).apply {
                 putExtra("server_url", serverUrl)
@@ -434,7 +439,12 @@ class SubmissionManager(
                 putExtra("student_number", studentNumber)
                 putExtra("student_class", studentClass)
                 putExtra("congrats_message", result.congratsMessage)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Jangan pakai FLAG_ACTIVITY_NEW_TASK saat context adalah
+                // Activity: activity baru harus tetap di task yang sama agar
+                // diizinkan selama lock task belum sepenuhnya lepas.
+                if (context !is android.app.Activity) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             }
             context.startActivity(intent)
         } catch (_: Exception) {

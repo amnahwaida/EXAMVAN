@@ -54,6 +54,22 @@ class QuestionRenderPolicyTest {
     }
 
     @Test
+    fun trueFalseMultiStatements_renderedWithStatements() {
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 4, "type" to "true_false", "statements" to listOf("Satu", "Dua"))
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals(listOf("Satu", "Dua"), (d as QuestionRenderPolicy.Render).statements)
+    }
+
+    @Test
+    fun trueFalseLegacyWithoutStatements_renderedAsSingle() {
+        val d = QuestionRenderPolicy.evaluate(q("number" to 4, "type" to "true_false"))
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals(null, (d as QuestionRenderPolicy.Render).statements)
+    }
+
+    @Test
     fun shortAnswer_renderedWithoutChoices() {
         val d = QuestionRenderPolicy.evaluate(q("number" to 5, "type" to "short_answer"))
         assertTrue(d is QuestionRenderPolicy.Render)

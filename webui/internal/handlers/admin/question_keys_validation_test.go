@@ -184,10 +184,37 @@ func TestValidateQuestionKeysStillAcceptsValidConfigs(t *testing.T) {
 			map[string]interface{}{"options": []interface{}{"A", "B", "C"}}),
 		q(3, "true_false", "true", nil),
 		q(4, "short_answer", "Jakarta", nil),
-		q(5, "matching", map[string]interface{}{"a": "x", "b": "y"}, nil),
+		q(5, "matching", map[string]interface{}{"a": "x", "b": "y"},
+			map[string]interface{}{
+				"left_items":  []interface{}{"1", "2"},
+				"right_items": []interface{}{"A", "B"},
+			}),
 	}
 	if msg := validateQuestionKeys(questions); msg != "" {
 		t.Fatalf("config valid ditolak: %s", msg)
+	}
+}
+
+func TestValidateQuestionKeysRejectsMatchingWithoutItems(t *testing.T) {
+	// Klien Android melewatkan soal matching tanpa left_items/right_items
+	// (NO_MATCHING_ITEMS) — simpan harus ditolak agar ujian tidak kehilangan
+	// nomor soal secara diam-diam.
+	cases := []struct {
+		name string
+		q    map[string]interface{}
+	}{
+		{"tanpa item kiri & kanan", q(1, "matching", map[string]interface{}{"1": "A"}, nil)},
+		{"tanpa item kanan", q(1, "matching", map[string]interface{}{"1": "A"},
+			map[string]interface{}{"left_items": []interface{}{"1"}})},
+		{"item kanan kosong", q(1, "matching", map[string]interface{}{"1": "A"},
+			map[string]interface{}{"left_items": []interface{}{"1"}, "right_items": []interface{}{}})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if msg := validateQuestionKeys([]map[string]interface{}{tc.q}); msg == "" {
+				t.Fatalf("diterima — matching tanpa item kiri/kanan harus ditolak")
+			}
+		})
 	}
 }
 
@@ -225,5 +252,101 @@ func TestValidateQuestionKeysErrorKeepsExistingWording(t *testing.T) {
 		q("abc", "short_answer", "x", nil),
 	}); !strings.Contains(msg, "nomor soal yang valid") {
 		t.Fatalf("pesan nomor tidak valid berubah: %s", msg)
+	}
+}
+
+func TestValidateChoiceOptionsAcceptsLegacyChoices(t *testing.T) {
+	// Admin UI lama (dan data legacy questions_json) menyimpan daftar pilihan
+	// di bawah kunci `choices` — fallback ini mencegah setiap simpan soal
+	// pilgan/PG kompleks dari editor lama ditolak "belum memiliki pilihan
+	// jawaban".
+	opts, msg := validateChoiceOptions(map[string]interface{}{
+		"choices": []interface{}{"A", "B"},
+	})
+	if msg != "" || len(opts) != 2 {
+		t.Fatalf("legacy choices ditolak: opts=%#v msg=%q", opts, msg)
+	}
+}
+
+func TestNormalizeQuestionsPayloadMirrorsDualKeys(t *testing.T) {
+	// Format kanonik membawa KEDUA nama: `options` (konsumen Go/desktop/seed)
+	// dan `choices` (konsumen Android QuestionRenderPolicy).
+	questions := []map[string]interface{}{
+		q(1, "single_choice", "A", map[string]interface{}{"choices": []interface{}{"A", "B"}}),
+		q(2, "multiple_choice", []interface{}{"A"}, map[string]interface{}{"options": []interface{}{"A", "B"}}),
+		q(3, "true_false", "TRUE", nil),
+	}
+	normalizeQuestionsPayload(questions)
+
+	for _, qm := range questions[:2] {
+		opts := stringListValue(qm["options"])
+		chs := stringListValue(qm["choices"])
+		if len(opts) == 0 || len(chs) == 0 {
+			t.Fatalf("soal %v kehilangan dual-key: options=%#v choices=%#v", qm["number"], opts, chs)
+		}
+		for i := range opts {
+			if opts[i] != chs[i] {
+				t.Fatalf("soal %v: options=%#v != choices=%#v", qm["number"], opts, chs)
+			}
+		}
+	}
+	if questions[2]["options"] != nil || questions[2]["choices"] != nil {
+		t.Fatalf("true_false tidak boleh diberi pilihan: %#v", questions[2])
+	}
+}
+
+func TestValidateQuestionKeysTrueFalseMultiStatement(t *testing.T) {
+	valid := q(1, "true_false", []interface{}{"TRUE", "FALSE"},
+		map[string]interface{}{"statements": []interface{}{"Satu", "Dua"}})
+	if msg := validateQuestionKeys([]map[string]interface{}{valid}); msg != "" {
+		t.Fatalf("true_false multi-pernyataan valid ditolak: %s", msg)
+	}
+
+	cases := []struct {
+		name string
+		q    map[string]interface{}
+	}{
+		{
+			"jumlah kunci beda dengan pernyataan",
+			q(1, "true_false", []interface{}{"TRUE"},
+				map[string]interface{}{"statements": []interface{}{"Satu", "Dua"}}),
+		},
+		{
+			"kunci bukan TRUE/FALSE",
+			q(1, "true_false", []interface{}{"TRUE", "MAYBE"},
+				map[string]interface{}{"statements": []interface{}{"Satu", "Dua"}}),
+		},
+		{
+			"pernyataan kosong",
+			q(1, "true_false", []interface{}{"TRUE"},
+				map[string]interface{}{"statements": []interface{}{"   "}}),
+		},
+		{
+			"kunci array tanpa daftar pernyataan",
+			q(1, "true_false", []interface{}{"TRUE"}, nil),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if msg := validateQuestionKeys([]map[string]interface{}{tc.q}); msg == "" {
+				t.Fatalf("diterima: %#v", tc.q)
+			}
+		})
+	}
+}
+
+func TestNormalizeQuestionsPayloadCanonicalisesTrueFalseMulti(t *testing.T) {
+	questions := []map[string]interface{}{
+		q(1, "true_false", []interface{}{" true ", "false"},
+			map[string]interface{}{"statements": []interface{}{" Satu ", "Dua "}}),
+	}
+	normalizeQuestionsPayload(questions)
+	keys := stringListValue(questions[0]["key"])
+	if len(keys) != 2 || keys[0] != "TRUE" || keys[1] != "FALSE" {
+		t.Fatalf("key tidak dikanonikalisasi: %#v", keys)
+	}
+	statements := stringListValue(questions[0]["statements"])
+	if len(statements) != 2 || statements[0] != "Satu" || statements[1] != "Dua" {
+		t.Fatalf("statements tidak di-trim: %#v", statements)
 	}
 }

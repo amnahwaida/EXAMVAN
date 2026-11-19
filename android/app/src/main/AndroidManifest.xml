@@ -25,6 +25,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
+        android:name=".ExamVanApp"
         android:allowBackup="false"
         android:resizeableActivity="false"
         android:icon="@mipmap/ic_launcher"

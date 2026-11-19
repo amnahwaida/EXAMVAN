@@ -68,6 +68,23 @@ class AnswerSheetPlannerTest {
     }
 
     @Test
+    fun plan_trueFalseMulti_carriesStatements() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "true_false",
+                "statements" to listOf("Satu", "Dua")))
+        )
+        assertEquals(listOf("Satu", "Dua"), items.single().statements)
+    }
+
+    @Test
+    fun plan_trueFalseLegacy_hasNoStatements() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "true_false"))
+        )
+        assertNull(items.single().statements)
+    }
+
+    @Test
     fun plan_invalidNumber_skipped() {
         val items = AnswerSheetPlanner.plan(
             listOf(mapOf("number" to "bukan-angka", "type" to "short_answer"))

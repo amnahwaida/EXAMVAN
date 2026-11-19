@@ -2164,6 +2164,144 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   max-width: 300px;
   min-width: 200px;
 }
+.q-statements-input {
+  width: 100%;
+  max-width: 420px;
+  min-width: 200px;
+  resize: vertical;
+  border-radius: var(--radius-lg);
+  padding-inline: calc(var(--spacing) * 3);
+  padding-block: calc(var(--spacing) * 2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  outline-style: none;
+}
+.q-statements-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+  background: rgba(99, 102, 241, 0.06);
+}
+.q-tf-answer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.q-tf-answer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.q-tf-answer-label {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.q-tf-answer-select {
+  flex-shrink: 0;
+  min-width: 90px;
+  border-radius: var(--radius-lg);
+  padding-inline: calc(var(--spacing) * 2.5);
+  padding-block: calc(var(--spacing) * 1.5);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  outline-style: none;
+}
+.q-tf-answer-select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+}
+.q-left-items-input,
+.q-right-items-input {
+  width: 100%;
+  max-width: 420px;
+  min-width: 200px;
+  resize: vertical;
+  border-radius: var(--radius-lg);
+  padding-inline: calc(var(--spacing) * 3);
+  padding-block: calc(var(--spacing) * 2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  outline-style: none;
+}
+.q-left-items-input:focus,
+.q-right-items-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+  background: rgba(99, 102, 241, 0.06);
+}
+.q-choice-key-list,
+.q-matching-pairs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+.q-choice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.q-choice-row input {
+  accent-color: var(--color-primary);
+}
+.q-matching-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.q-matching-label {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.q-matching-select {
+  flex-shrink: 0;
+  min-width: 100px;
+  border-radius: var(--radius-lg);
+  padding-inline: calc(var(--spacing) * 2.5);
+  padding-block: calc(var(--spacing) * 1.5);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  outline-style: none;
+}
+.q-matching-select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+}
+.q-assist-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  padding: 4px 2px;
+}
 .q-partial-group {
   flex-direction: row;
   align-items: center;
@@ -3057,7 +3195,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   .q-field-group {
     width: 100%;
   }
-  .q-key-input, .q-options-input, .q-weight-input, .q-type-select {
+  .q-key-input, .q-options-input, .q-statements-input, .q-left-items-input, .q-right-items-input, .q-weight-input, .q-type-select {
     width: 100% !important;
     max-width: none !important;
     min-width: 0 !important;

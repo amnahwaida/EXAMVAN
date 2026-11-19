@@ -179,8 +179,7 @@
             android:layout_marginTop="8dp"
             android:padding="4dp"
             android:clickable="true"
-            android:focusable="true"
-            android:visibility="gone" />
+            android:focusable="true" />
 
         </LinearLayout>
 

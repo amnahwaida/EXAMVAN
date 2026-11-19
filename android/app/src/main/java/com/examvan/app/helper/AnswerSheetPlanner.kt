@@ -9,6 +9,8 @@ data class AnswerSheetItem(
     val type: String,
     /** single_choice / multiple_choice. */
     val choices: List<String>?,
+    /** true_false multi-pernyataan; null/empty = format lama satu pernyataan. */
+    val statements: List<String>?,
     /** matching. */
     val leftItems: List<String>?,
     /** matching. */
@@ -63,6 +65,7 @@ object AnswerSheetPlanner {
                         number = number,
                         type = decision.type,
                         choices = decision.choices,
+                        statements = decision.statements,
                         leftItems = decision.leftItems,
                         rightItems = decision.rightItems
                     )

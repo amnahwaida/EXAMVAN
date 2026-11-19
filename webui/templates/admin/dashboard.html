@@ -738,6 +738,18 @@
 </div>
 <div class="modal-body" style="max-height:80vh;overflow-y:auto;">
 
+<!-- 0. Mid-exam gate banner: kunci & bobot soal dibekukan saat ujian berjalan.
+     Tanpa banner ini guru mengedit kunci, mendapat toast "berhasil disimpan",
+     dan kuncinya diam-diam tidak tersimpan (gate menolaknya di server). -->
+<div id="examRunningBanner" style="display:none;margin-bottom:16px;padding:12px 16px;background:rgba(234,179,8,0.10);border:1px solid rgba(234,179,8,0.45);border-radius:12px;">
+<div style="display:flex;align-items:flex-start;gap:8px;">
+<svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;color:#eab308;"><use href="#hi-exclamation-triangle"/></svg>
+<div style="font-size:0.85rem;color:var(--color-text);">
+<strong style="color:#eab308;">Ujian sedang berjalan.</strong> Kunci &amp; bobot soal dibekukan agar penilaian antar siswa konsisten — perubahan kunci di modal ini <strong>tidak akan tersimpan</strong> sampai ujian dihentikan. Jadwal, pengawas, dan pengaturan lain tetap bisa disimpan.
+</div>
+</div>
+</div>
+
 <!-- 1. Security Level Config -->
 <div class="security-level-config" style="margin-bottom:20px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
@@ -905,8 +917,8 @@
 <div class="xml-import-wrapper" style="display:flex;align-items:center;gap:6px;">
 <button class="btn-sm" data-action="ai-prompt-copy" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>
 <input type="file" id="xmlFileInput" accept=".xml" style="display:none;">
-<button class="btn-sm" data-action="xml-import-browse" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-download"/></svg> Import XML</button>
-<button class="btn-sm" data-action="xml-export" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-upload"/></svg> Ekspor XML</button>
+<button class="btn-sm" data-action="xml-import-browse" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-upload"/></svg> Import XML</button>
+<button class="btn-sm" data-action="xml-export" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-download"/></svg> Ekspor XML</button>
 </div>
 </div>
 </div>

@@ -135,6 +135,13 @@ func evaluateSingleQuestion(studentAns, correctAns interface{}, qType string, qW
 
 	switch qType {
 	case "single_choice", "true_false":
+		// true_false can carry one answer per statement. Detect the list key
+		// before falling back to the legacy single-string comparison.
+		if qType == "true_false" {
+			if correctList, ok := toStringList(correctAns); ok && len(correctList) > 0 {
+				return evaluateTrueFalseMulti(studentAns, correctList, qWeight, partialScoring)
+			}
+		}
 		sNorm := strings.ToUpper(strings.Join(strings.Fields(fmt.Sprintf("%v", studentAns)), " "))
 		cNorm := strings.ToUpper(strings.Join(strings.Fields(fmt.Sprintf("%v", correctAns)), " "))
 		if sNorm == cNorm {
@@ -214,6 +221,73 @@ func normalizeShortAnswer(v interface{}) string {
 		return strconv.FormatFloat(f, 'f', -1, 64)
 	}
 	return s
+}
+
+// toStringList converts a JSON-decoded list (or a Go []string) into a string
+// slice. It returns ok=false for any other shape so callers can fall back to
+// the legacy scalar comparison.
+func toStringList(v interface{}) ([]string, bool) {
+	switch list := v.(type) {
+	case []interface{}:
+		out := make([]string, len(list))
+		for i, el := range list {
+			out[i] = fmt.Sprintf("%v", el)
+		}
+		return out, true
+	case []string:
+		out := make([]string, len(list))
+		copy(out, list)
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// evaluateTrueFalseMulti scores a true/false question that carries several
+// statements. Answers are matched by index (statement order). With partial
+// scoring every correct statement contributes weight/len(key); without it the
+// whole question is all-or-nothing.
+func evaluateTrueFalseMulti(studentAns interface{}, correctList []string, qWeight float64, partialScoring bool) EvaluationDetail {
+	studentList, ok := toStringList(studentAns)
+	if !ok {
+		// A scalar answer for a multi-statement question cannot match by
+		// index; treat it as unanswered/wrong rather than panicking.
+		studentList = nil
+	}
+
+	total := len(correctList)
+	if total == 0 {
+		return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
+	}
+	correctCount := 0
+	for i, c := range correctList {
+		cNorm := strings.ToUpper(strings.TrimSpace(c))
+		if i >= len(studentList) {
+			continue
+		}
+		sNorm := strings.ToUpper(strings.TrimSpace(studentList[i]))
+		if sNorm == cNorm {
+			correctCount++
+		}
+	}
+
+	if partialScoring {
+		portion := float64(correctCount) / float64(total)
+		earned := portion * qWeight
+		switch {
+		case correctCount == total:
+			return EvaluationDetail{Earned: earned, StatusText: StatusCorrect, StatusClass: StatusCorrect}
+		case correctCount > 0:
+			return EvaluationDetail{Earned: earned, StatusText: StatusPartial, StatusClass: StatusPartial}
+		default:
+			return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
+		}
+	}
+
+	if correctCount == total {
+		return EvaluationDetail{Earned: qWeight, StatusText: StatusCorrect, StatusClass: StatusCorrect}
+	}
+	return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
 }
 
 // evaluateMC evaluates a multiple-choice answer.

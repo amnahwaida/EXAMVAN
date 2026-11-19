@@ -92,6 +92,13 @@ class ExamViewerActivity : BaseSecureActivity() {
     // Questions config
     private var questions: List<Map<String, Any>> = emptyList()
 
+    /**
+     * Guard re-fetch soal dari server saat questions_json tidak terbaca dari
+     * prefs (mis. keystore gagal di perangkat Samsung tertentu) — cegah
+     * request ganda.
+     */
+    private var questionsFetchInFlight = false
+
     // Student answers from ViewModel (survives rotation)
     private val studentAnswers: Map<String, Any>
         get() = viewModel.studentAnswers.value
@@ -365,7 +372,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             serverUrl = this@ExamViewerActivity.serverUrl
             this.strictMode = strictMode
             deactivateLockTask = {
-                if (strictMode) LockTaskManager.deactivate(this@ExamViewerActivity)
+                // Selalu panggil: aman saat tidak di-pin (exception ditelan
+                // LockTaskManager), dan menutup kasus pin "yatim" dari sesi
+                // strict sebelumnya yang tidak terlepas sempurna di OEM.
+                LockTaskManager.deactivate(this@ExamViewerActivity)
             }
             getAnswers = { this@ExamViewerActivity.studentAnswers }
             isShowingAppDialog = { securityEnforcer.isShowingAppDialog }
@@ -573,7 +583,11 @@ class ExamViewerActivity : BaseSecureActivity() {
     private fun loadQuestionsAndBuildSheet() {
         try {
             val prefs = AppPrefs.getExamPrefsSafe(this)
-            val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
+            // Sumber utama: Intent (dikirim sejak ServerConfig). Ini membuat
+            // lembar jawaban tetap muncul walau prefs terenkripsi gagal
+            // dibaca/ditulis di perangkat tertentu (temuan Samsung A51).
+            val json = intent.getStringExtra("questions_json")?.takeIf { it.isNotBlank() }
+                ?: prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
             securityLevel = ExamModePolicy.normalize(
                 intent.getStringExtra("security_level")
                     ?: prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, null)
@@ -583,10 +597,9 @@ class ExamViewerActivity : BaseSecureActivity() {
             submissionManager.requestNotificationPermission()
 
             // Parse konfigurasi soal. Jika tidak ada, kosong, atau gagal parse,
-            // lembar jawaban DISEMBUNYIKAN — tidak memalsukan 40 soal default:
-            // jawaban palsu tidak akan cocok dengan koreksi server dan membuat
-            // siswa bisa mengumpulkan asal.
-            questions = if (json != null) {
+            // coba ambil ulang dari server sebelum menyerah — jangan memalsukan
+            // 40 soal default (jawaban palsu tidak cocok dengan koreksi server).
+            val parsed: List<Map<String, Any>> = if (json != null) {
                 try {
                     Gson().fromJson(json, questionsListType) ?: emptyList()
                 } catch (e: Throwable) {
@@ -596,27 +609,81 @@ class ExamViewerActivity : BaseSecureActivity() {
                 emptyList()
             }
 
-            if (questions.isEmpty()) {
-                hideAnswerOverlay()
-                submissionManager.totalQuestions = 0
+            if (parsed.isEmpty()) {
+                applyQuestions(emptyList())
+                fetchQuestionsFromServer()
             } else {
-                // totalQuestions = jumlah soal yang BENAR-BENAR dirender
-                // (nomor valid), bukan ukuran list mentah — soal dengan nomor
-                // tidak valid dilewati AnswerSheetBuilder (lihat QuestionParsing).
-                submissionManager.totalQuestions = answerSheetBuilder.build(questions)
-                // Restore saved answers (#6 fix: view tagging handles this)
-                val savedAnswers = submissionManager.restoreAnswersFromPrefs()
-                if (savedAnswers != null) {
-                    viewModel.setStudentAnswers(savedAnswers)
-                    answerSheetBuilder.restoreFromSaved(savedAnswers)
-                }
+                applyQuestions(parsed)
             }
         } catch (e: Exception) {
-            // Kegagalan membaca prefs — aman: sembunyikan lembar jawaban.
-            questions = emptyList()
-            submissionManager.totalQuestions = 0
-            hideAnswerOverlay()
+            // Kegagalan membaca prefs — coba jalur server, jangan diam saja.
+            applyQuestions(emptyList())
+            fetchQuestionsFromServer()
         }
+    }
+
+    /**
+     * Pasang soal ke lembar jawaban + restore jawaban tersimpan.
+     * totalQuestions = jumlah soal yang BENAR-BENAR dirender (nomor valid),
+     * bukan ukuran list mentah — soal invalid dilewati AnswerSheetPlanner.
+     */
+    private fun applyQuestions(loaded: List<Map<String, Any>>) {
+        questions = loaded
+        if (questions.isEmpty()) {
+            hideAnswerOverlay()
+            submissionManager.totalQuestions = 0
+            return
+        }
+        submissionManager.totalQuestions = answerSheetBuilder.build(questions)
+        // Restore saved answers (#6 fix: view tagging handles this)
+        val savedAnswers = submissionManager.restoreAnswersFromPrefs()
+        if (savedAnswers != null) {
+            viewModel.setStudentAnswers(savedAnswers)
+            answerSheetBuilder.restoreFromSaved(savedAnswers)
+        }
+    }
+
+    /**
+     * Ambil ulang soal dari endpoint token yang sama. Dipakai hanya saat
+     * questions_json tidak ada/tidak terbaca — bukan jalur normal — sehingga
+     * tidak menambah beban server untuk perangkat yang sehat.
+     */
+    private fun fetchQuestionsFromServer() {
+        if (questionsFetchInFlight || examToken.isEmpty() || serverUrl.isEmpty()) return
+        if (viewModel.submittedOrExited.value) return
+        questionsFetchInFlight = true
+
+        ApiClient.getExamByToken(
+            token = examToken,
+            onSuccess = { response ->
+                runOnUiThread {
+                    questionsFetchInFlight = false
+                    if (isFinishing || isDestroyed || viewModel.submittedOrExited.value) {
+                        return@runOnUiThread
+                    }
+                    val fetched = response.data?.questions ?: emptyList()
+                    if (fetched.isEmpty()) {
+                        applyQuestions(emptyList())
+                        return@runOnUiThread
+                    }
+                    // Simpan lagi agar re-entry berikutnya tidak perlu re-fetch.
+                    try {
+                        val json = Gson().toJson(fetched)
+                        AppPrefs.getExamPrefsSafe(this).edit()
+                            .putString(AppPrefs.KEY_QUESTIONS_JSON, json)
+                            .apply()
+                    } catch (_: Exception) { }
+                    applyQuestions(fetched)
+                }
+            },
+            onError = { _, _ ->
+                runOnUiThread {
+                    questionsFetchInFlight = false
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    applyQuestions(emptyList())
+                }
+            }
+        )
     }
 
     private fun updateSecurityBanner() {
@@ -1128,21 +1195,26 @@ class ExamViewerActivity : BaseSecureActivity() {
                 // (i18n); komponen jam/menit/detik dari object murni.
                 val (h, m, s) = ExamDeadline.remainingHms(millisUntilFinished)
                 binding.tvTimer.text = getString(R.string.timer_remaining, h, m, s)
-                // Fix review UI/UX #2: merah bukan warna abadi — berjenjang
-                // netral → kuning (<=10 menit) → merah (<=5 menit).
-                val colorRes = when (ExamDeadline.timerUrgency(millisUntilFinished)) {
-                    ExamDeadline.TimerUrgency.NORMAL -> R.color.on_surface
-                    ExamDeadline.TimerUrgency.WARNING -> R.color.warning
-                    ExamDeadline.TimerUrgency.CRITICAL -> R.color.timer_text
-                }
-                binding.tvTimer.setTextColor(
-                    androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, colorRes)
-                )
+                // Warna & haptic hanya berubah saat LEVEL urgensi berubah —
+                // bukan tiap detik. Menghindari alokasi getColor + setTextColor
+                // dan invalidasi layout 60x/menit di perangkat low-end.
                 val urgency = ExamDeadline.timerUrgency(millisUntilFinished)
-                if (com.examvan.app.helper.HapticPolicy.shouldBuzz(lastTimerUrgency, urgency)) {
-                    buzz(com.examvan.app.helper.HapticPolicy.BUZZ_DURATION_MS)
+                if (urgency != lastTimerUrgency) {
+                    // Fix review UI/UX #2: merah bukan warna abadi — berjenjang
+                    // netral → kuning (<=10 menit) → merah (<=5 menit).
+                    val colorRes = when (urgency) {
+                        ExamDeadline.TimerUrgency.NORMAL -> R.color.on_surface
+                        ExamDeadline.TimerUrgency.WARNING -> R.color.warning
+                        ExamDeadline.TimerUrgency.CRITICAL -> R.color.timer_text
+                    }
+                    binding.tvTimer.setTextColor(
+                        androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, colorRes)
+                    )
+                    if (com.examvan.app.helper.HapticPolicy.shouldBuzz(lastTimerUrgency, urgency)) {
+                        buzz(com.examvan.app.helper.HapticPolicy.BUZZ_DURATION_MS)
+                    }
+                    lastTimerUrgency = urgency
                 }
-                lastTimerUrgency = urgency
             }
 
             override fun onFinish() {
@@ -1244,7 +1316,7 @@ class ExamViewerActivity : BaseSecureActivity() {
             serverUrl = this@ExamViewerActivity.serverUrl
             startTime = AppPrefs.getExamPrefsSafe(this@ExamViewerActivity)
                 .getString(AppPrefs.KEY_EXAM_START_TIME, "") ?: ""
-            deactivateLockTask = {}
+            deactivateLockTask = { LockTaskManager.deactivate(this@ExamViewerActivity) }
             getAnswers = { emptyMap() }
             onFinish = { finish() }
             isActivityFinishing = { isFinishing || isDestroyed }

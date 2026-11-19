@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -542,6 +543,53 @@ class AnswerSheetWidget(QWidget):
         self._pending_entry = ("multi", checkboxes)
 
     def _build_true_false(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
+        statements = q.get("statements")
+        if isinstance(statements, list) and statements:
+            if not self._valid_string_list(statements):
+                raise _BrokenQuestion(
+                    f"statements tidak sah ({type(statements).__name__!s})"
+                )
+            statements = [str(s) for s in statements]
+            saved = self._answers.get(num, [])
+            if isinstance(saved, str):
+                try:
+                    import json
+                    saved = json.loads(saved)
+                except Exception:
+                    saved = []
+            if not isinstance(saved, list):
+                saved = []
+
+            groups = []
+            for idx, statement in enumerate(statements):
+                lbl = QLabel(f"{idx + 1}. {_sanitize_server_text(statement)}")
+                lbl.setTextFormat(Qt.PlainText)
+                lbl.setWordWrap(True)
+                lbl.setStyleSheet("font-size: 13px; padding: 4px;")
+                layout.addWidget(lbl)
+
+                row = QHBoxLayout()
+                btn_group = QButtonGroup(self)
+                btn_group.setExclusive(True)
+                saved_val = saved[idx] if idx < len(saved) else None
+                for val in ["TRUE", "FALSE"]:
+                    rb = QRadioButton(val)
+                    rb.setStyleSheet("font-size: 13px; padding: 4px;")
+                    btn_group.addButton(rb)
+                    row.addWidget(rb)
+                    if saved_val == val:
+                        rb.setChecked(True)
+                row.addStretch(1)
+                layout.addLayout(row)
+                groups.append(btn_group)
+
+            for group in groups:
+                group.buttonClicked.connect(
+                    lambda btn, n=num, gs=groups: self._on_tf_multi_changed(n, gs)
+                )
+            self._pending_entry = ("tf_multi", groups)
+            return
+
         btn_group = QButtonGroup(self)
         btn_group.setExclusive(True)
         for val in ["TRUE", "FALSE"]:
@@ -695,6 +743,24 @@ class AnswerSheetWidget(QWidget):
         self._update_count()
         self.answer_changed.emit(num, selected)
 
+    def _on_tf_multi_changed(self, num: str, groups: list) -> None:
+        if self._first_wins_blocked(num, groups):
+            return
+        self._answer_writer[num] = id(groups)
+        self._touched_nums.add(num)
+        selected = []
+        for group in groups:
+            btn = group.checkedButton()
+            selected.append(btn.text() if btn is not None else "")
+        # Buang ekor kosong agar get_answers() tidak menganggap soal yang
+        # belum disentuh sebagai sudah dijawab; entri tengah kosong tetap
+        # dipertahankan supaya posisi pernyataan tidak bergeser.
+        while selected and selected[-1] == "":
+            selected.pop()
+        self._answers[num] = selected
+        self._update_count()
+        self.answer_changed.emit(num, selected)
+
     def _on_match_changed(
         self, num: str, left_key: str, combo_idx: int, right_items: list,
         src: Any = None,
@@ -798,6 +864,22 @@ class AnswerSheetWidget(QWidget):
                 if not isinstance(val, str):
                     val = str(val)
                     self._answers[num] = val
+            elif wtype == "tf_multi":
+                vals = val if isinstance(val, list) else []
+                cleaned = []
+                for idx in range(len(widget)):
+                    candidate = str(vals[idx]) if idx < len(vals) else ""
+                    cleaned.append(candidate if candidate in ("TRUE", "FALSE") else "")
+                while cleaned and cleaned[-1] == "":
+                    cleaned.pop()
+                if cleaned != vals:
+                    if cleaned:
+                        self._answers[num] = cleaned
+                    else:
+                        self._answers.pop(num, None)
+                    val = self._answers.get(num)
+                    if val is None:
+                        continue
             elif wtype == "matching":
                 pass  # pruning matching ditangani di bawah (per kunci kiri)
 
@@ -818,6 +900,14 @@ class AnswerSheetWidget(QWidget):
             elif wtype == "multi":
                 for cb in widget:
                     cb.setChecked(cb.text() in (val if isinstance(val, list) else []))
+            elif wtype == "tf_multi":
+                vals = val if isinstance(val, list) else []
+                for idx, group in enumerate(widget):
+                    want = vals[idx] if idx < len(vals) else ""
+                    for btn in group.buttons():
+                        if btn.text() == want:
+                            btn.setChecked(True)
+                            break
             elif wtype == "short":
                 widget.setText(str(val))
             elif wtype == "matching":

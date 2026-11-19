@@ -141,6 +141,9 @@
     <string name="approval_rejected_title">Request Rejected</string>
     <string name="approval_rejected_subtitle">The supervisor rejected your request.</string>
     <string name="approval_rejected_message">The exam supervisor rejected your request to enter this exam.\nPlease contact the supervisor for more information.</string>
+    <string name="approval_repeat_title">Cannot Retake</string>
+    <string name="approval_repeat_subtitle">You have already completed this exam.</string>
+    <string name="approval_repeat_message">You have already completed this exam. Contact the supervisor if you need a retake.</string>
     <string name="approval_btn_cancel">Cancel Request</string>
     <string name="approval_btn_back">Back</string>
     <string name="approval_btn_retry">Request Permission Again</string>

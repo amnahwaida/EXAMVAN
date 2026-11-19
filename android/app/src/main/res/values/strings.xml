@@ -131,6 +131,9 @@
     <string name="approval_rejected_title">Permintaan Ditolak</string>
     <string name="approval_rejected_subtitle">Pengawas menolak permintaan Anda.</string>
     <string name="approval_rejected_message">Pengawas ujian menolak permintaan Anda untuk masuk ke ujian ini.\nSilakan hubungi pengawas untuk informasi lebih lanjut.</string>
+    <string name="approval_repeat_title">Tidak Bisa Mengulang</string>
+    <string name="approval_repeat_subtitle">Ujian ini sudah Anda kerjakan.</string>
+    <string name="approval_repeat_message">Ujian ini sudah Anda kerjakan. Hubungi pengawas bila perlu izin mengulang.</string>
     <string name="approval_btn_cancel">Batalkan Permintaan</string>
     <string name="approval_btn_back">Kembali</string>
     <string name="approval_cancel_title">Batalkan Permintaan?</string>

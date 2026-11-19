@@ -136,3 +136,46 @@ func TestRecalculateSkipsPlaceholders(t *testing.T) {
 		t.Errorf("placeholder tidak boleh ditulis score (dapat %v) — nilai 'belum' jangan jadi 0", *scoreB)
 	}
 }
+
+func TestTrueFalseMultiStatementScoring(t *testing.T) {
+	allOrNothing := []Question{{
+		Number: 1, Type: "true_false", Weight: 3,
+		Key: []interface{}{"TRUE", "FALSE", "TRUE"},
+	}}
+	// Semua benar.
+	got := EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"TRUE", "FALSE", "TRUE"}}, allOrNothing)["1"]
+	if got.StatusClass != StatusCorrect || got.Earned != 3 {
+		t.Fatalf("semua benar: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+	// Satu salah -> 0 tanpa partial scoring.
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"TRUE", "TRUE", "TRUE"}}, allOrNothing)["1"]
+	if got.StatusClass != StatusIncorrect || got.Earned != 0 {
+		t.Fatalf("satu salah all-or-nothing: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+
+	partial := []Question{{
+		Number: 1, Type: "true_false", Weight: 3, PartialScoring: true,
+		Key: []interface{}{"TRUE", "FALSE", "TRUE"},
+	}}
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"TRUE", "TRUE", ""}}, partial)["1"]
+	if got.StatusClass != StatusPartial || got.Earned != 1 {
+		t.Fatalf("partial 1 dari 3: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+	// Jawaban kurang panjang dianggap salah untuk posisi yang hilang.
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"TRUE"}}, partial)["1"]
+	if got.StatusClass != StatusPartial || got.Earned != 1 {
+		t.Fatalf("jawaban terpotong: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+}
+
+func TestTrueFalseLegacySingleStillWorks(t *testing.T) {
+	questions := []Question{{Number: 1, Type: "true_false", Weight: 2, Key: "true"}}
+	got := EvaluateAnswersDetailed(map[string]interface{}{"1": "TRUE"}, questions)["1"]
+	if got.StatusClass != StatusCorrect || got.Earned != 2 {
+		t.Fatalf("true_false legacy: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+}

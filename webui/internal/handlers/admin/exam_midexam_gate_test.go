@@ -199,7 +199,14 @@ func TestSaveQuestionsWhileRunningFreezesQuestionsButAppliesSchedule(t *testing.
 
 	body, _ := json.Marshal(map[string]interface{}{
 		// Kunci BERBEDA dikirim UI — saat ujian berjalan harus DIABAIKAN.
-		"questions":      []map[string]interface{}{{"number": 1, "type": "single_choice", "key": "MANIPULATED"}},
+		// Soal tetap harus valid (kunci ada di pilihan) agar lolos gerbang
+		// validasi dan benar-benar menyentuh gate freeze.
+		"questions": []map[string]interface{}{{
+			"number":  1,
+			"type":    "single_choice",
+			"key":     "MANIPULATED",
+			"options": []interface{}{"MANIPULATED", "A", "B"},
+		}},
 		"security_level": "medium",
 		"start_time":     "",
 		"end_time":       "2030-01-02 15:04",
@@ -208,6 +215,24 @@ func TestSaveQuestionsWhileRunningFreezesQuestionsButAppliesSchedule(t *testing.
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, want 200 — jadwal/pengaturan harus tetap tersimpan (body: %s)", resp.StatusCode, b)
+	}
+
+	// Respons HARUS membedakan kunci dibekukan dari sukses polos — tanpa
+	// sinyal ini guru melihat toast hijau "berhasil disimpan" padahal kunci
+	// yang dikirimnya dibuang gate (jawaban tidak benar-benar tersimpan).
+	var saveRes struct {
+		Success         bool   `json:"success"`
+		QuestionsFrozen bool   `json:"questions_frozen"`
+		Message         string `json:"message"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&saveRes); err != nil {
+		t.Fatalf("decode respons: %v", err)
+	}
+	if !saveRes.Success || !saveRes.QuestionsFrozen {
+		t.Errorf("questions_frozen = %v, want true (success=%v)", saveRes.QuestionsFrozen, saveRes.Success)
+	}
+	if !strings.Contains(saveRes.Message, "TIDAK diubah") {
+		t.Errorf("pesan harus menjelaskan kunci tidak diubah: %q", saveRes.Message)
 	}
 
 	var questionsAfter string
