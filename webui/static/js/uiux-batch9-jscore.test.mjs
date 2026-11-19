@@ -478,7 +478,8 @@ test('R31 (perilaku): sukses simpan → toast, modal tertutup, stats disegarkan,
             getElementById(id) {
                 if (id === 'btnSaveQuestionsConfig') return btn;
                 return null; // examSecurityLevel, panelColorHex, jadwal, dsb. opsional
-            }
+            },
+            querySelectorAll() { return []; }
         },
         getQuestionsFromEditor: () => [{ number: 1 }],
         getIdentityFieldsFromEditor: () => [],
@@ -500,6 +501,7 @@ test('R31 (perilaku): sukses simpan → toast, modal tertutup, stats disegarkan,
         'var activeExamId = 7;',
         extractFunction(ADMIN_JS_SRC, 'markQuestionsConfigDirty'),
         extractFunction(ADMIN_JS_SRC, 'resetQuestionsConfigDirty'),
+        extractFunction(ADMIN_JS_SRC, 'findQuestionCardProblems'),
         extractFunction(ADMIN_JS_SRC, 'saveQuestionsConfig')
     ].join('\n');
     vm.runInContext(script, sandbox, { filename: 'admin.js#r31' });

@@ -835,18 +835,18 @@
  </div>
  <div class="score-summary-bar">
  <div class="score-summary-stats">
- <span style="color:var(--color-success);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-check"/></svg> Benar: ${correctCount}</span>
- <span style="color:var(--color-warning);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-exclamation-triangle"/></svg> Parsial: ${partialCount}</span>
- <span style="color:var(--color-danger);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-x"/></svg> Salah: ${incorrectCount}</span>
+ <span class="score-pill score-pill-correct"><svg class="icon-svg-sm" aria-hidden="true"><use href="#hi-check"/></svg> Benar: ${correctCount}</span>
+ <span class="score-pill score-pill-partial"><svg class="icon-svg-sm" aria-hidden="true"><use href="#hi-exclamation-triangle"/></svg> Parsial: ${partialCount}</span>
+ <span class="score-pill score-pill-incorrect"><svg class="icon-svg-sm" aria-hidden="true"><use href="#hi-x"/></svg> Salah: ${incorrectCount}</span>
  </div>
  <div class="score-summary-total">
- <span style="color:var(--color-text-muted);">Skor Resmi:</span>
+ <span class="score-summary-label">Skor Resmi</span>
  <span class="score-badge ${getScoreClass(sub.score, totalMax)}" style="font-size:0.9rem;">
  ${officialScoreText}
  </span>
  <span class="score-status-chip ${passStatus.cls} score-status-badge">${passStatus.text}</span>
  </div>
- <div style="margin:8px 4px 0; font-size:0.72rem; color:var(--color-text-muted); text-align:right;">
+ <div class="score-summary-note">
  Perhitungan tampilan (evaluasi sisi klien): ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)} — dapat berbeda dari Skor Resmi bila kunci/bobot direvisi pasca-ujian
  </div>
  `;

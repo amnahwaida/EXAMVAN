@@ -772,6 +772,12 @@ function renderChoiceKeyOptions(card) {
     if (!list || !optionsInput || !keyInput || !typeSel) return;
 
     const type = typeSel.value;
+    const hint = card.querySelector('.q-choice-hint');
+    if (hint) {
+        hint.textContent = type === 'single_choice'
+            ? 'Pilih satu jawaban yang benar.'
+            : 'Centang semua jawaban yang benar.';
+    }
     const options = splitEditorCsv(optionsInput.value);
     const previous = Array.from(list.querySelectorAll('.q-choice-key-input:checked')).map(el => el.value);
     const fromKey = splitEditorCsv(keyInput.value);
@@ -1008,27 +1014,39 @@ function createNewQuestionCard(q, num) {
                 </label>
             </div>
             <div class="q-field-group q-statements-group" style="display: ${statementsVisibility};">
-                <label>Pernyataan Benar/Salah (satu per baris)</label>
+                <label>Pernyataan Benar/Salah</label>
+                <span class="q-field-hint">Tulis satu pernyataan per baris.</span>
                 <textarea class="q-statements-input" rows="3" placeholder="Pernyataan 1&#10;Pernyataan 2">${escapeHtml(statementsVal)}</textarea>
             </div>
             <div class="q-field-group q-key-group">
                 <label>Kunci Jawaban</label>
                 <input type="text" class="q-key-input" value="${escapeHtml(keyVal)}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B | Benar/Salah: TRUE,FALSE">
             </div>
-            <div class="q-field-group q-tf-answers-group" style="display: none;">
-                <label>Kunci Benar/Salah per Pernyataan</label>
+            <div class="q-field-group q-assist-panel q-tf-answers-group" style="display: none;">
+                <label>Kunci Benar/Salah</label>
+                <span class="q-field-hint">Pilih Benar atau Salah untuk setiap pernyataan.</span>
                 <div class="q-tf-answer-list"></div>
             </div>
-            <div class="q-field-group q-choice-key-group" style="display: none;">
-                <label>Kunci Jawaban (pilih yang benar)</label>
+            <div class="q-field-group q-assist-panel q-choice-key-group" style="display: none;">
+                <label>Kunci Jawaban</label>
+                <span class="q-field-hint q-choice-hint">Pilih jawaban yang benar.</span>
                 <div class="q-choice-key-list"></div>
             </div>
-            <div class="q-field-group q-matching-group" style="display: none;">
-                <label>Item Kiri (satu per baris)</label>
-                <textarea class="q-left-items-input" rows="3" placeholder="1&#10;2&#10;3">${escapeHtml(matchingLeftVal)}</textarea>
-                <label>Item Kanan (satu per baris)</label>
-                <textarea class="q-right-items-input" rows="3" placeholder="A&#10;B&#10;C">${escapeHtml(matchingRightVal)}</textarea>
+            <div class="q-field-group q-assist-panel q-matching-group" style="display: none;">
+                <div class="q-matching-grid">
+                    <div class="q-matching-field">
+                        <label>Item Kiri</label>
+                        <span class="q-field-hint">Satu item per baris.</span>
+                        <textarea class="q-left-items-input" rows="3" placeholder="1&#10;2&#10;3">${escapeHtml(matchingLeftVal)}</textarea>
+                    </div>
+                    <div class="q-matching-field">
+                        <label>Item Kanan</label>
+                        <span class="q-field-hint">Satu item per baris.</span>
+                        <textarea class="q-right-items-input" rows="3" placeholder="A&#10;B&#10;C">${escapeHtml(matchingRightVal)}</textarea>
+                    </div>
+                </div>
                 <label>Pasangan Benar</label>
+                <span class="q-field-hint">Pilih pasangan untuk setiap item kiri.</span>
                 <div class="q-matching-pairs-list"></div>
             </div>
             <div class="q-field-group q-options-group" style="display: ${optionsVisibility};">
@@ -1761,9 +1779,9 @@ function exportXMLQuestions() {
         xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}>\n`;
         
         if (q.type === 'single_choice' || q.type === 'multiple_choice') {
-            const exportOpts = q.options || q.choices;
-            if (exportOpts && exportOpts.length > 0) {
-                xml += `        <choices>${xmlEscape(exportOpts.join(', '))}</choices>\n`;
+            const choices = q.options || q.choices;
+            if (choices && choices.length > 0) {
+                xml += `        <choices>${xmlEscape(choices.join(', '))}</choices>\n`;
             }
         } else if (q.type === 'matching') {
             if (q.left_items && q.left_items.length > 0) {
@@ -1875,7 +1893,7 @@ function saveQuestionsConfig() {
 
     const problems = findQuestionCardProblems();
     if (problems.length > 0) {
-        problems.forEach(p => { p.card.style.outline = '2px solid #ef4444'; });
+        problems.forEach(p => { p.card.style.outline = '2px solid var(--color-danger-light)'; });
         if (problems[0].card.scrollIntoView) {
             problems[0].card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -4552,6 +4570,28 @@ function showSubmissionDetail(id) {
                 return;
             }
 
+            const fmtAns = (val) => {
+                if (val === undefined || val === null) return '—';
+                if (Array.isArray(val)) return val.join(', ');
+                if (typeof val === 'object') return Object.keys(val).map(k => `${k}→${val[k]}`).join(', ');
+                return String(val);
+            };
+
+            const listHeader = document.createElement('div');
+            listHeader.className = 'sub-detail-list-header';
+            listHeader.innerHTML = '<span>No</span><span>Jawaban Siswa</span><span>Kunci Jawaban</span><span>Status</span>';
+            container.appendChild(listHeader);
+
+            const list = document.createElement('div');
+            list.className = 'sub-detail-list';
+
+            let correctCount = 0;
+            let partialCount = 0;
+            let incorrectCount = 0;
+            let unansweredCount = 0;
+            let earnedTotal = 0;
+            let maxTotal = 0;
+
             questions.forEach(q => {
                 const qNum = String(q.number);
                 const weight = parseFloat(q.weight || 1.0);
@@ -4563,27 +4603,52 @@ function showSubmissionDetail(id) {
                 const statusText = evalData.statusText || 'Belum Dijawab';
                 const statusClass = evalData.statusClass || 'unanswered';
 
-                const fmtAns = (val) => {
-                    if (val === undefined || val === null) return '—';
-                    if (Array.isArray(val)) return val.join(', ');
-                    if (typeof val === 'object') return Object.keys(val).map(k => `${k}→${val[k]}`).join(', ');
-                    return String(val);
-                };
+                maxTotal += weight;
+                earnedTotal += earnedPoints;
+                if (statusClass === 'correct') correctCount++;
+                else if (statusClass === 'partial') partialCount++;
+                else if (statusClass === 'unanswered') unansweredCount++;
+                else incorrectCount++;
 
                 const item = document.createElement('div');
-                item.className = `detail-answer-item ${escapeHtml(statusClass)}`;
-                const statusColor = statusClass === 'correct' ? 'var(--color-success-light)' : statusClass === 'partial' ? 'var(--color-warning)' : 'var(--color-danger-light)';
+                item.className = `sub-detail-row ${escapeHtml(statusClass)}`;
                 item.innerHTML = `
-                    <span class="detail-q-num">No. ${escapeHtml(qNum)}</span>
-                    <span class="detail-q-ans">${escapeHtml(fmtAns(studentAns))}</span>
-                    <span class="detail-q-key">${escapeHtml(fmtAns(correctAns))}</span>
-                    <div style="text-align:right; width:110px;">
-                        <span class="detail-q-status" style="color:${statusColor}">${escapeHtml(statusText)}</span>
-                        <span class="detail-q-points">${earnedPoints.toFixed(1)} / ${weight.toFixed(1)} Poin</span>
+                    <span class="sub-detail-num">No. ${escapeHtml(qNum)}</span>
+                    <div class="sub-detail-cell">
+                        <span class="sub-detail-cell-label">Jawaban Siswa</span>
+                        <span class="sub-detail-cell-value">${escapeHtml(fmtAns(studentAns))}</span>
+                    </div>
+                    <div class="sub-detail-cell sub-detail-key-cell">
+                        <span class="sub-detail-cell-label">Kunci Jawaban</span>
+                        <span class="sub-detail-cell-value">${escapeHtml(fmtAns(correctAns))}</span>
+                    </div>
+                    <div class="sub-detail-result">
+                        <span class="sub-detail-status ${escapeHtml(statusClass)}">${escapeHtml(statusText)}</span>
+                        <span class="sub-detail-points">${earnedPoints.toFixed(1)} / ${weight.toFixed(1)} Poin</span>
                     </div>
                 `;
-                container.appendChild(item);
+                list.appendChild(item);
             });
+
+            container.appendChild(list);
+
+            const pills = [
+                `<span class="sub-detail-pill correct">Benar ${correctCount}</span>`,
+                `<span class="sub-detail-pill incorrect">Salah ${incorrectCount}</span>`,
+            ];
+            if (partialCount > 0) pills.splice(1, 0, `<span class="sub-detail-pill partial">Parsial ${partialCount}</span>`);
+            if (unansweredCount > 0) pills.push(`<span class="sub-detail-pill unanswered">Kosong ${unansweredCount}</span>`);
+
+            const summary = document.createElement('div');
+            summary.className = 'sub-detail-summary';
+            summary.innerHTML = `
+                <div class="sub-detail-pills">${pills.join('')}</div>
+                <div class="sub-detail-total">
+                    <span class="sub-detail-total-label">Total Poin</span>
+                    <span class="sub-detail-total-value">${earnedTotal.toFixed(1)} / ${maxTotal.toFixed(1)}</span>
+                </div>
+            `;
+            container.prepend(summary);
         })
         .catch(() => {
             if (seq !== submissionDetailSeq) return; // S91: kegagalan basi tak boleh menutup modal milik lain

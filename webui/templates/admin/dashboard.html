@@ -275,13 +275,20 @@
      seharusnya mengganti nama instansi sekolah). */}}
 {{if or (eq .admin_role "superadmin") (hasRole .admin_role "operator")}}
 <div class="stat-card stat-instansi" title="Klik untuk mengubah nama Instansi/Sekolah Anda" style="cursor:pointer;" data-action="instansi-open" role="button" tabindex="0">
-<div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
-<div class="stat-info" style="flex:1;">
-<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;min-width:0;">
-  <span class="stat-value stat-value-sm" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{default "Belum Ditetapkan" .admin_instansi}}">{{default "Belum Ditetapkan" .admin_instansi}}</span>
-  <svg class="icon-svg" style="width:14px;height:14px;color:var(--color-accent-light);opacity:0.85;flex-shrink:0;" title="Ubah Nama Instansi"><use href="#hi-edit"/></svg>
+<div class="stat-icon instansi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
+<div class="stat-info instansi-info">
+<span class="instansi-eyebrow">Instansi</span>
+<div class="instansi-heading">
+  <span class="instansi-name" title="{{default "Belum Ditetapkan" .admin_instansi}}">{{default "Belum Ditetapkan" .admin_instansi}}</span>
+  <svg class="icon-svg instansi-edit" title="Ubah Nama Instansi"><use href="#hi-edit"/></svg>
 </div>
-<span class="stat-label">Instansi (Klik untuk Ubah)</span>
+{{if .instansi_code}}
+<span class="instansi-code-chip" data-action="instansi-code-copy" data-code="{{.instansi_code}}" role="button" tabindex="0" title="Klik untuk menyalin Kode Instansi" aria-label="Salin kode instansi {{.instansi_code}}">
+  <svg class="icon-svg instansi-code-copy-icon"><use href="#hi-clipboard"/></svg>
+  <span class="instansi-code-prefix">Kode</span>
+  <span class="instansi-code-value">{{.instansi_code}}</span>
+</span>
+{{end}}
 </div>
 </div>
 {{end}}
@@ -341,14 +348,6 @@
 <span class="net-label">Sisa Storage</span>
 <span class="net-value">{{.remaining_storage}}</span>
 </div>
-{{if .instansi_code}}
-<div class="net-item" title="Kode Unik Instansi Anda (Identitas unik sekolah)">
-<span class="net-label">Kode Instansi</span>
-<span class="net-value" style="font-family:var(--font-mono);color:var(--color-success-light);font-weight:700;font-size:12px;cursor:pointer;" data-action="instansi-code-copy" data-code="{{.instansi_code}}" role="button" tabindex="0" title="Klik untuk menyalin Kode Instansi">
-  {{.instansi_code}}
-</span>
-</div>
-{{end}}
 </div>
 <!-- Server Address Box -->
 <div class="server-url-box" title="Informasi pengaturan API aplikasi ujian" style="margin-top:16px;padding:12px;background:rgba(var(--rgb-white),0.05);border-radius:8px;border:1px solid rgba(var(--rgb-white),0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">
@@ -741,7 +740,7 @@
 <!-- 0. Mid-exam gate banner: kunci & bobot soal dibekukan saat ujian berjalan.
      Tanpa banner ini guru mengedit kunci, mendapat toast "berhasil disimpan",
      dan kuncinya diam-diam tidak tersimpan (gate menolaknya di server). -->
-<div id="examRunningBanner" style="display:none;margin-bottom:16px;padding:12px 16px;background:rgba(234,179,8,0.10);border:1px solid rgba(234,179,8,0.45);border-radius:12px;">
+<div id="examRunningBanner" style="display:none;margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-yellow-500),0.10);border:1px solid rgba(var(--rgb-yellow-500),0.45);border-radius:12px;">
 <div style="display:flex;align-items:flex-start;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;color:#eab308;"><use href="#hi-exclamation-triangle"/></svg>
 <div style="font-size:0.85rem;color:var(--color-text);">

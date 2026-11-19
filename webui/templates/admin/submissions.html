@@ -359,30 +359,40 @@
 
 <!-- Detail Submission Modal -->
 <div class="modal-overlay" id="detailModal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
-<div class="modal-card" style="max-width:700px;">
+<div class="modal-card sub-detail-modal">
 <div class="modal-header">
 <h3 id="detailModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-eye"/></svg> Detail Jawaban Siswa</h3>
 <button class="modal-close" data-action="close-detail-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
-<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-<div>
-<strong id="detailStudentName" style="font-size:16px;">—</strong>
-<span id="detailStudentClass" style="color:var(--color-text-muted);margin-left:8px;"></span>
+<div class="sub-detail-hero">
+<div class="sub-detail-avatar" aria-hidden="true"><svg class="icon-svg"><use href="#hi-user"/></svg></div>
+<div class="sub-detail-identity">
+<span class="sub-detail-eyebrow">Identitas Siswa</span>
+<div class="sub-detail-name-row">
+<strong id="detailStudentName">—</strong>
+<span id="detailStudentClass" class="sub-detail-class">—</span>
+</div>
+<p class="sub-detail-exam"><svg class="icon-svg" aria-hidden="true"><use href="#hi-dashboard"/></svg><span>Ujian:</span><strong id="detailExamName">—</strong></p>
 </div>
 </div>
-<p style="margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);">
-<svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;"><use href="#hi-dashboard"/></svg> Ujian: <strong id="detailExamName" style="color:var(--color-text);">—</strong>
-</p>
-<p style="margin-bottom:6px;font-size:12px;color:var(--color-text-secondary);">
-Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTime">—</span>
-</p>
-<p style="margin-bottom:12px;font-size:12px;color:var(--color-text-secondary);">
-<svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;"><use href="#hi-device"/></svg> Perangkat: <code id="detailMacAddress" style="font-size:11px;">—</code>
-</p>
+<div class="sub-detail-meta">
+<div class="sub-detail-meta-item">
+<span class="sub-detail-meta-label">Mulai</span>
+<span id="detailStartTime" class="sub-detail-meta-value">—</span>
+</div>
+<div class="sub-detail-meta-item">
+<span class="sub-detail-meta-label">Kumpul</span>
+<span id="detailSubmitTime" class="sub-detail-meta-value">—</span>
+</div>
+<div class="sub-detail-meta-item sub-detail-meta-device">
+<span class="sub-detail-meta-label">Perangkat</span>
+<code id="detailMacAddress" class="sub-detail-mac">—</code>
+</div>
+</div>
 <div id="detailAnswersContainer"></div>
 </div>
-<div style="padding:12px 24px;border-top:1px solid var(--color-glass-border);display:flex;justify-content:flex-end;">
+<div class="modal-footer">
 <button class="btn-sm btn-toggle" data-action="close-detail-modal">Tutup</button>
 </div>
 </div>
