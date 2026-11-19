@@ -368,7 +368,7 @@ func ListExams(ctx context.Context, pool *pgxpool.Pool, opts ListExamsOpts) (Lis
 	// Fetch page.
 	query := `SELECT ` + DefaultExamColumnsWithAlias + ` FROM exams e
 LEFT JOIN admin_users u ON e.created_by = u.id` + whereClause +
-		` ORDER BY e.created_at DESC LIMIT $` + fmt.Sprintf("%d", argIdx) +
+		` ORDER BY e.created_at DESC, e.id DESC LIMIT $` + fmt.Sprintf("%d", argIdx) +
 		` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
 	args = append(args, perPage, offset)
 
@@ -968,7 +968,7 @@ func ListActiveExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, code str
 	offset := calcOffset(page, perPage)
 
 	rows, err := pool.Query(ctx,
-		`SELECT `+DefaultExamColumnsWithAlias+scope+` ORDER BY e.created_at DESC LIMIT $2 OFFSET $3`,
+		`SELECT `+DefaultExamColumnsWithAlias+scope+` ORDER BY e.created_at DESC, e.id DESC LIMIT $2 OFFSET $3`,
 		code, perPage, offset)
 	if err != nil {
 		return ListExamsResult{}, fmt.Errorf("list active exams by instansi: %w", err)
@@ -1281,7 +1281,7 @@ func ListPengawasExams(ctx context.Context, pool *pgxpool.Pool, opts ListPengawa
 
 	sql := `SELECT ` + DefaultExamColumnsWithAlias + `
 FROM exams e JOIN admin_users u ON e.created_by = u.id` + where +
-		` ORDER BY e.created_at DESC LIMIT $` + fmt.Sprintf("%d", argIdx) +
+		` ORDER BY e.created_at DESC, e.id DESC LIMIT $` + fmt.Sprintf("%d", argIdx) +
 		` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
 	args = append(args, perPage, offset)
 

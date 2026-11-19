@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/database"
+	"github.com/examvan/webui/internal/models"
 )
 
 // ---------------------------------------------------------------------------
@@ -291,3 +292,81 @@ func TestFetchSubmissionHistoryBatchEmptyAndUnknown(t *testing.T) {
 
 // spT returns a pointer to s (test helper; no package-level collision).
 func spT(s string) *string { return &s }
+
+// ---------------------------------------------------------------------------
+// Shared-device scoping (no DB needed): the batch fetchers return everything
+// for a MAC so one page load can serve both occupants, but the handler must
+// only expose the current student's attempts/logs.
+// ---------------------------------------------------------------------------
+
+func TestFilterSubmissionHistoryByExamNumberScopesSharedDevice(t *testing.T) {
+	a := models.Submission{ID: 1, ExamNumber: "01", StudentName: "Siswa Lama"}
+	b := models.Submission{ID: 2, ExamNumber: "02", StudentName: "Siswa Baru"}
+	legacy := models.Submission{ID: 3, ExamNumber: "", StudentName: "Siswa Legacy"}
+	history := []models.Submission{a, b, legacy}
+
+	current := filterSubmissionHistoryByExamNumber(history, "02")
+	if len(current) != 2 || current[0].ID != b.ID || current[1].ID != legacy.ID {
+		t.Fatalf("history for current student = %+v, want new attempt + legacy row", current)
+	}
+	if all := filterSubmissionHistoryByExamNumber(history, ""); len(all) != 3 {
+		t.Errorf("legacy empty exam_number should keep all attempts, got %d", len(all))
+	}
+}
+
+func TestFilterAccessLogsByExamNumberScopesSharedDevice(t *testing.T) {
+	a := accessLogEntry{ExamNumber: "01", Event: "login", StudentName: "Siswa Lama"}
+	b := accessLogEntry{ExamNumber: "02", Event: "heartbeat", StudentName: "Siswa Baru"}
+	legacy := accessLogEntry{ExamNumber: "", Event: "login", StudentName: "Siswa Legacy"}
+	logs := []accessLogEntry{a, b, legacy}
+
+	current := filterAccessLogsByExamNumber(logs, "02")
+	if len(current) != 2 || current[0].StudentName != "Siswa Baru" || current[1].StudentName != "Siswa Legacy" {
+		t.Fatalf("logs for current student = %+v, want new occupant + legacy entry", current)
+	}
+	if all := filterAccessLogsByExamNumber(logs, ""); len(all) != 3 {
+		t.Errorf("legacy empty exam_number should keep all logs, got %d", len(all))
+	}
+}
+
+// A long-running or previously duplicated device must not dump an unbounded
+// timeline into one monitoring response. The batch fetchers keep the newest
+// max* rows per (MAC, exam_number) and the handler filters by student.
+func TestBatchFetchersCapTimelineRows(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	ctx := context.Background()
+
+	mac := "AA:BB:CC:DD:EE:C9"
+	base := time.Date(2026, 8, 4, 9, 0, 0, 0, time.UTC)
+
+	for i := 0; i < maxSubmissionHistoryPerStudent+5; i++ {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, created_at)
+			VALUES ($1, $2, 'Siswa Cap', '01', 'XII A', $3)`,
+			fx.ExamID, mac, base.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("insert submission %d: %v", i, err)
+		}
+	}
+	for i := 0; i < maxAccessLogsPerStudent+5; i++ {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO student_access_logs (exam_id, student_identifier, student_name, exam_number, event, created_at)
+			VALUES ($1, $2, 'Siswa Cap', '01', 'heartbeat', $3)`,
+			fx.ExamID, mac, base.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("insert access log %d: %v", i, err)
+		}
+	}
+
+	history := fetchSubmissionHistoryBatch(ctx, pool, fx.ExamID, []string{mac})[mac]
+	if len(history) != maxSubmissionHistoryPerStudent {
+		t.Fatalf("history rows = %d, want cap %d", len(history), maxSubmissionHistoryPerStudent)
+	}
+	if !history[0].CreatedAt.Equal(base.Add(5 * time.Minute)) {
+		t.Errorf("history starts at %v, want the newest %d (oldest dropped)", history[0].CreatedAt, maxSubmissionHistoryPerStudent)
+	}
+
+	logs := fetchStudentAccessLogsBatch(ctx, pool, fx.ExamID, []string{mac})[mac]
+	if len(logs) != maxAccessLogsPerStudent {
+		t.Fatalf("access log rows = %d, want cap %d", len(logs), maxAccessLogsPerStudent)
+	}
+}

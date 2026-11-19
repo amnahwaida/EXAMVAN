@@ -105,6 +105,8 @@ test('S60 (perilaku): detail — SUB_PAGE=3 lalu callback live-search dipanggil 
         'var detailGeneration = 0;',
         'var subsLastHtml = null;',
         'var subsSnapshot = [];',
+        'var activeTokenSeq = 0;',
+        'var TOKEN_LAST_RESET = \'\';',
     ].join('\n');
     const names = [
         'armDetailWatchdog', 'disarmDetailWatchdog', 'currentDetailUrl',
@@ -184,6 +186,44 @@ test('S60 (perilaku): daftar ujian — PENG_CURRENT_PAGE=3 lalu callback live-se
     assert.match(urls[urls.length - 1], /[?&]page=1(&|$)/,
         'fetch pencarian dari hal >1 harus page=1, dapat: ' + urls[urls.length - 1]);
     assert.equal(sandbox.PENG_CURRENT_PAGE, 1, 'PENG_CURRENT_PAGE ter-reset ke 1');
+});
+
+test('S78 (perilaku): kegagalan fetch basi tidak menimpa daftar yang sudah dirender', async () => {
+    const listEl = { innerHTML: '' };
+    let rejectFirst;
+    let calls = 0;
+    const sandbox = {
+        PENG_CURRENT_PAGE: 1,
+        PENG_SEQ: 0,
+        encodeURIComponent,
+        console,
+        document: {
+            getElementById: (id) => (id === 'pengawasExamList' ? listEl : (id === 'pengawasSearch' ? { value: '' } : null)),
+        },
+        apiFetch: () => {
+            calls++;
+            if (calls === 1) return new Promise((_, reject) => { rejectFirst = reject; });
+            return Promise.resolve({ json: () => Promise.resolve({ success: true, exams: [] }) });
+        },
+        setText() {}, updateStats() {}, renderPagination() {},
+    };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    const fnSrc = extractFunction(PENGAWAS, 'loadPengawasExams');
+    assert.ok(fnSrc, 'loadPengawasExams ada di pengawas.html');
+    vm.runInContext(fnSrc, sandbox, { filename: 's78-pengawas' });
+
+    sandbox.loadPengawasExams(1);
+    await new Promise((r) => setTimeout(r, 0));
+    sandbox.loadPengawasExams(1);
+    await new Promise((r) => setTimeout(r, 0));
+    const good = listEl.innerHTML;
+    assert.ok(/Belum ada ujian/.test(good), 'request baru merender state sukses: ' + good.slice(0, 160));
+
+    rejectFirst(new Error('offline'));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(listEl.innerHTML, good,
+        'catch dari request lama menimpa daftar baru dengan kartu error');
 });
 
 // ===========================================================================

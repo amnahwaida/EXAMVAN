@@ -68,7 +68,7 @@ func setupStopToleranceFixture(t *testing.T, pool *pgxpool.Pool, mode, approvalS
 		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
 		                   security_level, questions_json, created_by, exam_started_at, end_time)
 		VALUES ('Ujian Stop', 'stop.pdf', 1024, $1, $1, $2, 'medium', $3, $4, `+startedClause+`, `+endTimeClause+`)
-		RETURNING id`, token, status, questionsJSON, owner).Scan(&examID); err != nil {
+		RETURNING id`, token, status, questionsJSON, owner.ID).Scan(&examID); err != nil {
 		t.Fatalf("insert exam (%s): %v", mode, err)
 	}
 

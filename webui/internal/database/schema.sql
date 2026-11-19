@@ -453,6 +453,39 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- One-time cleanup for heartbeat-flusher duplicates. The flusher used to
+-- INSERT a new open placeholder on every heartbeat even when the latest row
+-- was still open, so an idle student accumulated one row per minute (and the
+-- monitoring attempt history grew without bound). An open row carries no
+-- answers; only the newest row of an (exam, mac, exam_number) group can be the
+-- live attempt. Delete every older open row, and also any open row older than
+-- a newer submitted attempt (stale ghost after submit). Submitted attempts are
+-- preserved — those are real "izinkan mengulang" history.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM schema_migrations
+                   WHERE name = 'dedupe_open_submission_placeholders') THEN
+        DELETE FROM submissions stale
+        USING submissions newest
+        WHERE stale.exam_id = newest.exam_id
+          AND stale.mac_address = newest.mac_address
+          AND COALESCE(stale.exam_number, '') = COALESCE(newest.exam_number, '')
+          AND (stale.answers_json IS NULL OR stale.answers_json = '')
+          AND stale.id <> newest.id
+          AND newest.id = (
+              SELECT s.id FROM submissions s
+              WHERE s.exam_id = newest.exam_id
+                AND s.mac_address = newest.mac_address
+                AND COALESCE(s.exam_number, '') = COALESCE(newest.exam_number, '')
+              ORDER BY s.created_at DESC, s.id DESC
+              LIMIT 1
+          );
+
+        INSERT INTO schema_migrations (name)
+        VALUES ('dedupe_open_submission_placeholders');
+    END IF;
+END $$;
+
 DO $$
 DECLARE
     any_legacy BOOLEAN;

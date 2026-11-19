@@ -35,7 +35,7 @@
    <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:var(--color-warning-light);"><use href="#hi-users"/></svg></div>
    <div class="stat-info">
     <span class="stat-value" id="statTotalStudents">0</span>
-    <span class="stat-label">Total Siswa</span>
+    <span class="stat-label">Total Perangkat</span>
    </div>
   </div>
   <div class="stat-card stat-submitted">
@@ -231,9 +231,18 @@ function loadPengawasExams(page) {
                     ? (formatDateTimeID(ex.start_time) + ' - ' + formatDateTimeID(ex.end_time))
                     : '—';
 
-                var startedBadge = ex.exam_started_at
-                    ? '<span style="font-size:0.65rem;color:rgba(var(--rgb-success),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-success),0.1);border:1px solid rgba(var(--rgb-success),0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>'
-                    : '<span style="font-size:0.65rem;color:rgba(var(--rgb-warning),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-warning),0.1);border:1px solid rgba(var(--rgb-warning),0.2);">Belum Mulai Pengawasan</span>';
+                // Jangan pernah menulis "Sedang Diawasi" di samping badge
+                // "Nonaktif": exam_started_at tetap tersimpan saat pengawasan
+                // dihentikan (agar reaktivasi melanjutkan sesi), jadi liveness
+                // harus membaca status aktif juga.
+                var startedBadge;
+                if (ex.exam_started_at && ex.status === 'active') {
+                    startedBadge = '<span style="font-size:0.65rem;color:rgba(var(--rgb-success),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-success),0.1);border:1px solid rgba(var(--rgb-success),0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>';
+                } else if (ex.exam_started_at) {
+                    startedBadge = '<span style="font-size:0.65rem;color:rgba(var(--rgb-warning),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-warning),0.1);border:1px solid rgba(var(--rgb-warning),0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-x"/></svg> Pengawasan Dihentikan</span>';
+                } else {
+                    startedBadge = '<span style="font-size:0.65rem;color:rgba(var(--rgb-warning),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-warning),0.1);border:1px solid rgba(var(--rgb-warning),0.2);">Belum Mulai Pengawasan</span>';
+                }
                 var modeBadge = ex.token_mode === 'static'
                     ? '<span style="font-size:0.7rem;color:rgb(var(--rgb-blue-400));font-weight:600;background:rgba(var(--rgb-blue-400),0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(var(--rgb-blue-400),0.2);">Statis</span>'
                     : '<span style="font-size:0.7rem;color:var(--color-accent-light);font-weight:600;background:rgba(var(--rgb-accent),0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(var(--rgb-accent),0.2);">Dinamis</span>';
@@ -273,6 +282,10 @@ function loadPengawasExams(page) {
             renderPagination(res);
         })
         .catch(function() {
+            // A failure from a superseded request (fast typing / pagination)
+            // must not replace the page that the newer request already
+            // rendered with an error card.
+            if (seq !== PENG_SEQ) return;
             el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal menghubungi server' +
                 ' <div style="margin-top:12px;"><button type="button" class="btn-sm btn-primary" data-action="load-pengawas-exams">Coba Lagi</button></div></div>';
         });

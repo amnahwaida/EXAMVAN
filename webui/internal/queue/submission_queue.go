@@ -583,6 +583,12 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 			succeeded[i].job.ExamID, succeeded[i].job.MACAddress); err != nil {
 			log.Printf("queue batch: revoke approval for job %s: %v", succeeded[i].job.JobID, err)
 		}
+		if w.rdb != nil {
+			key := fmt.Sprintf("heartbeat:%d:%s", succeeded[i].job.ExamID, succeeded[i].job.MACAddress)
+			if err := w.rdb.Del(ctx, key).Err(); err != nil {
+				log.Printf("queue batch: clear presence for job %s: %v", succeeded[i].job.JobID, err)
+			}
+		}
 	}
 	for _, r := range failed {
 		if errors.Is(r.Error, errExamWindowClosed) {
@@ -659,7 +665,7 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 			SELECT id FROM submissions
 			WHERE exam_id = $8 AND mac_address = $9
 			  AND ($10 = '' OR exam_number = $10)
-			ORDER BY created_at DESC LIMIT 1
+			ORDER BY created_at DESC, id DESC LIMIT 1
 		)
 		RETURNING id
 	`, answersPtr, score, job.StartTime, job.StudentName, job.ExamNumber, job.StudentClass, identityPtr, job.ExamID, job.MACAddress, job.ExamNumber).Scan(&submissionID)

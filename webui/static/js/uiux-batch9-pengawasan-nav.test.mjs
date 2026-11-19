@@ -271,6 +271,7 @@ test('R31/vm: setApproval sukses → toast menyebut nama siswa ("Perangkat {nama
     // Cache antrean + flag .finally + helper + setApproval berbagi SATU context.
     vm.runInContext(`
         var approvalRerunPending = false;
+        var approvalActionsInFlight = 0;
         var approvalRowsCache = [
             { mac_address: 'AA:BB:CC:DD:01', student_name: 'Budi' },
             { mac_address: 'AA:BB:CC:DD:02', student_name: '' }

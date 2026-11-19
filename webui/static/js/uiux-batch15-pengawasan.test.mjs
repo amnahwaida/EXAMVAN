@@ -174,25 +174,32 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
         set(v) { writes++; this._v = String(v); },
         get() { return this._v; },
     });
-    const restoredBtn = {
-        attrs: { 'data-action': 'show-access-log', 'data-submission-id': '42' },
+    const mkBtn = (attrs) => ({
+        attrs,
         focused: false,
         focus() { this.focused = true; },
-        // restoreSubsFocus versi ronde 9 MEMBACA atribut via getAttribute
-        // (perbandingan string, bukan selector) — stub wajib menyediakannya.
+        // restoreSubsFocus MEMBACA atribut via getAttribute (perbandingan
+        // string, bukan selector) — stub wajib menyediakannya.
         getAttribute(n) { return this.attrs[n] !== undefined ? this.attrs[n] : null; },
-    };
-    const activeBtn = {
-        attrs: { 'data-action': 'show-access-log', 'data-submission-id': '42' },
-        parentNode: null,
-        getAttribute(n) { return this.attrs[n] !== undefined ? this.attrs[n] : null; },
+    });
+    const restoredBtn = mkBtn(opts.restoredAttrs || {
+        'data-action': 'show-access-log', 'data-submission-id': '42',
+    });
+    const activeBtn = Object.assign(mkBtn(opts.activeAttrs || {
+        'data-action': 'show-access-log', 'data-submission-id': '42',
+    }), { parentNode: null });
+    const rowButtons = (opts.distractors || []).concat([restoredBtn]);
+    const row = {
+        getAttribute(n) { return n === 'data-mac' ? 'AA:BB' : null; },
+        querySelector: () => rowButtons[0],
+        querySelectorAll: () => rowButtons,
     };
     tbody.contains = (el) => el === activeBtn || el === restoredBtn;
     tbody.querySelector = () => restoredBtn;
-    // restoreSubsFocus versi ronde 9 menelusuri baris via querySelectorAll
-    // (bukan merakit CSS selector dari data-mac) — stub baris berisi tombol
-    // padanan agar jalur PEMULIHAN fokus yang diuji, bukan jalur baris-hilang.
-    tbody.querySelectorAll = () => [{ querySelector: () => restoredBtn }];
+    // restoreSubsFocus menelusuri baris via querySelectorAll — stub baris
+    // berisi SEMUA tombol agar jalur pemulihan aksi non-pertama benar-benar
+    // diuji, bukan jalur baris-hilang.
+    tbody.querySelectorAll = () => [row];
     tbody.focus = () => {};
 
     const sandbox = {
@@ -213,6 +220,7 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
         apiFetch: () => Promise.resolve({ json: () => Promise.resolve(payloadFactory()) }),
         showToast() {},
         markUpdated() {},
+        updateTokenDisplay(token) { this.__tokenDisplayed = token; },
         localizeUTC: () => '2026-08-25 09:00',
         escapeHtml: (s) => String(s == null ? '' : s),
         esc: (s) => String(s == null ? '' : s),
@@ -243,11 +251,13 @@ function buildLoadDetailSandbox(payloadFactory, opts = {}) {
         var examLive = true;
         var examEnded = false;
         var repeatGrantedKeys = {};
+        var activeTokenSeq = 0;
+        var TOKEN_LAST_RESET = '';
     `;
     const names = [
         'getSubsFocusKey', 'restoreSubsFocus', 'renderSubPagination',
         'armDetailWatchdog', 'disarmDetailWatchdog', 'currentDetailUrl',
-        'renderActiveFilterChip', 'applyExamLivenessToControls',
+        'presenceHtml', 'renderActiveFilterChip', 'applyExamLivenessToControls',
         'syncTokenFromPayload', 'loadDetail',
     ];
     const parts = names.map((n) => {
@@ -296,6 +306,90 @@ test('S94 (vm): payload BERUBAH → render ulang dan fokus DIPULIHAKAN', async (
     assert.ok(sb.__writes() >= 2, 'payload berubah wajib render ulang');
     assert.ok(sb.__restoredBtn.focused,
         'elemen padanan (data-action + data-submission-id stabil) difokuskan kembali setelah render');
+});
+
+test('S94b (vm): fokus aksi NON-PERTAMA dalam baris ikut dipulihkan', async () => {
+    // Satu baris berisi tombol MAC, Detail, lalu Tolak. Pemeriksaan lama hanya
+    // melihat [data-action] PERTAMA sehingga fokus tombol aksi kedua hilang
+    // setelah tbody dirender ulang.
+    let useB = false;
+    const attrs = { 'data-action': 'set-approval', 'data-mac': 'AA:BB' };
+    const sb = buildLoadDetailSandbox(
+        () => (useB ? SUBS_PAYLOAD_B() : SUBS_PAYLOAD_A()),
+        {
+            focusActive: true,
+            activeAttrs: attrs,
+            restoredAttrs: attrs,
+            distractors: [{
+                getAttribute(n) { return n === 'data-action' ? 'show-access-log' : null; },
+                focus() {},
+            }],
+        }
+    );
+    await sb.loadDetail(1, true);
+    await new Promise((r) => setTimeout(r, 0));
+    useB = true;
+    await sb.loadDetail(1, true);
+    await new Promise((r) => setTimeout(r, 0));
+
+    assert.ok(sb.__restoredBtn.focused,
+        'tombol set-approval (aksi kedua) harus mendapat fokus kembali');
+});
+
+test('S94c (vm): respons loadDetail yang basi tidak menimpa token baru', async () => {
+    let release = null;
+    const sb = buildLoadDetailSandbox(() => ({}));
+    sb.apiFetch = () => new Promise((resolve) => { release = resolve; });
+
+    vm.runInContext('loadDetail(1, true)', sb);
+    await new Promise((r) => setImmediate(r));
+
+    // Supervisor menekan Generate selagi request tabel masih in-flight.
+    vm.runInContext('activeTokenSeq++', sb);
+    release({
+        json: () => Promise.resolve({
+            success: true, page: 1, total: 0, total_pages: 0,
+            submissions: [], stats: { total: 0, active: 0, submitted: 0, not_started: 0 },
+            exam_active: false,
+            exam_active_token: 'TOKEN-LAMA',
+            exam_token_last_reset_at: '2026-08-25T03:00:00Z',
+        }),
+    });
+    for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r));
+
+    assert.equal(sb.__tokenDisplayed, undefined,
+        'token dari payload lama tidak boleh ditulis setelah regenerate');
+    assert.equal(vm.runInContext('TOKEN_LAST_RESET', sb), '',
+        'jam rotasi lama juga tidak boleh menimpa token baru');
+    assert.equal(vm.runInContext('examLive', sb), false,
+        'liveness non-token tetap harus mengikuti payload terbaru');
+});
+
+test('refresh-access-log-modal meminta payload baru, bukan render snapshot basi', () => {
+    // Blok aksi ini tidak memuat template action, jadi DETAIL mentah aman dipakai.
+    const js = DETAIL;
+    const at = js.indexOf("Actions.register('refresh-access-log-modal'");
+    assert.ok(at > 0, 'aksi refresh-access-log-modal harus terdaftar');
+    const block = js.slice(at, at + 500);
+    assert.match(block, /loadDetail\(undefined,\s*true\)/,
+        'tombol segarkan harus memicu loadDetail senyap: ' + block.slice(0, 260));
+    assert.doesNotMatch(block, /poll 12 detik/,
+        'komentar lama menyatakan poll yang sudah tidak ada');
+});
+
+test('badge liveness tidak bertentangan dengan status nonaktif', () => {
+    // exam_started_at sengaja dipertahankan saat pengawasan dihentikan agar
+    // reaktivasi melanjutkan sesi. Badge harus membaca status aktif juga,
+    // kalau tidak kartu menampilkan "Sedang Diawasi" tepat di samping
+    // "Nonaktif".
+    assert.match(PENGAWAS, /ex\.exam_started_at && ex\.status === 'active'/,
+        'daftar: badge live harus mensyaratkan status aktif');
+    assert.match(PENGAWAS, /Pengawasan Dihentikan/,
+        'daftar: status berhenti punya label sendiri');
+    assert.match(DETAIL, /\{\{if eq \.exam\.Status "active"\}\}/,
+        'detail: badge live harus mensyaratkan status aktif');
+    assert.match(DETAIL, /Pengawasan Dihentikan/,
+        'detail: status berhenti tidak boleh tampil sebagai Sedang Diawasi');
 });
 
 // ===========================================================================

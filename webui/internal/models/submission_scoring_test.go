@@ -111,7 +111,7 @@ func TestRecalculateSkipsPlaceholders(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO submissions (exam_id, student_name, exam_number, student_class,
 		                         mac_address, identity_data)
-		VALUES ($1, 'Siswa B', 'RB1', 'XII-A', 'DEVICE:rb')`, examID); err != nil {
+		VALUES ($1, 'Siswa B', 'RB1', 'XII-A', 'DEVICE:rb', NULL)`, examID); err != nil {
 		t.Fatalf("insert placeholder row: %v", err)
 	}
 

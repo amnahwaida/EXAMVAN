@@ -345,6 +345,18 @@ func setStudentHeartbeat(rdb *redis.Client, examID int, macAddress string, data 
 	}
 }
 
+func clearStudentHeartbeat(rdb *redis.Client, examID int, macAddress string) {
+	if rdb == nil {
+		return
+	}
+	key := fmt.Sprintf("%s%d:%s", heartbeatKeyPrefix, examID, macAddress)
+	delCtx, delCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer delCancel()
+	if err := rdb.Del(delCtx, key).Err(); err != nil {
+		log.Printf("heartbeat redis delete error: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 1. GET /api/exams — List active exams (with optional Redis cache)
 // ---------------------------------------------------------------------------
@@ -1246,19 +1258,22 @@ func SubmitExam() gin.HandlerFunc {
 				"mac_address":   macAddress,
 			}
 
+			// Write presence BEFORE enqueue: a fast worker may commit the job
+			// and clear presence before the handler gets a chance to set it,
+			// leaving a ghost "online" row until TTL.
+			setStudentHeartbeat(rdb, examID, macAddress, map[string]interface{}{
+				"student_name":  studentName,
+				"exam_number":   examNumber,
+				"student_class": studentClass,
+				"event":         "login",
+				"last_seen":     time.Now().UTC().Format(time.RFC3339),
+			})
+
 			jobID, err := enqueueSubmission(rdb, job)
 			if err != nil {
 				log.Printf("async submit enqueue failed, falling back to sync: %v", err)
 				// Fall through to sync path.
 			} else {
-				// Log heartbeat (best effort).
-				setStudentHeartbeat(rdb, examID, macAddress, map[string]interface{}{
-					"student_name":  studentName,
-					"exam_number":   examNumber,
-					"student_class": studentClass,
-					"event":         "login",
-					"last_seen":     time.Now().UTC().Format(time.RFC3339),
-				})
 				// NOTE: the device's approval row is deliberately NOT revoked
 				// here. Revocation now happens in the queue worker, AFTER the
 				// submission batch commits to PostgreSQL (see
@@ -1301,6 +1316,7 @@ func SubmitExam() gin.HandlerFunc {
 		}
 		// Cabut izin agar sesi berikutnya butuh persetujuan lagi
 		_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
+		clearStudentHeartbeat(rdb, examID, macAddress)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success":          true,
@@ -1893,6 +1909,14 @@ func AccessLog() gin.HandlerFunc {
 			}
 		}
 
+		// Logout must clear presence immediately. Previously only /complete
+		// deleted the key, so a student who logged out (without submitting)
+		// kept reading "Daring" until the 5-minute TTL expired — the supervisor
+		// saw a device as active after its owner had left.
+		if event == "logout" {
+			clearStudentHeartbeat(rdb, examID, macAddress)
+		}
+
 		// --- Write heartbeat to Redis (login / heartbeat only) ---
 		if event == "login" || event == "heartbeat" {
 			heartbeatData := map[string]interface{}{
@@ -2012,10 +2036,7 @@ func CompleteExam() gin.HandlerFunc {
 		// heartbeat; blocking it there would strand the offline indicator.
 
 		// Delete heartbeat from Redis so student shows offline immediately
-		if rdb != nil {
-			key := fmt.Sprintf("heartbeat:%d:%s", examID, macAddress)
-			_ = rdb.Del(ctx, key).Err()
-		}
+		clearStudentHeartbeat(rdb, examID, macAddress)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

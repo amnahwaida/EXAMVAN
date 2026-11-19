@@ -25,9 +25,15 @@
     <span>Kembali</span>
    </a>
    {{if .exam.ExamStartedAt}}
+    {{if eq .exam.Status "active"}}
    <span class="pd-status-pill pd-status-live">
     <span class="pd-pulse"></span> Sedang Diawasi
    </span>
+    {{else}}
+   <span class="pd-status-pill pd-status-idle">
+    <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-stop"/></svg> Pengawasan Dihentikan
+   </span>
+    {{end}}
    {{else}}
    <span class="pd-status-pill pd-status-idle">
     <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-key"/></svg> Belum Dimulai
@@ -1223,6 +1229,10 @@ var approvalLastSerialized = null;
 var approvalRowsLive = false;
 var approvalRowsCache = [];
 var approvalActionBusy = false;
+// Hitungan, bukan boolean: supervisor bisa mengonfirmasi dua perangkat
+// berurutan sebelum request pertama selesai. Boolean akan dibuka oleh
+// finally pertama padahal aksi kedua masih in-flight.
+var approvalActionsInFlight = 0;
 // Batch 12 (R75): de-dup toast gagal antrean izin — poll tiap 5 detik tidak
 // boleh men-spam toast yang sama. Pola once seperti notifyAuthExpired: flag
 // di-set saat toast error dikirim, dan di-reset saat poll kembali sukses
@@ -1282,13 +1292,12 @@ function loadApprovals() {
             }
             // T8: guard skip-if-same dievaluasi SEBELUM penulisan DOM apa pun
             // pada jalur sukses — bila payload identik dengan render sukses
-            // terakhir, jangan sentuh tbody sama sekali (cukup perbarui stempel).
+            // terakhir, jangan sentuh tbody sama sekali.
             // Aman dipanggil walau res gagal: serializeApprovals menerima
             // null/undefined, dan snapshot tak pernah live saat tbody berisi
             // notice (selalu divalidasi oleh renderApprovalNotice).
             var serialized = PengawasDetailQueue.serializeApprovals(res ? res.data : null);
             if (approvalRowsLive && approvalLastSerialized === serialized) {
-                markUpdated();
                 return;
             }
             if (!res || !res.success) {
@@ -1341,7 +1350,6 @@ function loadApprovals() {
             approvalLastSerialized = serialized;
             approvalRowsLive = true;
             approvalRowsCache = res.data;
-            markUpdated();
         })
         .catch(function(err) {
             console.error('Fetch approvals error:', err);
@@ -1476,6 +1484,7 @@ function setApproval(macAddress, status, skipConfirm) {
     // apiFetch menyuntik X-CSRF-Token otomatis untuk method POST.
     // T8: selama aksi berjangan, polling antrean ditunda (approvalRerunPending)
     // agar baris/tombol yang sedang berinteraksi tidak diganti di tengah tap.
+    approvalActionsInFlight++;
     approvalActionBusy = true;
     apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
         method: 'POST',
@@ -1511,6 +1520,9 @@ function setApproval(macAddress, status, skipConfirm) {
     .finally(function() {
         // T8: state aksi selalu dibersihkan — termasuk saat network error —
         // lalu jalankan render antrean yang tertunda selama aksi in-flight.
+        approvalActionsInFlight--;
+        if (approvalActionsInFlight > 0) return;
+        approvalActionsInFlight = 0;
         approvalActionBusy = false;
         if (approvalRerunPending) {
             approvalRerunPending = false;
@@ -1519,15 +1531,17 @@ function setApproval(macAddress, status, skipConfirm) {
     });
 }
 
-// Small "data is live" cue: stamp the time of the last successful refresh so
-// a stale screen is distinguishable from a live one.
+// Small "device table freshness" cue. Only loadDetail() calls this: the 5s
+// approval-queue poll must not stamp the device table as freshly reloaded when
+// its rows actually came from the last manual load.
 function markUpdated() {
     var el = document.getElementById('lastUpdatedLabel');
     if (!el) return;
     // Batch 12 (S69): stempel kesegaran data. Format HH:MM:SS dipertahankan
-    // (detik bermakna untuk polling 5-12 dtk; formatDateTimeID tak punya
-    // detik) — catatan: memakai jam perangkat sampai server menyertakan
-    // timestamp respons; selisih jam perangkat konsisten di seluruh kolom.
+    // (formatDateTimeID tak punya detik) agar dua muat ulang manual yang
+    // berdekatan tetap bisa dibedakan — catatan: memakai jam perangkat sampai
+    // server menyertakan timestamp respons; selisih jam perangkat konsisten di
+    // seluruh kolom.
     var d = new Date();
     var pad = function(n) { return (n < 10 ? '0' : '') + n; };
     el.textContent = 'Diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
@@ -1558,9 +1572,9 @@ var detailRerunPending = false;
 // Watchdog anti-jam. Satu request yang tidak pernah selesai (koneksi putus,
 // server jenuh, Redis lambat) pernah MENJELEK tabel permanen di "Memuat
 // data...": detailLoading tetap true, sehingga setiap klik filter, tombol
-// Muat Ulang, bahkan poll 12 detik hanya menyetel detailRerunPending lalu
-// return — tidak ada yang pernah merender lagi. Satu-satunya jalan keluar
-// adalah reload penuh halaman.
+// Muat Ulang, bahkan tombol segarkan modal hanya menyetel detailRerunPending
+// lalu return — tidak ada yang pernah merender lagi. Satu-satunya jalan
+// keluar adalah reload penuh halaman.
 //
 // Sekarang guard-nya dilepas setelah batas waktu, dan baris yang macet
 // diganti dengan pesan jujur plus tombol coba-lagi. Penting setelah auto-poll
@@ -1623,9 +1637,15 @@ function getSubsFocusKey() {
     var el = ae;
     while (el && el !== tbody && !el.getAttribute('data-action')) el = el.parentNode;
     if (!el || el === tbody) return null;
+    // Tombol "Izinkan Mengulang" tidak membawa data-mac (identitasnya ada di
+    // baris), jadi ambil MAC dari <tr> sebagai fallback. Tanpa ini semua
+    // tombol ulang memiliki kunci yang sama dan fokus bisa melompat ke baris
+    // pertama setelah render.
+    var row = el.closest ? el.closest('tr') : null;
+    var rowMac = row && row.getAttribute ? (row.getAttribute('data-mac') || '') : '';
     return {
         action: el.getAttribute('data-action'),
-        mac: el.getAttribute('data-mac') || '',
+        mac: el.getAttribute('data-mac') || rowMac,
         sid: el.getAttribute('data-submission-id') || ''
     };
 }
@@ -1643,16 +1663,23 @@ function restoreSubsFocus(key) {
     var sel = null;
     try {
         var rows = tbody.querySelectorAll('tr');
-        for (var i = 0; i < rows.length; i++) {
+        for (var i = 0; i < rows.length && !sel; i++) {
             var row = rows[i];
-            if (!row.querySelector) continue;
-            var btn = row.querySelector('[data-action]');
-            if (!btn) continue;
-            if (btn.getAttribute('data-action') !== key.action) continue;
-            if (key.mac && btn.getAttribute('data-mac') !== key.mac) continue;
-            if (key.sid && btn.getAttribute('data-submission-id') !== String(key.sid)) continue;
-            sel = btn;
-            break;
+            if (!row || !row.querySelectorAll) continue;
+            var rowMac = row.getAttribute ? (row.getAttribute('data-mac') || '') : '';
+            // Satu baris punya beberapa tombol (MAC, Detail, Tolak/Izinkan
+            // Mengulang). Memeriksa hanya [data-action] pertama membuat fokus
+            // aksi kedua hilang; periksa SEMUA kandidat di baris ini.
+            var btns = row.querySelectorAll('[data-action]');
+            for (var j = 0; j < btns.length; j++) {
+                var btn = btns[j];
+                if (!btn || btn.getAttribute('data-action') !== key.action) continue;
+                var btnMac = btn.getAttribute('data-mac') || rowMac;
+                if (key.mac && btnMac !== key.mac) continue;
+                if (key.sid && btn.getAttribute('data-submission-id') !== String(key.sid)) continue;
+                sel = btn;
+                break;
+            }
         }
     } catch (e) {
         return; // jangan ganggu tabel
@@ -1683,6 +1710,64 @@ function currentDetailUrl() {
     var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=' + ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20);
     if (search) url += '&search=' + encodeURIComponent(search);
     return url;
+}
+
+function presenceHtml(online) {
+    return online
+        ? '<span class="pd-status-dot pd-status-dot-on" role="img" aria-label="Perangkat daring"></span><span style="color:var(--color-success-light);font-size:0.75rem;">Daring</span>'
+        : '<span class="pd-status-dot pd-status-dot-off" role="img" aria-label="perangkat luring"></span><span style="color:var(--color-text-muted);font-size:0.75rem;">Luring</span>';
+}
+
+// Presence-only refresh. The submissions endpoint (six queries + Redis) is too
+// heavy to poll, but heartbeat liveness is the one thing that changes every
+// minute. This endpoint is one DISTINCT query + one Redis pipeline; rows are
+// patched in place, so focus, scroll, and the loaded table survive.
+var presenceLoading = false;
+var presenceStartedAt = 0;
+var presenceGeneration = 0;
+function refreshPresence() {
+    if (document.hidden) return;
+    // A hung presence request must not disable the column forever: after the
+    // same 20s watchdog window, let the next tick start a fresh request.
+    if (presenceLoading && Date.now() - presenceStartedAt < 20000) return;
+    presenceLoading = true;
+    presenceStartedAt = Date.now();
+    var myGeneration = ++presenceGeneration;
+    apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/presence', { headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            // A slow older request must not repaint over a newer one (the
+            // 20s watchdog deliberately allows overlap on a hung link).
+            if (myGeneration !== presenceGeneration) return;
+            if (!res || !res.success || !res.presence) return;
+            var rows = document.querySelectorAll('#submissionBody tr[data-mac]');
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var mac = row.getAttribute('data-mac');
+                var p = res.presence[mac];
+                if (!p) continue;
+                var cell = row.querySelector('[data-presence]');
+                if (cell) cell.innerHTML = presenceHtml(!!p.online);
+                if (p.last_seen) {
+                    var seen = row.querySelector('[data-last-seen]');
+                    if (seen) seen.textContent = localizeUTC(p.last_seen);
+                }
+                for (var j = 0; j < subsSnapshot.length; j++) {
+                    if (subsSnapshot[j].mac_address === mac) {
+                        subsSnapshot[j].is_online = !!p.online;
+                        if (p.last_seen) subsSnapshot[j].last_access_at = p.last_seen;
+                        break;
+                    }
+                }
+            }
+        })
+        .catch(function() {
+            // Presence is best-effort: keep the last known state rather than
+            // flapping every row to offline on one failed poll.
+        })
+        .finally(function() {
+            if (myGeneration === presenceGeneration) presenceLoading = false;
+        });
 }
 
 function loadDetail(page, silent) {
@@ -1723,6 +1808,10 @@ function loadDetail(page, silent) {
     // (the signature check above guarantees it).
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var myUrl = currentDetailUrl();
+    // Token punya jalur tulis sendiri (poll Due + Generate manual). Simpan
+    // urutan saat request berangkat; bila sudah berubah saat respons tiba,
+    // payload ini membawa nilai lama yang tidak boleh menimpa token baru.
+    var tokenSeqAtRequest = activeTokenSeq;
 
     apiFetch(myUrl, { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
@@ -1739,10 +1828,11 @@ function loadDetail(page, silent) {
             // currentDetailUrl): the rerun for the current state is queued.
             if (typeof myUrl === 'string' && myUrl !== currentDetailUrl()) return;
             if (!res || !res.success) {
-                // Auto-refresh senyap (12 dtk) TIDAK boleh menghapus isi tabel
-                // yang masih known-good: supervisor kehilangan konteks (siapa
-                // yang sedang mengerjakan) hanya karena satu request gagal.
-                // Aksi user yang eksplisit tetap mengganti tabel + toast.
+                // Muat ulang senyap (mis. tombol segarkan modal) TIDAK boleh
+                // menghapus isi tabel yang masih known-good: supervisor
+                // kehilangan konteks (siapa yang sedang mengerjakan) hanya
+                // karena satu request gagal. Aksi user yang eksplisit tetap
+                // mengganti tabel + toast.
                 var reason = (res && res.message) || 'Gagal memuat data pengawasan';
                 if (!silent) {
                     showToast(reason, 'error');
@@ -1764,13 +1854,17 @@ function loadDetail(page, silent) {
             // menyusut). Ikuti nilai yang benar-benar dilayani agar nomor baris
             // dan footer tidak berbeda pendapat (BUG-8).
             if (typeof res.page === 'number' && res.page > 0) SUB_PAGE = res.page;
-            syncTokenFromPayload(res);
+            syncTokenFromPayload(res, tokenSeqAtRequest);
             if (res.stats) {
                 document.getElementById('statTotal').textContent = res.stats.total;
                 document.getElementById('statActive').textContent = res.stats.active;
                 document.getElementById('statSubmitted').textContent = res.stats.submitted;
                 document.getElementById('statNotStarted').textContent = res.stats.not_started;
             }
+
+            // Modal riwayat harus ikut muat ulang ini, termasuk saat tabel
+            // menjadi kosong (baris yang sedang dilihat bisa saja hilang).
+            if (openAccessLogId !== null) renderAccessLogModal();
 
             if (subs.length === 0) {
                 var msg = search
@@ -1818,9 +1912,7 @@ function loadDetail(page, silent) {
                 // Presence diturunkan dari heartbeat (is_online) yang dikirim server —
                 // tanpa kolom ini, seluruh infrastruktur heartbeat tidak terlihat
                 // sama sekali di halaman yang justru dibuat untuk memantaunya.
-                var presence = s.is_online
-                    ? '<span class="pd-status-dot pd-status-dot-on" role="img" aria-label="Perangkat daring"></span><span style="color:var(--color-success-light);font-size:0.75rem;">Daring</span>'
-                    : '<span class="pd-status-dot pd-status-dot-off" role="img" aria-label="perangkat luring"></span><span style="color:var(--color-text-muted);font-size:0.75rem;">Luring</span>';
+                var presence = presenceHtml(s.is_online);
                 var lastSeen = s.last_access_at ? localizeUTC(s.last_access_at) : '—';
                 // Nama siswa selalu ditampilkan: kolom pencarian menawarkan
                 // "Cari nama", tapi baris hanya menunjukkan MAC — supervisor
@@ -1846,14 +1938,14 @@ function loadDetail(page, silent) {
                     studentCell = '<span style="color:var(--color-text-muted);">—</span>';
                 }
 
-                html += '<tr>' +
+                html += '<tr data-mac="' + escapeHtml(s.mac_address) + '">' +
                     '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20) + i + 1) + '</td>' +
                     '<td data-label="Siswa" style="font-weight:600;">' + studentCell + '</td>' +
                     '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
                     '<td data-label="Status"><span class="status-badge-sm ' + toneCls + '">' + sl + '</span></td>' +
-                    '<td data-label="Presence" style="white-space:nowrap;">' + presence + '</td>' +
+                    '<td data-label="Presence" data-presence="1" style="white-space:nowrap;">' + presence + '</td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
-                    '<td data-label="Terakhir Seen" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + lastSeen + '</td>' +
+                    '<td data-label="Terakhir Seen" data-last-seen="1" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + lastSeen + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
                         '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
@@ -1862,12 +1954,6 @@ function loadDetail(page, silent) {
                     '</tr>';
             }
             renderActiveFilterChip();
-
-            // Modal akses yang terbuka mengikuti poll yang sama: access_logs
-            // tidak ikut di HTML baris, jadi render baris bisa di-skip sementara
-            // snapshot sudah terbaru — modal harus tetap disegarkan dari
-            // snapshot itu.
-            if (openAccessLogId !== null) renderAccessLogModal();
 
             if (subsLastHtml !== null && subsLastHtml === html) {
                 renderSubPagination(res);
@@ -1882,6 +1968,11 @@ function loadDetail(page, silent) {
             // Same generations rule: a stale failure must not wipe rows that a
             // newer request already rendered (or is about to render).
             if (myGeneration !== detailGeneration) return;
+            if (typeof myUrl === 'string' && myUrl !== currentDetailUrl()) return;
+            // A silent refresh is best-effort, exactly like the !res.success
+            // branch above: one network blip must not replace known-good rows
+            // with a bare error. Only an explicit reload may do that.
+            if (silent) return;
             subsLastHtml = null;
             tbody.innerHTML = '<tr><td colspan="9" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal menghubungi server</td></tr>';
         })
@@ -1963,9 +2054,9 @@ function renderSubPagination(res) {
     }
     html += '</div></div>';
 
-    // S110 (Batch 17): fingerprint HTML paginasi — bila identik dengan tick
-    // sebelumnya, lewati penulisan DOM agar fokus keyboard di tombol halaman
-    // tidak lenyap tiap tick senyap 12 dtk (selaras tujuan S94).
+    // S110 (Batch 17): fingerprint HTML paginasi — bila identik dengan muat
+    // ulang sebelumnya, lewati penulisan DOM agar fokus keyboard di tombol
+    // halaman tidak lenyap (selaras tujuan S94).
     if (pagEl.__lastHtml === html) {
         // S110: payload identik - DOM paginasi dibiarkan stabil.
         return;
@@ -1985,13 +2076,12 @@ function renderSubPagination(res) {
 // place the heartbeat timeline is visible (the device table shows just the
 // aggregate presence dot), and that timeline gains an entry roughly every
 // minute per device — so a modal that renders once and freezes leaves the
-// supervisor staring at a stale snapshot while the table behind it live-
-// reloads every 12s.
+// supervisor staring at a stale snapshot.
 //
-// The modal therefore re-renders itself from the freshest snapshot whenever the
-// table poll lands, and offers a manual refresh. It reuses the snapshot rather
-// than issuing its own request: the submissions payload already carries
-// access_logs, so an extra endpoint per open would be pure duplicate load.
+// The table itself is no longer auto-polled. The modal therefore re-renders
+// from the freshest snapshot whenever a table load lands, and its refresh
+// button explicitly asks loadDetail for a new payload (which already carries
+// access_logs, so no duplicate endpoint is needed).
 var openAccessLogId = null;
 
 function showAccessLog(subId) {
@@ -2003,7 +2093,7 @@ function showAccessLog(subId) {
 }
 
 // renderAccessLogModal draws the currently-open device from subsSnapshot.
-// Split out of showAccessLog so the table poll can refresh an open modal.
+// Split out of showAccessLog so a table reload/refresh can update an open modal.
 function renderAccessLogModal() {
     var modal = document.getElementById('accessLogModal');
     var body = document.getElementById('accessLogBody');
@@ -2374,10 +2464,11 @@ function closeConfirmApprovalModal(event) {
     loadDetail(1);
   });
   Actions.register('refresh-access-log-modal', function() {
-    // Segarkan dari snapshot terbaru. Kalau snapshot belum pernah terisi
-    // (mis. modal dibuka sebelum poll pertama selesai), poll 12 detik
-    // berikutnya akan mengisinya sendiri.
-    renderAccessLogModal();
+    // Tabel perangkat tidak lagi di-poll, jadi me-render snapshot lama bukan
+    // "segarkan". Ambil ulang payload (termasuk access_logs) secara senyap;
+    // responsnya akan me-render ulang modal ini lewat loadDetail.
+    if (typeof loadDetail === 'function') loadDetail(undefined, true);
+    else renderAccessLogModal();
   });
   Actions.register('show-access-log', function(el) {
     var id = parseInt(el.getAttribute('data-submission-id'), 10);
@@ -2441,13 +2532,12 @@ function updateTokenDisplay(newToken) {
     setTimeout(function() { el.classList.remove('pd-token-flash'); }, 2000);
 }
 
-// Guard anti-tumpang-tindih: refreshActiveToken dipanggil tiap 30s DAN tiap
-// detik oleh updateCountdown saat countdown rotasi sudah habis — pada jaringan
-// lambat panggilan bisa menumpuk, dan memakai endpoint yang sama dengan
-// loadDetail (submissions) sehingga berisiko tumpang-tindih. Refresh ini murni
-// latar belakang tanpa aksi pengguna yang harus dipertahankan, jadi skip-saja
-// sudah cukup: tick berikutnya (30s, atau 1s dari countdown yang masih expired)
-// yang mengambil alih.
+// Guard anti-tumpang-tindih: refreshActiveToken dipicu saat countdown rotasi
+// sudah habis (dan dapat dipicu lagi oleh tick 1 detik berikutnya) — pada
+// jaringan lambat panggilan bisa menumpuk, dan memakai endpoint yang sama
+// dengan loadDetail (submissions) sehingga berisiko tumpang-tindih. Refresh ini
+// murni latar belakang tanpa aksi pengguna yang harus dipertahankan, jadi
+// skip-saja sudah cukup: tick berikutnya yang mengambil alih.
 var activeTokenLoading = false;
 // Monotonic request sequence untuk fetch token: hanya respons terbaru yang
 // boleh menulis DOM. Lihat refreshActiveToken (BUG-5).
@@ -2518,20 +2608,27 @@ function applyExamLivenessToControls() {
     }
 }
 
-// Menerjamahkan token + jam rotasi dari payload mana pun yang keduanya
-// dibawa (poll tabel 12 dtk sudah cukup — tidak perlu endpoint token
+// Menerjemahkan token + jam rotasi dari payload mana pun yang keduanya
+// dibawa (muat ulang tabel sudah cukup — tidak perlu endpoint token
 // terpisah). Countdown selaras dengan JAM SERVER pada setiap tick, sehingga
 // tidak pernah menampilkan hitung mundur yang basi karena jam perangkat meleset.
-function syncTokenFromPayload(res) {
+function syncTokenFromPayload(res, tokenSeqAtRequest) {
     if (!res) return;
+    // Liveness dan auto-approve tetap mengikuti payload ini. Yang di-skip
+    // hanya field token bila jalur token sudah bergerak sejak request
+    // berangkat (mis. supervisor menekan Generate saat loadDetail masih
+    // in-flight) — kalau tidak, token lama menimpa token baru.
+    var tokenStale = typeof tokenSeqAtRequest === 'number' && tokenSeqAtRequest !== activeTokenSeq;
     if (typeof res.exam_active === 'boolean') examLive = res.exam_active;
     if (typeof res.exam_schedule_ended === 'boolean') examEnded = res.exam_schedule_ended;
     applyExamLivenessToControls();
-    if (res.exam_token_last_reset_at) TOKEN_LAST_RESET = res.exam_token_last_reset_at;
-    if (res.exam_active_token) {
-        var el = document.getElementById('pdActiveToken');
-        if (el && el.textContent !== res.exam_active_token) {
-            updateTokenDisplay(res.exam_active_token);
+    if (!tokenStale) {
+        if (res.exam_token_last_reset_at) TOKEN_LAST_RESET = res.exam_token_last_reset_at;
+        if (res.exam_active_token) {
+            var el = document.getElementById('pdActiveToken');
+            if (el && el.textContent !== res.exam_active_token) {
+                updateTokenDisplay(res.exam_active_token);
+            }
         }
     }
     // Auto-approve adalah state server; tanpa ini halaman supervisor
@@ -2770,6 +2867,10 @@ loadAAStatus();
         // antrean yang benar-benar menunggu tindakan supervisor, dan
         // endpoint-nya murah.
         pollTimers.push(setInterval(loadApprovals, 5000));
+        // Presence column: endpoint ringan (1 query + 1 pipeline Redis),
+        // 20 detik sudah cukup untuk indikator Daring/Luring dan tidak
+        // menyentuh tabel/riwayat yang berat.
+        pollTimers.push(setInterval(function() { if (!document.hidden) refreshPresence(); }, 20000));
         // Countdown token: tick DISPLAY 1 detik, tanpa I/O.
         pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
     }
@@ -2778,10 +2879,12 @@ loadAAStatus();
         if (document.hidden) {
             stopPengawasPolling();
         } else {
-            // Hanya antrean izin yang disegarkan saat tab kembali terlihat.
-            // Tabel perangkat tidak: setelah auto-poll dihentikan, tabel
-            // di-refresh oleh tindakan supervisor (Muat Ulang / ganti filter).
+            // Antrean izin + presence disegarkan saat tab kembali terlihat.
+            // Tabel perangkat tetap tidak di-hot-reload: setelah auto-poll
+            // dihentikan, tabel di-refresh oleh tindakan supervisor (Muat
+            // Ulang / ganti filter).
             loadApprovals();
+            refreshPresence();
             updateCountdown();
             startPengawasPolling();
         }

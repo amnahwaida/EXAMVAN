@@ -302,10 +302,16 @@ func PengawasExams() gin.HandlerFunc {
 				ids[i] = e.ID
 			}
 			cRows, cErr := pool.Query(ctx,
-				`SELECT exam_id,
+				`WITH latest AS (
+					SELECT DISTINCT ON (exam_id, mac_address) exam_id, answers_json
+					FROM submissions
+					WHERE exam_id = ANY($1)
+					ORDER BY exam_id, mac_address, created_at DESC, id DESC
+				 )
+				 SELECT exam_id,
 					COUNT(*) as total,
 					SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) as submitted
-				 FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id`, ids)
+				 FROM latest GROUP BY exam_id`, ids)
 			if cErr == nil {
 				for cRows.Next() {
 					var eid, total, submitted int
@@ -326,7 +332,7 @@ func PengawasExams() gin.HandlerFunc {
 
 		// Header-card stats must cover EVERY accessible exam, not the current
 		// page slice: the cards are labelled tenant-wide ("Ujian Diawasi",
-		// "Total Siswa", "Terkumpul") and sit above the pagination. Summing
+		// "Total Perangkat", "Terkumpul") and sit above the pagination. Summing
 		// result.Exams made the numbers change from page to page — page 1
 		// showed 0 students, page 2 showed 3, for the same exam set.
 		//
@@ -340,7 +346,12 @@ func PengawasExams() gin.HandlerFunc {
 		accessibleActive := 0
 		{
 			seen := 0
-			for p := 1; seen < result.Total; p++ {
+			totalAccessible := -1
+			// Walk the UNFILTERED scoped list, not result.Total: result is the
+			// search-filtered page response, so a zero-result search used to
+			// skip the walk entirely and zero every header card. Use the first
+			// unfiltered page's total as the loop bound instead.
+			for p := 1; ; p++ {
 				var pageRes models.ListExamsResult
 				var pageErr error
 				if isSuper {
@@ -363,6 +374,9 @@ func PengawasExams() gin.HandlerFunc {
 				if pageErr != nil || len(pageRes.Exams) == 0 {
 					break
 				}
+				if totalAccessible < 0 {
+					totalAccessible = pageRes.Total
+				}
 				for _, e := range pageRes.Exams {
 					accessibleIDs = append(accessibleIDs, e.ID)
 					if e.IsActive() {
@@ -370,6 +384,9 @@ func PengawasExams() gin.HandlerFunc {
 					}
 				}
 				seen += len(pageRes.Exams)
+				if totalAccessible >= 0 && seen >= totalAccessible {
+					break
+				}
 			}
 		}
 
@@ -378,10 +395,16 @@ func PengawasExams() gin.HandlerFunc {
 		var aggStudents, aggSubmitted int
 		if len(accessibleIDs) > 0 {
 			if err := pool.QueryRow(ctx,
-				`SELECT COALESCE(SUM(t),0), COALESCE(SUM(s),0) FROM (
+				`WITH latest AS (
+					SELECT DISTINCT ON (exam_id, mac_address) exam_id, answers_json
+					FROM submissions
+					WHERE exam_id = ANY($1)
+					ORDER BY exam_id, mac_address, created_at DESC, id DESC
+				 )
+				 SELECT COALESCE(SUM(t),0), COALESCE(SUM(s),0) FROM (
 					SELECT COUNT(*) AS t,
 					       SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) AS s
-					FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id
+					FROM latest GROUP BY exam_id
 				 ) agg`, accessibleIDs).Scan(&aggStudents, &aggSubmitted); err != nil {
 				log.Printf("pengawas exam stats aggregate: %v", err)
 				aggStudents, aggSubmitted = 0, 0
@@ -508,14 +531,20 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			SubmissionHistory []models.Submission `json:"submission_history"`
 		}
 
+		// Attempts belong to the student currently occupying the device, not
+		// to the device itself. A shared device whose previous occupant
+		// submitted and whose new occupant is working must read "1 attempt",
+		// not "2" — mixing both students also made the history modal show a
+		// stranger's answers.
 		attemptCounts := make(map[string]int)
-		rows, countErr := pool.Query(ctx, "SELECT mac_address, COUNT(*) FROM submissions WHERE exam_id = $1 GROUP BY 1", examID)
+		rows, countErr := pool.Query(ctx,
+			"SELECT mac_address, TRIM(COALESCE(exam_number, '')), COUNT(*) FROM submissions WHERE exam_id = $1 GROUP BY 1, 2", examID)
 		if countErr == nil {
 			for rows.Next() {
-				var key string
+				var mac, examNumber string
 				var count int
-				if err := rows.Scan(&key, &count); err == nil {
-					attemptCounts[key] = count
+				if err := rows.Scan(&mac, &examNumber, &count); err == nil {
+					attemptCounts[submissionStudentKey(mac, examNumber)] = count
 				}
 			}
 			rows.Close()
@@ -573,7 +602,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				json.Unmarshal([]byte(*sub.IdentityData), &identityData)
 			}
 
-			accessLogs := accessLogsByMAC[sub.MACAddress]
+			accessLogs := filterAccessLogsByExamNumber(accessLogsByMAC[sub.MACAddress], sub.ExamNumber)
 
 			firstAccess := ""
 			lastAccess := sub.CreatedAt.Format("2006-01-02T15:04:05Z")
@@ -594,17 +623,19 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 
 			isOnline := onlineByMAC[sub.MACAddress]
 
-			attKey := sub.MACAddress
-			if attKey == "" {
-				attKey = strconv.Itoa(sub.ID)
+			attKey := submissionStudentKey(sub.MACAddress, sub.ExamNumber)
+			if sub.MACAddress == "" {
+				attKey = "#" + strconv.Itoa(sub.ID)
 			}
 			attCount := attemptCounts[attKey]
 			if attCount == 0 {
 				attCount = 1
 			}
 
-			// Submission history for this MAC Address (batch-fetched above).
-			subHistory := historyByMAC[sub.MACAddress]
+			// Submission history for this student on this MAC (batch-fetched
+			// above, then scoped so a shared device never leaks the previous
+			// occupant's attempts into the current student's modal).
+			subHistory := filterSubmissionHistoryByExamNumber(historyByMAC[sub.MACAddress], sub.ExamNumber)
 
 			subsData = append(subsData, subItem{
 				ID:                sub.ID,
@@ -659,10 +690,151 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 	}
 }
 
+// presenceEntry is the lightweight per-device liveness payload. The detail
+// page polls this instead of the heavy submissions endpoint: the table does not
+// need to be rebuilt just because a heartbeat appeared or expired.
+type presenceEntry struct {
+	Online   bool   `json:"online"`
+	LastSeen string `json:"last_seen,omitempty"`
+}
+
+// PengawasExamPresence returns heartbeat presence for every device of one exam
+// in a single Redis pipeline. It is intentionally read-only and cheap (one
+// indexed DISTINCT query + one pipeline), so the detail page can refresh the
+// "Daring/Luring" column without re-running the six-query submissions load.
+func PengawasExamPresence() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+		userID := getCurrentUserID(c)
+
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+
+		rows, err := pool.Query(ctx,
+			`SELECT DISTINCT mac_address FROM submissions
+			 WHERE exam_id = $1 AND mac_address <> ''`, examID)
+		if err != nil {
+			log.Printf("pengawas presence query error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat presence perangkat")
+			return
+		}
+		defer rows.Close()
+
+		macs := make([]string, 0, 64)
+		for rows.Next() {
+			var mac string
+			if err := rows.Scan(&mac); err != nil {
+				continue
+			}
+			macs = append(macs, mac)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("pengawas presence rows error: %v", err)
+		}
+
+		presence := make(map[string]presenceEntry, len(macs))
+		for _, mac := range macs {
+			presence[mac] = presenceEntry{}
+		}
+
+		if rdbRaw, exists := c.Get("redis"); exists && rdbRaw != nil {
+			if rdb, ok := rdbRaw.(*redis.Client); ok && len(macs) > 0 {
+				pipe := rdb.Pipeline()
+				cmds := make([]*redis.StringCmd, len(macs))
+				for i, mac := range macs {
+					cmds[i] = pipe.Get(ctx, fmt.Sprintf("heartbeat:%d:%s", examID, mac))
+				}
+				if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+					log.Printf("pengawas presence pipeline error: %v", err)
+				}
+				for i, mac := range macs {
+					if cmds[i].Err() != nil {
+						continue
+					}
+					entry := presenceEntry{Online: true}
+					var hb struct {
+						LastSeen string `json:"last_seen"`
+					}
+					if json.Unmarshal([]byte(cmds[i].Val()), &hb) == nil {
+						entry.LastSeen = hb.LastSeen
+					}
+					presence[mac] = entry
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":  true,
+			"presence": presence,
+		})
+	}
+}
+
+// A device can be reassigned to another student between exam sessions without
+// changing its MAC. Monitoring stays per-device, but attempts and timeline
+// entries belong to the student currently occupying it; these limits also keep
+// a long-running or duplicated device from turning one page load into tens of
+// thousands of rows of JSON.
+const (
+	maxAccessLogsPerStudent        = 100
+	maxSubmissionHistoryPerStudent = 50
+)
+
+func submissionStudentKey(mac, examNumber string) string {
+	return mac + "\x1f" + strings.TrimSpace(examNumber)
+}
+
+func studentMatchesExamNumber(rowExamNumber, currentExamNumber string) bool {
+	// Legacy rows can predate exam_number capture. Rows without a number carry
+	// no identity to compare, so keep them rather than hiding the current
+	// student's login/heartbeat/history entirely. Only rows that explicitly
+	// belong to a DIFFERENT exam number are excluded.
+	currentExamNumber = strings.TrimSpace(currentExamNumber)
+	rowExamNumber = strings.TrimSpace(rowExamNumber)
+	if currentExamNumber == "" || rowExamNumber == "" {
+		return true
+	}
+	return rowExamNumber == currentExamNumber
+}
+
+func filterAccessLogsByExamNumber(logs []accessLogEntry, examNumber string) []accessLogEntry {
+	out := make([]accessLogEntry, 0, len(logs))
+	for _, entry := range logs {
+		if studentMatchesExamNumber(entry.ExamNumber, examNumber) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func filterSubmissionHistoryByExamNumber(history []models.Submission, examNumber string) []models.Submission {
+	out := make([]models.Submission, 0, len(history))
+	for _, submission := range history {
+		if studentMatchesExamNumber(submission.ExamNumber, examNumber) {
+			out = append(out, submission)
+		}
+	}
+	return out
+}
+
 // fetchStudentAccessLogsBatch loads the access logs for many devices in a
-// single query and groups them by student_identifier (MAC). Rows are ordered
-// by created_at ASC in SQL, so each per-device group keeps its chronological
-// order. Replaces the previous per-row query (N+1) in the submissions list.
+// single query and groups them by student_identifier (MAC). Each (MAC,
+// exam_number) pair keeps at most maxAccessLogsPerStudent newest rows; the
+// caller filters the group by the current student's exam_number. Rows are
+// ordered by created_at ASC, so each group stays chronological.
 func fetchStudentAccessLogsBatch(ctx context.Context, pool *pgxpool.Pool, examID int, macs []string) map[string][]accessLogEntry {
 	out := make(map[string][]accessLogEntry)
 	if len(macs) == 0 {
@@ -672,9 +844,18 @@ func fetchStudentAccessLogsBatch(ctx context.Context, pool *pgxpool.Pool, examID
 	rows, err := pool.Query(ctx,
 		`SELECT student_identifier, event, ip_address, device_info, created_at,
 		 student_name, exam_number, student_class, identity_data
-		 FROM student_access_logs
-		 WHERE exam_id = $1 AND student_identifier = ANY($2)
-		 ORDER BY created_at ASC`, examID, macs)
+		 FROM (
+			SELECT id, student_identifier, exam_number, event, ip_address, device_info,
+			       created_at, student_name, student_class, identity_data,
+			       ROW_NUMBER() OVER (
+					PARTITION BY student_identifier, exam_number
+					ORDER BY created_at DESC, id DESC
+			       ) AS rn
+			FROM student_access_logs
+			WHERE exam_id = $1 AND student_identifier = ANY($2)
+		 ) ranked
+		 WHERE rn <= $3
+		 ORDER BY created_at ASC, id ASC`, examID, macs, maxAccessLogsPerStudent)
 	if err != nil {
 		log.Printf("batch access logs query error: %v", err)
 		return out
@@ -707,10 +888,12 @@ func fetchStudentAccessLogsBatch(ctx context.Context, pool *pgxpool.Pool, examID
 	return out
 }
 
-// fetchSubmissionHistoryBatch loads the full submission history (every attempt
-// — open rows and completed submissions) for many devices in a single query,
-// grouped by mac_address in chronological order. Replaces the previous per-row
-// query (N+1) in the submissions list.
+// fetchSubmissionHistoryBatch loads the submission history (every attempt —
+// open rows and completed submissions) for many devices in a single query,
+// grouped by mac_address in chronological order. Each (MAC, exam_number) pair
+// keeps at most maxSubmissionHistoryPerStudent rows; the caller filters by the
+// current student's exam_number so a shared device never shows a prior
+// occupant's attempts.
 func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID int, macs []string) map[string][]models.Submission {
 	out := make(map[string][]models.Submission)
 	if len(macs) == 0 {
@@ -718,10 +901,19 @@ func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID
 	}
 
 	rows, err := pool.Query(ctx,
-		`SELECT mac_address, id, start_time, created_at, submitted_at, answers_json, score
-		 FROM submissions
-		 WHERE exam_id = $1 AND mac_address = ANY($2)
-		 ORDER BY created_at ASC`, examID, macs)
+		`SELECT mac_address, exam_number, id, start_time, created_at, submitted_at, answers_json, score
+		 FROM (
+			SELECT id, mac_address, exam_number, start_time, created_at, submitted_at,
+			       answers_json, score,
+			       ROW_NUMBER() OVER (
+					PARTITION BY mac_address, exam_number
+					ORDER BY created_at DESC, id DESC
+			       ) AS rn
+			FROM submissions
+			WHERE exam_id = $1 AND mac_address = ANY($2)
+		 ) ranked
+		 WHERE rn <= $3
+		 ORDER BY created_at ASC, id ASC`, examID, macs, maxSubmissionHistoryPerStudent)
 	if err != nil {
 		log.Printf("batch submission history query error: %v", err)
 		return out
@@ -732,10 +924,11 @@ func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID
 		var h models.Submission
 		var mac string
 		var created time.Time
-		if err := rows.Scan(&mac, &h.ID, &h.StartTime, &created, &h.SubmittedAt, &h.AnswersJSON, &h.Score); err != nil {
+		if err := rows.Scan(&mac, &h.ExamNumber, &h.ID, &h.StartTime, &created, &h.SubmittedAt, &h.AnswersJSON, &h.Score); err != nil {
 			log.Printf("submission history scan error: %v", err)
 			continue
 		}
+		h.MACAddress = mac
 		h.CreatedAt = created
 		out[mac] = append(out[mac], h)
 	}
@@ -812,7 +1005,7 @@ func GetPendingApprovals() gin.HandlerFunc {
 			`SELECT mac_address, student_name, exam_number, student_class, identity_data, created_at, status
 			 FROM exam_approvals
 			 WHERE exam_id = $1 AND status = 'pending'
-			 ORDER BY created_at ASC
+			 ORDER BY created_at ASC, id ASC
 			 LIMIT $2 OFFSET $3`, examID, limit, offset)
 
 		if err != nil {

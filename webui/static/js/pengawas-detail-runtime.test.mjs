@@ -344,17 +344,17 @@ test('BUG-1: inline script loads without ReferenceError (poller registration mus
     );
 });
 
-test('poller cadence: approvals + countdown only, no device-table network poller', async () => {
+test('poller cadence: approvals + presence + countdown, no heavy device-table poller', async () => {
     const { intervals } = await runScript({ js: toPlainJs(readDetail()) });
     // 1s = countdown DISPLAY tick (no I/O — asserted separately).
     assert.ok(intervals.includes(1000), `expected the 1s countdown tick, got ${intervals}`);
     // The approval queue keeps its 5s poll: it is the widget that genuinely
     // waits on the supervisor and it hits a cheap endpoint.
     assert.ok(intervals.includes(5000), `expected the 5s approval poll, got ${intervals}`);
-    // No slow network poller any more: hot reload on the device table was
-    // removed on request because 10 supervisors meant 50 requests/minute
-    // against the heaviest endpoint on the page.
-    for (const ms of intervals.filter((x) => x !== 1000 && x !== 5000)) {
+    // The device table itself is still not hot-reloaded (six queries per
+    // request). Presence gets its own lightweight endpoint, polled every 20s.
+    assert.ok(intervals.includes(20000), `expected the 20s presence poll, got ${intervals}`);
+    for (const ms of intervals.filter((x) => x !== 1000 && x !== 5000 && x !== 20000)) {
         assert.fail(`unexpected extra poller at ${ms}ms — ${intervals}`);
     }
 });
@@ -484,6 +484,26 @@ test('BUG-11: a failing silent poll keeps the previously rendered rows', async (
         /data-submission-id="7"/.test(els.submissionBody.innerHTML),
         'a silent auto-refresh wiped the device table on failure — the supervisor ' +
         'loses the last known state and sees only a bare error'
+    );
+});
+
+test('BUG-11b: a network-rejected silent poll keeps the previously rendered rows', async () => {
+    const { els, sandbox, ctx } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload(),
+        callAfter: ['loadDetail(1)'],
+    });
+    assert.ok(/data-submission-id="7"/.test(els.submissionBody.innerHTML),
+        'precondition: rows rendered');
+
+    // The background refresh rejects before it can even produce a Response.
+    sandbox.apiFetch = () => Promise.reject(new Error('offline'));
+    vm.runInContext('SUB_PAGE = 1; loadDetail(1, true)', ctx);
+    for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
+
+    assert.ok(
+        /data-submission-id="7"/.test(els.submissionBody.innerHTML),
+        'a silent auto-refresh replaced known-good rows after a network error'
     );
 });
 
@@ -903,8 +923,8 @@ test('the stuck-row retry uses the existing Muat Ulang action', () => {
 test('the device table is NOT polled automatically', async () => {
     // Hot reload on this table was removed on request: 10 supervisors on the
     // detail page meant 50 requests/minute against the heaviest endpoint,
-    // ~6 queries each. The approval queue keeps its 5s poll — it is the widget
-    // that genuinely waits on the supervisor and hits a cheap endpoint.
+    // ~6 queries each. The approval queue keeps its 5s poll and presence gets
+    // a separate 20s lightweight endpoint — neither reloads the table.
     //
     // The countdown is put into its normal (not-yet-due) state first: the
     // template placeholders flatten to a truthy-but-ancient timestamp under the
@@ -931,8 +951,16 @@ test('the device table is NOT polled automatically', async () => {
         'the approval queue must keep polling — that queue is what waits on the supervisor'
     );
     assert.ok(
-        !timers.some((t) => t.ms >= 10000),
-        `no slow network poller may remain, got ${timers.map((t) => t.ms)}`
+        timers.some((t) => t.ms === 20000),
+        'presence must poll on its own lightweight cadence'
+    );
+    assert.ok(
+        fetches.some((u) => /\/presence/.test(u)),
+        'the 20s poller must hit /presence, not /submissions'
+    );
+    assert.ok(
+        !timers.some((t) => t.ms >= 10000 && t.ms !== 20000),
+        `no slow device-table poller may remain, got ${timers.map((t) => t.ms)}`
     );
 });
 

@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/examvan/webui/internal/database"
 )
@@ -334,6 +336,46 @@ func TestFlushBatchRevokesApprovalAfterCommit(t *testing.T) {
 // for retry and its approval row is left untouched. Approval is only revoked on
 // the success path after the batch commit — so a transient DB failure never
 // cancels a device's re-entry entitlement.
+// TestFlushBatchClearsPresenceAfterCommit: async submit leaves a heartbeat
+// behind until its TTL. The worker must clear it once the row is durable, even
+// though the handler already revoked approval and /complete can no longer
+// authorise the cleanup.
+func TestFlushBatchClearsPresenceAfterCommit(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-presence-guru")
+	examID := insertQueueTestExam(t, pool, ownerID)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, status)
+		VALUES ($1, 'DEVICE:presence1', 'Siswa Presence', 'P1', 'approved')`, examID); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	key := fmt.Sprintf("heartbeat:%d:DEVICE:presence1", examID)
+	if err := rdb.Set(ctx, key, `{"event":"login"}`, 5*time.Minute).Err(); err != nil {
+		t.Fatalf("seed heartbeat: %v", err)
+	}
+
+	score := 80.0
+	w := &Worker{rdb: rdb, pool: pool}
+	w.flushBatch(ctx, []SubmissionResult{{
+		Job: SubmissionJob{
+			StudentName: "Siswa Presence", ExamNumber: "P1", ExamID: examID,
+			MACAddress: "DEVICE:presence1", StartTime: "2026-08-09 07:00:00",
+			Answers: map[string]interface{}{"1": "a"},
+		},
+		Score: &score,
+	}})
+
+	if mr.Exists(key) {
+		t.Error("presence heartbeat still exists after durable async submit")
+	}
+}
+
 func TestFlushBatchKeepsApprovalWhenRowFails(t *testing.T) {
 	pool := setupQueueTestPool(t)
 	ctx := context.Background()

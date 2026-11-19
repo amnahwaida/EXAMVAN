@@ -61,13 +61,16 @@ test('S36/static: kedua callback polling ter-guard document.hidden', () => {
     // RONDE 9 (890811f): interval 12 dtk (loadDetail) dan 30 dtk
     // (refreshActiveToken) DIHAPUS dari scheduler — endpoint submissions
     // terlalu berat untuk hot-reload multi-pengawas. Yang tersisa: antrean
-    // 5 dtk + countdown token 1 dtk (tick display, tanpa I/O).
+    // 5 dtk, presence 20 dtk (endpoint ringan), + countdown token 1 dtk
+    // (tick display, tanpa I/O).
     assert.doesNotMatch(html, /setInterval\(function\s*\(\)\s*\{\s*if\s*\(!document\.hidden\)\s*loadDetail\(/,
         'interval 12 dtk loadDetail dihapus — jangan hidupkan kembali (beban 6 query/request)');
     assert.doesNotMatch(html, /setInterval\(function\s*\(\)\s*\{\s*if\s*\(!document\.hidden\)\s*refreshActiveToken\(/,
         'interval 30 dtk refreshActiveToken dihapus — token mengikuti payload loadDetail');
     assert.match(html, /setInterval\(function\s*\(\)\s*\{\s*if\s*\(!document\.hidden\)\s*updateCountdown\(/,
         'interval 1 detik (updateCountdown) wajib ter-guard document.hidden');
+    assert.match(html, /setInterval\(function\s*\(\)\s*\{\s*if\s*\(!document\.hidden\)\s*refreshPresence\(/,
+        'interval 20 detik refreshPresence wajib ter-guard document.hidden');
 
     // Tidak ada lagi setInterval telanjang tanpa guard di halaman ini.
     const bareIntervals = [...html.matchAll(/setInterval\((?!function\s*\(\)\s*\{\s*if\s*\(!document\.hidden\))(loadApprovals)/g)];
@@ -122,9 +125,10 @@ function loadScheduler(sandbox) {
     const end = html.lastIndexOf(endMarker) + endMarker.length;
     const snippet = html.slice(begin, end);
 
-    // RONDE 9 (890811f): scheduler tinggal 2 interval (antrean 5s + countdown
-    // 1s) — loadDetail & refreshActiveToken tidak lagi dijadwalkan di sini.
-    const calls = { approvals: 0, detail: 0, token: 0, countdown: 0 };
+    // RONDE 9 (890811f): scheduler tinggal 3 interval (antrean 5s + presence
+    // 20s + countdown 1s) — loadDetail & refreshActiveToken tidak lagi
+    // dijadwalkan di sini.
+    const calls = { approvals: 0, presence: 0, detail: 0, token: 0, countdown: 0 };
     let timerSeq = 0;
     const timers = new Map();
 
@@ -134,6 +138,7 @@ function loadScheduler(sandbox) {
     });
     sandbox.SUB_PAGE = 1;
     sandbox.loadApprovals = () => { calls.approvals++; };
+    sandbox.refreshPresence = () => { calls.presence++; };
     sandbox.loadDetail = () => { calls.detail++; };
     sandbox.refreshActiveToken = () => { calls.token++; };
     sandbox.updateCountdown = () => { calls.countdown++; };
@@ -161,15 +166,15 @@ function freshSandbox() {
     return sandbox;
 }
 
-test('S36/vm: document.visible — scheduler memasang tepat 2 interval dan callback jalan', () => {
+test('S36/vm: document.visible — scheduler memasang tepat 3 interval dan callback jalan', () => {
     const env = loadScheduler(freshSandbox());
     const timers = env.activeTimers();
-    assert.equal(timers.length, 2, 'dua interval terpasang (5s antrean, 1s countdown)');
-    assert.deepEqual(timers.map((t) => t.ms), [5000, 1000]);
+    assert.equal(timers.length, 3, 'tiga interval terpasang (5s antrean, 20s presence, 1s countdown)');
+    assert.deepEqual(timers.map((t) => t.ms), [5000, 20000, 1000]);
 
     for (const t of timers) t.fn();
-    assert.deepEqual(env.calls, { approvals: 1, detail: 0, token: 0, countdown: 1 },
-        'saat tab terlihat, kedua callback polling dieksekusi');
+    assert.deepEqual(env.calls, { approvals: 1, presence: 1, detail: 0, token: 0, countdown: 1 },
+        'saat tab terlihat, ketiga callback polling dieksekusi');
 });
 
 test('S36/vm: document.hidden — callback polling di-skip (nol kerja)', () => {
@@ -180,7 +185,7 @@ test('S36/vm: document.hidden — callback polling di-skip (nol kerja)', () => {
     // Simulasi interval yang belum sempat ter-clear tetap tak boleh bekerja:
     // guard callback dievaluasi lewat loadApprovals internal — panggil langsung
     // dengan hidden=true.
-    assert.equal(env.calls.approvals + env.calls.detail + env.calls.token + env.calls.countdown, 0,
+    assert.equal(env.calls.approvals + env.calls.presence + env.calls.detail + env.calls.token + env.calls.countdown, 0,
         'tidak ada callback yang menyala saat hidden');
 });
 
@@ -190,11 +195,12 @@ test('S36/vm: kembali visible — polling dijadwalkan ulang tanpa double-schedul
     env.fireVisibility(false);
 
     const timers = env.activeTimers();
-    assert.equal(timers.length, 2, 'tepat 2 interval aktif lagi (bukan 4 — tidak menumpuk)');
-    assert.deepEqual(timers.map((t) => t.ms), [5000, 1000]);
+    assert.equal(timers.length, 3, 'tepat 3 interval aktif lagi (bukan 6 — tidak menumpuk)');
+    assert.deepEqual(timers.map((t) => t.ms), [5000, 20000, 1000]);
 
     for (const t of timers) t.fn();
     assert.equal(env.calls.approvals, 2, 'loadApprovals: sekali oleh handler visible + sekali oleh tick 5s');
+    assert.equal(env.calls.presence, 2, 'refreshPresence: sekali oleh handler visible + sekali oleh tick 20s');
     assert.equal(env.calls.countdown, 2, 'updateCountdown: sekali oleh handler visible + sekali oleh tick 1s');
     assert.equal(env.calls.detail + env.calls.token, 0,
         'loadDetail & refreshActiveToken tidak lagi dijadwalkan scheduler (ronde 9)');
@@ -213,6 +219,7 @@ test('S36/vm: start berulang tanpa visibilitychange juga anti double-scheduling'
     sandbox.document = { hidden: false, addEventListener() {} };
     sandbox.SUB_PAGE = 1;
     sandbox.loadApprovals = () => {};
+    sandbox.refreshPresence = () => {};
     sandbox.loadDetail = () => {};
     sandbox.refreshActiveToken = () => {};
     sandbox.updateCountdown = () => {};
@@ -221,7 +228,7 @@ test('S36/vm: start berulang tanpa visibilitychange juga anti double-scheduling'
 
     vm.createContext(sandbox);
     vm.runInContext(snippet + '\nstartPengawasPolling();\nstartPengawasPolling();', sandbox);
-    assert.equal(live.size, 2, 'walau start dipanggil berkali-kali, tetap hanya 2 interval hidup');
+    assert.equal(live.size, 3, 'walau start dipanggil berkali-kali, tetap hanya 3 interval hidup');
 });
 
 // ---------------------------------------------------------------------------

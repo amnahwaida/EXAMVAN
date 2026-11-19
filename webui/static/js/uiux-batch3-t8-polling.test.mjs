@@ -277,6 +277,14 @@ test('T8/static: update per-baris — baris punya data-mac dan applyApprovalRowO
     assert.match(applySrc[0], /removeChild|\.remove\(\)/, 'baris hilang dihapus satuan');
 });
 
+test('T8/static: stempel kesegaran hanya milik tabel perangkat, bukan poll antrean', () => {
+    // Polling antrean 5 detik tidak memuat ulang tabel perangkat. Kalau poll
+    // ikut memanggil markUpdated(), label "Diperbarui" berbohong: tabel bisa
+    // berisi data lama sementara stempelnya terus berdetak.
+    const loadSrc = html.slice(html.indexOf('function loadApprovals'), html.indexOf('function markUpdated'));
+    assert.doesNotMatch(loadSrc, /markUpdated\s*\(/, 'poll antrean tidak boleh memperbarui stempel tabel perangkat');
+});
+
 test('G8 tetap: stempel waktu, error polling tidak menghapus data, anti-overlap fetch', () => {
     assert.match(html, /function markUpdated\(\)/, 'stempel "Diperbarui HH:MM:SS" dipertahankan');
     assert.match(html, /markUpdated\(\);/, 'dan tetap dipanggil');

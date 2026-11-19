@@ -376,6 +376,11 @@ func TestAccessLogRateLimitKeyedByExamAndMac(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 	router := newExamFixesRouter(pool, rdb)
 
+	// Presence menuntut approval 'approved' per MAC (gerbang entitlement);
+	// tanpa baris ini handler membalas 404 sebelum rate limiter dievaluasi.
+	insertApprovalRow(t, pool, examID, "AA:BB:CC:DD:EE:01")
+	insertApprovalRow(t, pool, examID, "AA:BB:CC:DD:EE:02")
+
 	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
 	payload := map[string]interface{}{
 		"event":        "heartbeat", // heartbeat = Redis-only, tanpa insert DB
@@ -924,5 +929,85 @@ func TestSubmitSyncConcurrentSameDeviceNoDuplicates(t *testing.T) {
 		`SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND mac_address = $2`,
 		examID, "DEVICE:sync-dedup").Scan(&cnt); err != nil || cnt != 1 {
 		t.Fatalf("submission rows after concurrent same-device submits: got %d err=%v, want 1", cnt, err)
+	}
+}
+
+// A successful submit ends the student's presence immediately, including when
+// the async queue is unavailable and the handler falls back to the sync path.
+// Otherwise the just-finished student keeps showing as "Daring" until TTL.
+func TestSubmitExamSyncFallbackClearsPresence(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	mac := "DEVICE:sync-presence"
+	insertApprovalRow(t, pool, examID, mac)
+
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ctx := context.Background()
+	if err := mr.Set(queue.QueueKey, "not-a-list"); err != nil {
+		t.Fatalf("seed wrong queue type: %v", err)
+	}
+
+	router := newExamFixesRouter(pool, rdb)
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/submit", examID), "",
+		map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"},
+		map[string]interface{}{
+			"student_name":  "Siswa Sync Presence",
+			"exam_number":   "SP1",
+			"student_class": "XII-A",
+			"answers":       map[string]interface{}{"1": "a"},
+			"mac_address":   mac,
+		})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync fallback submit status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	key := fmt.Sprintf("heartbeat:%d:%s", examID, mac)
+	exists, err := rdb.Exists(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("heartbeat exists: %v", err)
+	}
+	if exists != 0 {
+		t.Fatalf("heartbeat key still present after durable sync submit (exists=%d)", exists)
+	}
+}
+
+// Logout must clear presence immediately. Before this fix only /complete
+// deleted the heartbeat key, so a device that logged out stayed "Daring" in
+// monitoring until the 5-minute TTL expired.
+func TestPresenceLogoutDeletesHeartbeat(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	mac := "DEVICE:logout-clear"
+	insertApprovalRow(t, pool, examID, mac)
+
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ctx := context.Background()
+	key := fmt.Sprintf("heartbeat:%d:%s", examID, mac)
+	if err := rdb.Set(ctx, key, `{"last_seen":"2026-08-03T09:05:00Z"}`, 0).Err(); err != nil {
+		t.Fatalf("seed heartbeat: %v", err)
+	}
+
+	router := newExamFixesRouter(pool, rdb)
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/access-log", examID), "",
+		map[string]string{"X-Exam-Token": token},
+		map[string]interface{}{"event": "logout", "mac_address": mac})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("logout status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	exists, err := rdb.Exists(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("heartbeat exists: %v", err)
+	}
+	if exists != 0 {
+		t.Fatalf("heartbeat key still present after logout (exists=%d) — presence would stay online", exists)
 	}
 }

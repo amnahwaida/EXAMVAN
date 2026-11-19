@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -941,6 +942,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 			lockedAPI.GET("/pengawas/exams", admin.PengawasExams())
 			lockedAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
+			lockedAPI.GET("/pengawas/exams/:exam_id/presence", admin.PengawasExamPresence())
 			lockedAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 			lockedAPI.GET("/pengawas/exams/:exam_id/auto-approve", admin.GetAutoApprove())
 			lockedAPI.GET("/pengawas/exams/:exam_id/audit-logs", admin.GetExamAuditLogs())
@@ -1956,7 +1958,8 @@ func flushHeartbeatBatch(ctx context.Context, rdb *redis.Client, pool *pgxpool.P
 		var latestAnswers *string
 		errLookup := tx.QueryRow(ctx, "SELECT answers_json FROM submissions WHERE exam_id=$1 AND mac_address=$2 ORDER BY created_at DESC LIMIT 1", hb.ExamID, hb.MacAddress).Scan(&latestAnswers)
 
-		if errLookup == pgx.ErrNoRows || (errLookup == nil && (latestAnswers == nil || *latestAnswers == "")) {
+		switch {
+		case errors.Is(errLookup, pgx.ErrNoRows):
 			_, err = tx.Exec(ctx, `
 				INSERT INTO submissions (exam_id, student_name, exam_number, student_class, mac_address, start_time, created_at, identity_data)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1964,6 +1967,8 @@ func flushHeartbeatBatch(ctx context.Context, rdb *redis.Client, pool *pgxpool.P
 			if err != nil {
 				log.Printf("heartbeat-flusher: failed to create empty submission: %v", err)
 			}
+		case errLookup != nil:
+			log.Printf("heartbeat-flusher: submission lookup error: %v", errLookup)
 		}
 	}
 

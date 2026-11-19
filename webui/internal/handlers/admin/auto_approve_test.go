@@ -1123,8 +1123,9 @@ func TestApprovalEndpointsInvalidExamIDReturns400(t *testing.T) {
 
 // TestPengawasExamsStatsCoverEveryAccessibleExam pins the header cards'
 // contract on the pengawas LIST page: "Ujian Diawasi" / "Sedang Berlangsung"
-// / "Total Siswa" / "Terkumpul" are labelled tenant-wide totals, so they must
-// aggregate over EVERY accessible exam — not just the current page slice.
+// / "Total Perangkat" / "Terkumpul" are labelled tenant-wide totals, so they
+// must aggregate over EVERY accessible exam and dedupe by device — not just
+// the current page slice, and not once per attempt row.
 //
 // RED before the fix: the handler summed result.Exams (the page), so a
 // pengawas with 47 exams always saw "10" in the header while the footer said
@@ -1135,7 +1136,10 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 	ctx := context.Background()
 	uniq := fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
 
-	// Seed submissions on the fixture exam so Total Siswa / Terkumpul are > 0.
+	// Seed submissions on the fixture exam so Total Perangkat / Terkumpul
+	// are > 0. The first device gets an OLDER open attempt in addition to its
+	// completed one: the header must still count that device once, not once
+	// per row (heartbeat duplicates used to inflate these totals).
 	startedAt := time.Now().Format(time.RFC3339)
 	for i, mac := range []string{"AA:00:00:00:00:01", "AA:00:00:00:00:02", "AA:00:00:00:00:03"} {
 		answers := "NULL"
@@ -1148,6 +1152,12 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 			fx.ExamID, mac, fmt.Sprintf("Siswa %d", i+1), startedAt, time.Now()); err != nil {
 			t.Fatalf("seed submission %d: %v", i, err)
 		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, answers_json, score, start_time, created_at)
+		VALUES ($1, 'AA:00:00:00:00:01', 'Siswa 1 lama', '01', 'XII A', NULL, NULL, $2, $3)`,
+		fx.ExamID, startedAt, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("seed older duplicate attempt: %v", err)
 	}
 
 	// Two MORE exams for the same assigned pengawas, so the tenant total is 3
@@ -1210,6 +1220,42 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 	}
 	if totalSubmitted != 2 {
 		t.Errorf("stats.total_submitted = %v, want 2", totalSubmitted)
+	}
+
+	// The per-exam row counts must use the same per-device dedup as the
+	// header, otherwise the card list and the summary disagree.
+	all := get("?page=1&per_page=50")
+	exams, _ := all["exams"].([]interface{})
+	foundFixture := false
+	for _, raw := range exams {
+		m, ok := raw.(map[string]interface{})
+		if !ok || m["id"] != float64(fx.ExamID) {
+			continue
+		}
+		foundFixture = true
+		if m["total_students"] != float64(3) {
+			t.Errorf("exam total_students = %v, want 3 (deduped by device)", m["total_students"])
+		}
+		if m["submitted_count"] != float64(2) {
+			t.Errorf("exam submitted_count = %v, want 2", m["submitted_count"])
+		}
+	}
+	if !foundFixture {
+		t.Fatalf("fixture exam %d missing from the unfiltered list", fx.ExamID)
+	}
+
+	// A search must never change the tenant-wide header cards. Specifically a
+	// zero-result search used to make the stats walk skip entirely (its loop
+	// was bounded by the filtered result.Total) and report 0 exams/devices.
+	empty := get("?page=1&per_page=5&search=zzz-no-such-exam-" + uniq)
+	if got, _ := empty["total"].(float64); got != 0 {
+		t.Fatalf("empty search total = %v, want 0", got)
+	}
+	emptyStats, _ := empty["stats"].(map[string]interface{})
+	for _, k := range []string{"total_exams", "total_students", "total_submitted"} {
+		if emptyStats[k] != stats[k] {
+			t.Errorf("search stats.%s = %v, want %v (header must be search-independent)", k, emptyStats[k], stats[k])
+		}
 	}
 
 	// Page 2 must report the SAME header numbers (stable overview), only the

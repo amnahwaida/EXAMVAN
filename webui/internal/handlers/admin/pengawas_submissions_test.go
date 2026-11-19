@@ -67,6 +67,7 @@ func newSubmissionsRedisRouter(pool *pgxpool.Pool, rdb *redis.Client) *gin.Engin
 
 	adminAPI := r.Group("/admin/api", middleware.AuthRequired())
 	adminAPI.GET("/pengawas/exams/:exam_id/submissions", PengawasExamSubmissions())
+	adminAPI.GET("/pengawas/exams/:exam_id/presence", PengawasExamPresence())
 	return r
 }
 
@@ -98,7 +99,7 @@ func TestPengawasExamSubmissionsOnlineAndHistory(t *testing.T) {
 		score      *float64
 		at         time.Time
 	}{
-		{macOnline, startOpen, nil, nil, older},                // in-progress attempt
+		{macOnline, startOpen, nil, nil, older},                 // in-progress attempt
 		{macOnline, startDone, spT(`{"1":"a"}`), &score, newer}, // completed attempt
 		{macOffline, startDone, spT(`{"1":"b"}`), &score, newer},
 	} {
@@ -216,6 +217,64 @@ func TestPengawasExamSubmissionsOnlineAndHistory(t *testing.T) {
 	}
 	if hist, ok := offline["submission_history"].([]interface{}); !ok || len(hist) != 1 {
 		t.Errorf("submission_history = %v, want 1 attempt", offline["submission_history"])
+	}
+}
+
+// The detail page needs heartbeat liveness without re-running the heavy
+// submissions query. This endpoint must report both directions (online and
+// offline) from Redis and include the last_seen heartbeat timestamp.
+func TestPengawasExamPresenceEndpoint(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `UPDATE exams SET exam_started_at = CURRENT_TIMESTAMP WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("start exam: %v", err)
+	}
+
+	macOnline := "AA:BB:CC:DD:EE:D1"
+	macOffline := "AA:BB:CC:DD:EE:D2"
+	for _, mac := range []string{macOnline, macOffline} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class)
+			VALUES ($1, $2, 'Siswa Presence', '01', 'XII A')`, fx.ExamID, mac); err != nil {
+			t.Fatalf("insert submission: %v", err)
+		}
+	}
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	lastSeen := "2026-08-03T09:05:00Z"
+	if err := rdb.Set(ctx, fmt.Sprintf("heartbeat:%d:%s", fx.ExamID, macOnline),
+		fmt.Sprintf(`{"last_seen":%q}`, lastSeen), 0).Err(); err != nil {
+		t.Fatalf("set heartbeat: %v", err)
+	}
+
+	srv := httptest.NewServer(newSubmissionsRedisRouter(pool, rdb))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/presence", fx.ExamID), nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("GET presence status=%d out=%v, want 200 success", code, out)
+	}
+	presence, ok := out["presence"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("presence is not an object: %T", out["presence"])
+	}
+	online, _ := presence[macOnline].(map[string]interface{})
+	if online["online"] != true {
+		t.Errorf("online device = %v, want true", presence[macOnline])
+	}
+	if online["last_seen"] != lastSeen {
+		t.Errorf("last_seen = %v, want %q", online["last_seen"], lastSeen)
+	}
+	offline, _ := presence[macOffline].(map[string]interface{})
+	if offline["online"] != false {
+		t.Errorf("offline device = %v, want false", presence[macOffline])
 	}
 }
 

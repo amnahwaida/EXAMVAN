@@ -190,6 +190,53 @@ func TestFlushHeartbeatBatchNoGhostRowAfterSubmit(t *testing.T) {
 	}
 }
 
+// TestFlushHeartbeatBatchDoesNotDuplicateOpenPlaceholder pins the
+// heartbeat-duplication regression: an OPEN placeholder already represents the
+// student in progress, so every subsequent heartbeat must only append its
+// audit row — never insert another placeholder (one row per minute made the
+// monitoring totals and attempt history grow without bound).
+func TestFlushHeartbeatBatchDoesNotDuplicateOpenPlaceholder(t *testing.T) {
+	pool, examID := setupM5FlusherDB(t)
+	ctx := context.Background()
+
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	mac := "AA:BB:CC:DD:EE:04"
+	// Two ticks of the same device, both before the student starts/submits.
+	pushHeartbeat(t, rdb, examID, mac, "heartbeat")
+	if n := flushHeartbeatBatch(ctx, rdb, pool); n != 1 {
+		t.Fatalf("first flush = %d payloads, want 1", n)
+	}
+	time.Sleep(10 * time.Millisecond)
+	pushHeartbeat(t, rdb, examID, mac, "heartbeat")
+	if n := flushHeartbeatBatch(ctx, rdb, pool); n != 1 {
+		t.Fatalf("second flush = %d payloads, want 1", n)
+	}
+
+	var total, open int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN answers_json IS NULL OR answers_json = '' THEN 1 ELSE 0 END), 0)
+		FROM submissions WHERE exam_id=$1 AND mac_address=$2`, examID, mac).Scan(&total, &open); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if total != 1 || open != 1 {
+		t.Fatalf("submissions after two heartbeats: total=%d open=%d, want total=1 open=1", total, open)
+	}
+
+	var auditRows int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM student_access_logs WHERE exam_id=$1 AND student_identifier=$2`,
+		examID, mac).Scan(&auditRows); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if auditRows != 2 {
+		t.Fatalf("audit rows = %d, want 2 (each heartbeat is still audited)", auditRows)
+	}
+}
+
 // TestDrainHeartbeatsQueueStillDelivers guards the happy path against the new
 // locking: with NO competing lock, a queued heartbeat must land in
 // student_access_logs AND create the placeholder row for an unknown student.

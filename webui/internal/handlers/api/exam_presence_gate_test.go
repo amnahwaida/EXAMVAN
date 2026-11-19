@@ -44,9 +44,10 @@ func setupPresenceGateFixture(t *testing.T, pool *pgxpool.Pool, mac, approvalSta
 		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
 		                   security_level, created_by, exam_started_at)
 		VALUES ('Ujian Presence', 'pres.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP)
-		RETURNING id`, token, owner).Scan(&newExamID); err != nil {
+		RETURNING id`, token, owner.ID).Scan(&newExamID); err != nil {
 		t.Fatalf("insert exam: %v", err)
 	}
+	examID = newExamID
 
 	if approvalStatus != "" {
 		if _, err := pool.Exec(ctx, `
@@ -55,7 +56,7 @@ func setupPresenceGateFixture(t *testing.T, pool *pgxpool.Pool, mac, approvalSta
 			t.Fatalf("insert approval: %v", err)
 		}
 	}
-	return newExamID, token
+	return examID, token
 }
 
 func presencePost(t *testing.T, pool *pgxpool.Pool, path string, payload map[string]interface{}, token string) int {
@@ -147,7 +148,7 @@ func TestPresenceLogoutWithApprovalOK(t *testing.T) {
 
 	var total int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM student_access_logs WHERE exam_id=$1 AND mac_address='DEVICE:logout-ok' AND event='logout'`,
+		`SELECT COUNT(*) FROM student_access_logs WHERE exam_id=$1 AND student_identifier='DEVICE:logout-ok' AND event='logout'`,
 		examID).Scan(&total); err != nil {
 		t.Fatalf("count access logs: %v", err)
 	}

@@ -515,7 +515,7 @@ func EnsureFreshSubmissionOnApproval(ctx context.Context, pool *pgxpool.Pool, ex
 	err = tx.QueryRow(ctx,
 		`SELECT answers_json FROM submissions
 		 WHERE exam_id = $1 AND mac_address = $2
-		 ORDER BY created_at DESC LIMIT 1`, examID, macAddress).Scan(&latestAnswers)
+		 ORDER BY created_at DESC, id DESC LIMIT 1`, examID, macAddress).Scan(&latestAnswers)
 
 	switch {
 	case err == pgx.ErrNoRows:
@@ -600,7 +600,7 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 	err = tx.QueryRow(ctx, `SELECT id FROM submissions
 		WHERE exam_id = $1 AND mac_address = $2
 		  AND ($3 = '' OR exam_number = $3)
-		ORDER BY created_at DESC LIMIT 1`, s.ExamID, s.MACAddress, s.ExamNumber).Scan(&existingID)
+		ORDER BY created_at DESC, id DESC LIMIT 1`, s.ExamID, s.MACAddress, s.ExamNumber).Scan(&existingID)
 
 	var created Submission
 	if err == nil {
@@ -653,7 +653,7 @@ func GetLatestSubmissionByIdentity(ctx context.Context, pool *pgxpool.Pool, exam
 	sql := `SELECT ` + defaultSubmissionColumns + ` FROM submissions
 	WHERE exam_id = $1 AND mac_address = $2
 	  AND ($3 = '' OR identity_data = $3)
-	ORDER BY created_at DESC LIMIT 1`
+	ORDER BY created_at DESC, id DESC LIMIT 1`
 	sub, err := scanSubmission(pool.QueryRow(ctx, sql, examID, macAddress, identityData))
 	if err != nil {
 		return Submission{}, err
@@ -787,7 +787,7 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 		SELECT DISTINCT ON (mac_address) ` + defaultSubmissionColumns + `
 		FROM submissions
 		WHERE exam_id = $1
-		ORDER BY mac_address, created_at DESC`
+		ORDER BY mac_address, created_at DESC, id DESC`
 
 	outerWhere := ""
 	if len(filters) > 0 {
@@ -811,7 +811,7 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 	offset := calcOffset(opts.Page, perPage)
 
 	sql := `SELECT ` + defaultSubmissionColumns + ` FROM (` + deduped + `) AS latest_subs` + outerWhere + `
-		ORDER BY student_name ASC LIMIT $` + fmt.Sprintf("%d", filterArgIdx) +
+		ORDER BY student_name ASC, id ASC LIMIT $` + fmt.Sprintf("%d", filterArgIdx) +
 		` OFFSET $` + fmt.Sprintf("%d", filterArgIdx+1)
 	args = append(args, perPage, offset)
 
@@ -870,7 +870,7 @@ func GetSubmissionStats(ctx context.Context, pool *pgxpool.Pool, examID int) (Su
 			SELECT DISTINCT ON (mac_address) answers_json, start_time
 			FROM submissions
 			WHERE exam_id = $1
-			ORDER BY mac_address, created_at DESC
+			ORDER BY mac_address, created_at DESC, id DESC
 		)
 		SELECT
 			COUNT(*) AS total,
@@ -946,7 +946,7 @@ func RecalculateAllScoresForExam(ctx context.Context, pool *pgxpool.Pool, examID
 		batchArgs := make([]interface{}, 0, len(updates)*2)
 		for i, u := range updates {
 			valueClauses = append(valueClauses,
-				fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
+				fmt.Sprintf("($%d::double precision, $%d::integer)", i*2+1, i*2+2))
 			batchArgs = append(batchArgs, u.Score, u.ID)
 		}
 		sql := `UPDATE submissions SET score = v.score FROM (VALUES ` +
