@@ -38,9 +38,19 @@ class PdfRendererHelper(
     var totalPages = 0
         private set
     private var currentBitmap: Bitmap? = null
+    private var currentPdfFile: File? = null
     private var downloadCall: Call? = null
     private var downloadStartedAtMs = 0L
     private var isCleanedUp = false
+
+    /**
+     * Dirilis saat app masuk background (profil low-memory / trim dari
+     * sistem). Renderer + bitmap dibuang, lalu dibuka kembali dari cache
+     * pada resume — menghemat ~6-20 MB saat proses hanya menunggu di LRU.
+     */
+    private var releasedForBackground = false
+    private var releasedPage = 0
+    private var releaseJob: kotlinx.coroutines.Job? = null
 
     /**
      * Fix review render PDF #3: increment terjadi di thread caller sedangkan
@@ -71,6 +81,17 @@ class PdfRendererHelper(
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
             am?.isLowRamDevice == true
         } catch (_: Exception) { false }
+    }
+
+    private val memoryClassMb: Int by lazy {
+        try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+            am?.memoryClass ?: 0
+        } catch (_: Exception) { 0 }
+    }
+
+    private val useLowRamProfile: Boolean by lazy {
+        PdfMemoryPolicy.useLowRamProfile(isLowRamDevice, memoryClassMb)
     }
 
     /**
@@ -147,6 +168,7 @@ class PdfRendererHelper(
      * Navigate to previous page if available.
      */
     fun prevPage() {
+        if (releasedForBackground) return
         if (currentPage > 0) {
             currentPage--
             renderPage(currentPage)
@@ -157,6 +179,7 @@ class PdfRendererHelper(
      * Navigate to next page if available.
      */
     fun nextPage() {
+        if (releasedForBackground) return
         if (currentPage < totalPages - 1) {
             currentPage++
             renderPage(currentPage)
@@ -170,6 +193,7 @@ class PdfRendererHelper(
      * PDF besar = jank/ANR saat pembukaan). UI callback tetap di main.
      */
     private fun openPdfAsync(file: File) {
+        currentPdfFile = file
         lifecycleScope.launch {
             val openedPageCount: Int? = renderMutex.withLock {
                 if (isCleanedUp) return@withLock null
@@ -240,6 +264,7 @@ class PdfRendererHelper(
      * - No race window where two renders run concurrently
      */
     fun renderPage(pageIndex: Int, revealOnSuccess: Boolean = false) {
+        if (releasedForBackground) return
         val renderer = pdfRenderer ?: return
         if (pageIndex < 0 || pageIndex >= renderer.pageCount) return
 
@@ -296,6 +321,68 @@ class PdfRendererHelper(
     }
 
     /**
+     * Lepaskan renderer PDF + bitmap saat activity masuk background.
+     *
+     * Pada profil low-memory ini otomatis; pada perangkat lain dipanggil
+     * dengan [force] = true saat sistem mengirim TRIM_MEMORY_BACKGROUND.
+     * Bitmap + native renderer adalah konsumen memori terbesar app; saat
+     * proses hanya menunggu di LRU, membuangnya menurunkan peluang proses
+     * dibunuh OEM. PDF dibuka kembali dari cache pada resume.
+     *
+     * Aman terhadap render yang sedang berjalan: [renderVersion] membatalkan
+     * hasil render lama, dan penutupan renderer menunggu [renderMutex].
+     */
+    fun releaseForBackground(force: Boolean = false) {
+        if (isCleanedUp || pdfRenderer == null) return
+        if (!force && !useLowRamProfile) return
+        if (releasedForBackground) return
+
+        releasedForBackground = true
+        releasedPage = currentPage
+        renderVersion++ // batalkan hasil render yang masih berjalan
+
+        releaseJob = lifecycleScope.launch {
+            renderMutex.withLock {
+                withContext(Dispatchers.Main) {
+                    if (isCleanedUp) return@withContext
+                    closeCurrentDocument()
+                    currentBitmap?.recycle()
+                    currentBitmap = null
+                    binding.ivPdfPage.setImageDrawable(null)
+                    Log.i(
+                        TAG,
+                        "PDF dirilis saat background (lowRamProfile=$useLowRamProfile force=$force)"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Buka kembali PDF dari cache setelah [releaseForBackground].
+     * Halaman terakhir dipertahankan. Bila cache sudah hilang, tampilkan
+     * error agar siswa bisa menekan "Coba Lagi" (unduh ulang).
+     */
+    fun reopenIfNeeded() {
+        if (isCleanedUp || !releasedForBackground) return
+        val page = releasedPage
+        val file = currentPdfFile
+        val previousJob = releaseJob
+
+        releaseJob = lifecycleScope.launch {
+            previousJob?.join()
+            if (isCleanedUp || !releasedForBackground) return@launch
+            releasedForBackground = false
+            if (file != null && file.exists() && file.length() > 0) {
+                pendingRestorePage = page
+                openPdfAsync(file)
+            } else {
+                onError?.invoke("Gagal membuka kembali PDF")
+            }
+        }
+    }
+
+    /**
      * Render satu halaman ke bitmap. Mencoba resolusi normal dulu; bila gagal
      * (termasuk OutOfMemoryError yang TIDAK tertangkap `catch (Exception)`)
      * ulangi dengan setengah resolusi.
@@ -319,8 +406,8 @@ class PdfRendererHelper(
             // diberi batas lebih rendah: teks soal tetap tajam di layar 720p,
             // tapi memori bitmap turun ~55% sehingga kecil kemungkinan OOM
             // saat dua bitmap sempat hidup bersamaan.
-            val maxWidth = if (isLowRamDevice) 1024 else 2048
-            val maxHeight = if (isLowRamDevice) 1536 else 4096
+            val maxWidth = PdfMemoryPolicy.maxWidth(useLowRamProfile)
+            val maxHeight = PdfMemoryPolicy.maxHeight(useLowRamProfile)
             var targetWidth = (screenWidth * 2).coerceAtMost(maxWidth)
             targetWidth = targetWidth.coerceAtMost(page.width * 2)
 
@@ -413,12 +500,16 @@ class PdfRendererHelper(
 
     fun cleanup() {
         isCleanedUp = true
+        releasedForBackground = false
+        releaseJob?.cancel()
+        releaseJob = null
         cancelDownload()
         setSwipeListener(null)
         renderVersion++ // invalidates any in-flight render
         closeCurrentDocument()
         currentBitmap?.recycle()
         currentBitmap = null
+        currentPdfFile = null
     }
 
     companion object {

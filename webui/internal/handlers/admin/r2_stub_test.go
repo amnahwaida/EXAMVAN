@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"io"
+	"sync"
 	"time"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
@@ -13,6 +14,10 @@ import (
 // touched) and can be switched to a failing backend. No network involved —
 // this is exactly why r2.Client is an interface.
 type stubR2 struct {
+	// mu guards the recorded key slices: concurrent-upload tests call the
+	// client from several goroutines at once, so append must be serialized
+	// (otherwise `go test -race` flags a data race in the stub itself).
+	mu             sync.Mutex
 	enabled        bool
 	uploads        []string
 	signed         []string
@@ -42,7 +47,9 @@ func (s *stubR2) UploadWithContentType(ctx context.Context, key string, reader i
 			return ctx.Err()
 		}
 	}
+	s.mu.Lock()
 	s.uploads = append(s.uploads, key)
+	s.mu.Unlock()
 	return s.failWith
 }
 
@@ -54,12 +61,16 @@ func (s *stubR2) UploadBytes(ctx context.Context, key string, data []byte) error
 			return ctx.Err()
 		}
 	}
+	s.mu.Lock()
 	s.uploads = append(s.uploads, key)
+	s.mu.Unlock()
 	return s.failWith
 }
 
 func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	s.mu.Lock()
 	s.signed = append(s.signed, key)
+	s.mu.Unlock()
 	if s.failWith != nil {
 		return "", s.failWith
 	}
@@ -67,7 +78,9 @@ func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (
 }
 
 func (s *stubR2) Delete(ctx context.Context, key string) error {
+	s.mu.Lock()
 	s.deletes = append(s.deletes, key)
+	s.mu.Unlock()
 	if s.deleteFailWith != nil {
 		return s.deleteFailWith
 	}

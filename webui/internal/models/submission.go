@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -511,6 +512,23 @@ func EnsureFreshSubmissionOnApproval(ctx context.Context, pool *pgxpool.Pool, ex
 		return fmt.Errorf("advisory lock: %w", err)
 	}
 
+	// Resolve the student identity once. The stable key is used below to
+	// consume a one-shot "Izinkan Mengulang" grant, so an explicit grant only
+	// authorises a single repeat instead of becoming a standing bypass.
+	var studentName, examNumber, studentClass string
+	err = tx.QueryRow(ctx,
+		`SELECT COALESCE(student_name, ''), COALESCE(exam_number, ''), COALESCE(student_class, '')
+		 FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, macAddress).Scan(&studentName, &examNumber, &studentClass)
+	if err == pgx.ErrNoRows {
+		// No approval row — the placeholder INSERT below would be a no-op.
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return fmt.Errorf("lookup approval identity: %w", err)
+	}
+	studentKey := helpers.StudentKey(examNumber, studentName, studentClass)
+
 	var latestAnswers *string
 	err = tx.QueryRow(ctx,
 		`SELECT answers_json FROM submissions
@@ -526,7 +544,9 @@ func EnsureFreshSubmissionOnApproval(ctx context.Context, pool *pgxpool.Pool, ex
 		if err != nil {
 			return fmt.Errorf("lookup latest submission: %w", err)
 		}
-		// An open (in-progress) row already exists — nothing to do.
+		// An open (in-progress) row already exists — nothing to do. Do NOT
+		// consume a grant here: a supervisor may have granted one for the
+		// NEXT repeat while this attempt is still running.
 		return tx.Commit(ctx)
 	}
 
@@ -539,6 +559,26 @@ func EnsureFreshSubmissionOnApproval(ctx context.Context, pool *pgxpool.Pool, ex
 		examID, macAddress, time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("insert submission on approval: %w", err)
+	}
+
+	// The new open row is now visible inside this transaction. If it is a
+	// repeat (there is a completed attempt before it), consume any explicit
+	// "Izinkan Mengulang" grant atomically: one grant = one attempt. Doing
+	// this in the same transaction means a failed cleanup rolls the open row
+	// back too, so the next poll retries a consistent state.
+	if studentKey != "" {
+		var isRepeat bool
+		if err := tx.QueryRow(ctx, `SELECT `+openRepeatAttemptSQL,
+			examID, studentKey).Scan(&isRepeat); err != nil {
+			return fmt.Errorf("check open repeat attempt: %w", err)
+		}
+		if isRepeat {
+			if _, err := tx.Exec(ctx,
+				`DELETE FROM exam_repeat_grants WHERE exam_id = $1 AND student_key = $2`,
+				examID, studentKey); err != nil {
+				return fmt.Errorf("consume repeat grant: %w", err)
+			}
+		}
 	}
 	return tx.Commit(ctx)
 }

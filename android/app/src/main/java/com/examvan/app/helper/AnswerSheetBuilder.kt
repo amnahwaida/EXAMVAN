@@ -56,6 +56,8 @@ class AnswerSheetBuilder(
             android.util.Log.w("AnswerSheet", "Soal $number dilewati: $reason")
         }
         binding.answerListContainer.layoutManager = LinearLayoutManager(context)
+        binding.answerListContainer.setHasFixedSize(true)
+        binding.answerListContainer.itemAnimator = null
         binding.answerListContainer.adapter = adapter
     }
 

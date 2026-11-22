@@ -73,6 +73,11 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var serverUrl = ""
     private var examToken = ""
     private var securityLevel = ExamModePolicy.DEFAULT_LEVEL
+    // Mode strict yang DIKONFIGURASI (dari intent/prefs), bukan status
+    // aktivasi lock task. Dipakai untuk memutuskan auto-submit: exam strict
+    // tidak boleh ter-submit hanya karena siswa keluar saat aktivasi pin
+    // belum berhasil / sedang menampilkan layar gesture-blocked.
+    private var sessionStrictMode = false
     private var examContentLoaded = false
 
     /**
@@ -171,16 +176,62 @@ class ExamViewerActivity : BaseSecureActivity() {
         registerBatteryIndicator()
         refreshConnectionIndicator()
 
-        // Read intent extras
-        examId = intent.getIntExtra("exam_id", -1)
-        examName = intent.getStringExtra("exam_name") ?: getString(R.string.default_exam_name)
+        // Read intent extras. Fallback ke prefs agar auto-resume (launch
+        // langsung dari ServerConfigActivity setelah proses dibunuh OEM)
+        // tetap membawa data sesi yang lengkap.
+        val sessionPrefs = AppPrefs.getExamPrefsSafe(this)
+        val configPrefs = AppPrefs.getConfigPrefsSafe(this)
+        val storedExamId = configPrefs.getInt(AppPrefs.KEY_EXAM_ID, -1)
+        examId = intent.getIntExtra("exam_id", storedExamId)
+        // Fallback prefs hanya boleh dipakai bila menunjuk exam yang SAMA;
+        // jangan sampai sesi lama "membocorkan" nama/token/end_time ke exam
+        // lain yang intent-nya tidak lengkap.
+        val sameStoredExam = storedExamId == examId
+        val resolvedExamName = intent.getStringExtra("exam_name")
+            ?: sessionPrefs.getString(AppPrefs.KEY_EXAM_NAME, null)
+                ?.takeIf { sameStoredExam }
+        examName = resolvedExamName ?: getString(R.string.default_exam_name)
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
         identityData = intent.getStringExtra("identity_data")
-        serverUrl = intent.getStringExtra("server_url") ?: ""
-        examToken = intent.getStringExtra("exam_token") ?: ""
+            ?: configPrefs.getString(AppPrefs.KEY_IDENTITY_DATA, null)
+        serverUrl = intent.getStringExtra("server_url")
+            ?: configPrefs.getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
+        examToken = intent.getStringExtra("exam_token")?.takeIf { it.isNotBlank() }
+            ?: if (sameStoredExam) {
+                AppPrefs.getActiveExamToken(this).ifEmpty { AppPrefs.getExamToken(this) }
+            } else {
+                ""
+            }
         endTime = intent.getStringExtra("end_time")
+            ?: sessionPrefs.getString(AppPrefs.KEY_END_TIME, null)
+                ?.takeIf { sameStoredExam && it.isNotBlank() }
+
+        // Simpan data peluncuran untuk auto-resume berikutnya (process death).
+        // Exam ID + server disimpan di exam prefs agar tetap ada walau siswa
+        // tidak mencentang "Ingat URL" (config prefs-nya dihapus).
+        val sessionEditor = sessionPrefs.edit()
+        if (examId > 0) sessionEditor.putInt(AppPrefs.KEY_ACTIVE_EXAM_ID, examId)
+        if (serverUrl.isNotBlank()) {
+            sessionEditor.putString(AppPrefs.KEY_ACTIVE_SERVER_URL, serverUrl)
+        }
+        if (!resolvedExamName.isNullOrBlank()) {
+            sessionEditor.putString(AppPrefs.KEY_EXAM_NAME, resolvedExamName)
+        }
+        if (!endTime.isNullOrBlank()) {
+            sessionEditor.putString(AppPrefs.KEY_END_TIME, endTime)
+        }
+        // commit() agar metadata auto-resume durable sebelum proses bisa
+        // dibunuh OEM saat app di-background.
+        val sessionCommitted = sessionEditor.commit()
+        android.util.Log.i(
+            "ExamResume",
+            "active session metadata committed=$sessionCommitted examId=$examId"
+        )
+        if (examToken.isNotBlank()) {
+            AppPrefs.setActiveExamToken(this, examToken)
+        }
 
         // Defensive: pastikan ApiClient menunjuk ke server ujian ini — state
         // statis baseUrl hilang saat proses mati (process death), dan semua
@@ -204,9 +255,6 @@ class ExamViewerActivity : BaseSecureActivity() {
             return
         }
 
-        // Read from Intent first (to avoid race conditions on fresh save), fallback to EncryptedSharedPreferences
-        val strictMode = intent.getBooleanExtra("strict_mode", false) ||
-                AppPrefs.getExamPrefsSafe(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
         // Normalisasi defensif (fix review low-mode #1): sumber hulu sudah
         // dinormalisasi, tapi nilai lama dari prefs versi sebelumnya bisa
         // belum ternormalisasi.
@@ -214,6 +262,15 @@ class ExamViewerActivity : BaseSecureActivity() {
             intent.getStringExtra("security_level")
                 ?: AppPrefs.getExamPrefsSafe(this).getString(AppPrefs.KEY_SECURITY_LEVEL, null)
         )
+        // Read from Intent first (to avoid race conditions on fresh save),
+        // fallback to EncryptedSharedPreferences. Level "high" selalu strict
+        // walau flag strict_mode hilang/false (server/prefs lama).
+        val strictMode = ExamModePolicy.isStrict(
+            securityLevel,
+            intent.getBooleanExtra("strict_mode", false) ||
+                AppPrefs.getExamPrefsSafe(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
+        )
+        sessionStrictMode = strictMode
         macAddress = DeviceIdResolver.resolveDeviceId(this)
         binding.tvExamTitle.text = ""
 
@@ -304,15 +361,21 @@ class ExamViewerActivity : BaseSecureActivity() {
         // PdfRendererHelper
         pdfRendererHelper = PdfRendererHelper(binding, lifecycleScope, this).apply {
             onPdfReady = {
+                val alreadyReady = viewModel.isPdfReady.value
                 viewModel.setPdfReady(true)
                 securityEnforcer.isPdfReady = true
                 // Catat waktu PDF siap — dasar grace period startup agar
                 // Home tidak sengaja sesaat setelah ujian terbuka tidak
                 // langsung memicu auto-submit (fix temuan review mode
                 // medium #4; lihat ExamModePolicy.isWithinStartupGrace).
-                pdfReadyAtMs = System.currentTimeMillis()
-                // One-time gesture warning in strict mode
-                securityEnforcer.showGestureWarningOnce()
+                // JANGAN reset saat PDF dibuka kembali setelah background:
+                // grace period yang di-reset bisa dipakai untuk keluar
+                // berulang tanpa konsekuensi.
+                if (!alreadyReady && pdfReadyAtMs == null) {
+                    pdfReadyAtMs = System.currentTimeMillis()
+                    // One-time gesture warning in strict mode
+                    securityEnforcer.showGestureWarningOnce()
+                }
                 startCountdownTimer()
             }
             onError = { msg ->
@@ -334,6 +397,11 @@ class ExamViewerActivity : BaseSecureActivity() {
         // SecurityEnforcer
         securityEnforcer = SecurityEnforcer(this, binding).apply {
             securityLevel = this@ExamViewerActivity.securityLevel
+            // Set sejak awal: status "strict" adalah konfigurasi exam, bukan
+            // hasil aktivasi pin. Tanpa ini jendela sebelum aktivasi (atau
+            // aktivasi yang gagal) membuat focus-loss diperlakukan sebagai
+            // medium dan men-submit ujian strict secara diam-diam.
+            if (strictMode) markStrictSession()
             onCreateTime = System.currentTimeMillis()
             onLogoutRequested = { confirmAndLogout() }
             // "Keluar" di layar strict-failed = auto-submit: jawaban tetap
@@ -481,8 +549,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             Log.i(TAG, "Restored startTime: $startTime")
         } else {
             startTime = Instant.now().toString()
-            prefs.edit().putString(AppPrefs.KEY_EXAM_START_TIME, startTime).apply()
-            Log.i(TAG, "New startTime: $startTime")
+            val startCommitted = prefs.edit()
+                .putString(AppPrefs.KEY_EXAM_START_TIME, startTime)
+                .commit()
+            Log.i(TAG, "New startTime: $startTime committed=$startCommitted")
         }
         submissionManager.startTime = startTime
 
@@ -634,6 +704,11 @@ class ExamViewerActivity : BaseSecureActivity() {
             submissionManager.totalQuestions = 0
             return
         }
+        // Soal bisa datang dari fetch server SETELAH percobaan pertama
+        // kosong (questions_json Intent tidak terbaca). hideAnswerOverlay()
+        // sudah menyembunyikan toggle & tombol kumpulkan; tanpa memulihkan
+        // di sini PDF tampil tetapi lembar jawaban tetap hilang (Samsung A51).
+        showAnswerOverlay()
         submissionManager.totalQuestions = answerSheetBuilder.build(questions)
         // Restore saved answers (#6 fix: view tagging handles this)
         val savedAnswers = submissionManager.restoreAnswersFromPrefs()
@@ -756,6 +831,12 @@ class ExamViewerActivity : BaseSecureActivity() {
         binding.answerSheetToggle.visibility = View.GONE
         binding.answerSheetPanel.visibility = View.GONE
         binding.btnSubmitAnswers.visibility = View.GONE
+    }
+
+    private fun showAnswerOverlay() {
+        binding.answerSheetToggle.visibility = View.VISIBLE
+        binding.btnToggleAnswerSheet.visibility = View.VISIBLE
+        binding.btnSubmitAnswers.visibility = View.VISIBLE
     }
 
     private fun confirmAndLogout() {
@@ -886,6 +967,16 @@ class ExamViewerActivity : BaseSecureActivity() {
             // Banner mencerminkan mode aktif (juga menutup kasus strict-failed
             // yang sebelumnya tidak pernah di-update setelah aktivasi gagal).
             updateSecurityBanner()
+            // PDF yang dirilis saat background dibuka kembali dari cache.
+            // Jangan lakukan bila alur sudah selesai/auto-submit sedang jalan.
+            if (::pdfRendererHelper.isInitialized &&
+                ::submissionManager.isInitialized &&
+                !viewModel.submittedOrExited.value &&
+                !submissionManager.submittedOrExited &&
+                !submissionManager.isSubmitting
+            ) {
+                pdfRendererHelper.reopenIfNeeded()
+            }
             if (viewModel.isPdfReady.value) {
                 startCountdownTimer()
             }
@@ -904,13 +995,58 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Buang bitmap + renderer PDF selagi background (profil low-memory).
+        // Diletakkan sebelum early-return auto-submit/grace agar tetap jalan.
+        if (::pdfRendererHelper.isInitialized &&
+            !isFinishing && !isDestroyed &&
+            !viewModel.submittedOrExited.value &&
+            (!::submissionManager.isInitialized ||
+                (!submissionManager.submittedOrExited && !submissionManager.isSubmitting))
+        ) {
+            pdfRendererHelper.releaseForBackground()
+        }
         if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
+                // Strict: tandai sesi aktif agar kembali dari background
+                // langsung membuka soal walau OEM menghancurkan activity ini.
+                // (onDestroy saja tidak cukup: sebagian OEM memanggil
+                // finish() saat memindahkan app ke background.)
+                if (sessionStrictMode && !isFinishing) {
+                    val examPrefs = AppPrefs.getExamPrefsSafe(this)
+                    if (!examPrefs.getString(AppPrefs.KEY_EXAM_START_TIME, null).isNullOrBlank()) {
+                        examPrefs.edit()
+                            .putBoolean(AppPrefs.KEY_AUTO_RESUME_PENDING, true)
+                            .apply()
+                        android.util.Log.i(
+                            "ExamResume",
+                            "pending flag set in onStop (strict, backgrounded)"
+                        )
+                    }
+                }
                 if (suppressedByStartupGrace()) return  // grace startup (fix #4)
-                if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, securityEnforcer.strictMode)) {
+                if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, sessionStrictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
             }
+        }
+    }
+
+    /**
+     * Sinyal memori dari sistem: bila proses sudah masuk background LRU
+     * (TRIM_MEMORY_BACKGROUND ke atas), lepaskan PDF pada SEMUA perangkat —
+     * bukan hanya profil low-memory. Bitmap + renderer adalah konsumen
+     * terbesar; membuangnya membantu sistem mempertahankan proses ini hidup.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND &&
+            ::pdfRendererHelper.isInitialized &&
+            !isFinishing && !isDestroyed &&
+            !viewModel.submittedOrExited.value &&
+            (!::submissionManager.isInitialized ||
+                (!submissionManager.submittedOrExited && !submissionManager.isSubmitting))
+        ) {
+            pdfRendererHelper.releaseForBackground(force = true)
         }
     }
 
@@ -934,7 +1070,7 @@ class ExamViewerActivity : BaseSecureActivity() {
             // men-submit — siswa diberi waktu masuk terlebih dahulu.
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
                 if (suppressedByStartupGrace()) return
-                if (ExamModePolicy.shouldAutoSubmitOnUserLeave(securityLevel, securityEnforcer.strictMode)) {
+                if (ExamModePolicy.shouldAutoSubmitOnUserLeave(securityLevel, sessionStrictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
             }
@@ -946,14 +1082,14 @@ class ExamViewerActivity : BaseSecureActivity() {
         if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
             securityEnforcer.isPdfReady = viewModel.isPdfReady.value
             securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
-            securityEnforcer.handleWindowFocusChanged(hasFocus) {
+            securityEnforcer.handleWindowFocusChanged(hasFocus, sessionStrictMode) {
                 // Auto-submit HANYA di medium mode (lihat ExamModePolicy): low
                 // bebas keluar-masuk tanpa konsekuensi; strict memakai lock task
                 // pin (auto-submit justru melepas pin dan membebaskan siswa).
                 // Grace startup juga berlaku di sini (fix #4): dialog sistem
                 // yang muncul beberapa detik pertama tak boleh men-submit.
                 if (suppressedByStartupGrace()) return@handleWindowFocusChanged
-                if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, securityEnforcer.strictMode)) {
+                if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, sessionStrictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
             }
@@ -1018,6 +1154,21 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     override fun onDestroy() {
+        // Sesi masih aktif tapi activity dihancurkan sistem (bukan finish):
+        // tandai agar ServerConfigActivity melakukan auto-resume di onResume.
+        // Ini menutup kasus MIUI/HyperOS menghancurkan ExamViewer saat app
+        // di-background, sementara activity token hanya di-resume dari back
+        // stack (onCreate tidak dipanggil).
+        if (!isFinishing && !viewModel.submittedOrExited.value) {
+            val examPrefs = AppPrefs.getExamPrefsSafe(this)
+            if (!examPrefs.getString(AppPrefs.KEY_EXAM_START_TIME, null).isNullOrBlank()) {
+                examPrefs.edit().putBoolean(AppPrefs.KEY_AUTO_RESUME_PENDING, true).apply()
+                android.util.Log.i(
+                    "ExamResume",
+                    "pending flag set in onDestroy (system destroyed active exam)"
+                )
+            }
+        }
         super.onDestroy()
         countDownTimer?.cancel()
         deadlineRunnable?.let { deadlineHandler?.removeCallbacks(it) }

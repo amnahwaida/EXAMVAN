@@ -110,7 +110,10 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         securityLevel = com.examvan.app.helper.ExamModePolicy.normalize(
             intent.getStringExtra("security_level")
         )
-        strictMode = intent.getBooleanExtra("strict_mode", false)
+        strictMode = com.examvan.app.helper.ExamModePolicy.isStrict(
+            securityLevel,
+            intent.getBooleanExtra("strict_mode", false)
+        )
         questionsJson = intent.getStringExtra("questions_json")
     }
 
@@ -201,6 +204,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     // ── Animations ──────────────────────────────────────────────────
 
     private fun startPulseAnimation() {
+        if (pulseAnimator?.isRunning == true) return
         val scaleX = PropertyValuesHolder.ofFloat(View.SCALE_X, 1.0f, 1.08f)
         val scaleY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.0f, 1.08f)
         pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(binding.tvWaitingIcon, scaleX, scaleY).apply {
@@ -213,6 +217,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     }
 
     private fun startDotsAnimation() {
+        if (dotsAnimator?.isRunning == true) return
         val patterns = listOf("●  ○  ○", "○  ●  ○", "○  ○  ●", "○  ●  ○")
         var index = 0
         dotsAnimator = ValueAnimator.ofInt(0, patterns.size - 1).apply {
@@ -227,6 +232,18 @@ class WaitingApprovalActivity : BaseSecureActivity() {
             }
             start()
         }
+    }
+
+    /**
+     * Hentikan animator saja (TANPA menghapus callback handler) — dipakai
+     * saat background agar animasi infinite tidak terus membangunkan
+     * Choreographer/CPU. Navigasi onApproved (postDelayed) harus tetap hidup.
+     */
+    private fun cancelAnimators() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+        dotsAnimator?.cancel()
+        dotsAnimator = null
     }
 
     // ── Polling ─────────────────────────────────────────────────────
@@ -300,6 +317,12 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     private fun onApproved() {
         isWaiting = false
         stopAnimations()
+
+        // Attempt baru (termasuk repeat yang disetujui) harus membuang
+        // penanda lokal "sudah submit" dari attempt sebelumnya. Tanpa ini
+        // ExamViewerActivity langsung menampilkan layar "Ujian Sudah Selesai"
+        // walau server sudah menyetujui repeat.
+        AppPrefs.clearSubmittedState(this, examId)
 
         // Brief approved animation before proceeding (typographic checkmark)
         binding.tvWaitingIcon.text = "✓"
@@ -385,10 +408,11 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     }
 
     /**
-     * Siswa sudah punya submission untuk ujian ini dan belum diberi izin
-     * mengulang. Server menolak SEBELUM membuat baris approval, jadi pengawas
-     * memang tidak akan pernah melihat permintaan ini — berhenti polling dan
-     * jelaskan, jangan biarkan siswa menunggu/mencoba berulang tanpa hasil.
+     * Respons lama (legacy): siswa sudah punya submission dan belum diberi
+     * izin mengulang, sehingga server lama menolak SEBELUM membuat baris
+     * approval. Server baru mengantrekan permintaan itu sebagai pending dan
+     * tidak pernah mengirim kode ini; handler tetap dipertahankan supaya
+     * APK baru tidak menunggu selamanya bila terhubung ke server lama.
      */
     private fun onRepeatRequired(message: String) {
         isWaiting = false
@@ -406,8 +430,9 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         binding.tvRejectedMessage.text = message.ifBlank {
             getString(R.string.approval_repeat_message)
         }
-        // "Minta Izin Lagi" tidak akan membantu: gerbang repeat berjalan
-        // sebelum insert/auto-approve. Sembunyikan, sisakan tombol Kembali.
+        // Pada server legacy, "Minta Izin Lagi" tidak akan membantu: gerbang
+        // repeat berjalan sebelum insert/auto-approve. Sembunyikan, sisakan
+        // tombol Kembali.
         binding.btnRetryRequest.visibility = View.GONE
         binding.btnCancel.text = getString(R.string.approval_btn_back)
         binding.btnCancel.setOnClickListener { finish() }
@@ -520,22 +545,26 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         if (pollGate.resume() && isWaiting) {
             handler.removeCallbacks(pollRunnable)
             handler.post(pollRunnable)
+            // Animasi dihentikan di onStop — mulai lagi di sini.
+            startPulseAnimation()
+            startDotsAnimation()
         }
     }
 
     override fun onStop() {
         super.onStop()
-        // Hentikan rantai polling saat background — HANYA runnable polling;
-        // postDelayed navigasi (onApproved) tidak boleh ikut terhapus agar
-        // persetujuan yang datang di detik terakhir tetap lanjut ke ujian.
+        // Hentikan rantai polling + animasi infinite saat background — HANYA
+        // runnable polling/animator; postDelayed navigasi (onApproved) tidak
+        // boleh ikut terhapus agar persetujuan yang datang di detik terakhir
+        // tetap lanjut ke ujian.
         if (pollGate.pause()) {
             handler.removeCallbacks(pollRunnable)
         }
+        cancelAnimators()
     }
 
     private fun stopAnimations() {
-        pulseAnimator?.cancel()
-        dotsAnimator?.cancel()
+        cancelAnimators()
         handler.removeCallbacksAndMessages(null)
     }
 

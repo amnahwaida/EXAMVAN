@@ -204,6 +204,10 @@ class SubmissionManager(
             .remove(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
             .remove(AppPrefs.KEY_EXAM_START_TIME)
+            .remove(AppPrefs.KEY_ACTIVE_EXAM_TOKEN)
+            .remove(AppPrefs.KEY_ACTIVE_EXAM_ID)
+            .remove(AppPrefs.KEY_ACTIVE_SERVER_URL)
+            .remove(AppPrefs.KEY_AUTO_RESUME_PENDING)
             .apply()
         // Naskah soal tidak menetap di perangkat setelah jawaban durable
         // (review klien 14 Nov 2026): cache PDF ujian ikut dibersihkan.
@@ -214,6 +218,13 @@ class SubmissionManager(
         private const val TAG = "SubmissionManager"
         private const val CHANNEL_ID = "examvan_auto_submit_v2"
         private const val REQUEST_NOTIFICATION_PERMISSION = 1001
+
+        // Recovery adalah aksi manual siswa: jangan ulangi 4x + poll 75 dtk
+        // (bisa >3 menit dengan tombol "Mengirim..." disabled). Satu
+        // percobaan dengan poll lebih pendek membuat kegagalan cepat terlihat
+        // dan tombol bisa ditekan lagi.
+        private const val RECOVERY_SUBMIT_ATTEMPTS = 1
+        private const val RECOVERY_QUEUED_POLL_DEADLINE_MS = 30_000L
 
         /**
          * True bila jawaban untuk [examId] masih tersimpan di prefs — artinya
@@ -467,20 +478,28 @@ class SubmissionManager(
     // ---- Auto-submit ----
 
     /**
-     * Submit dengan retry (1+3 percobaan, backoff 1/2/4 dtk).
+     * Submit dengan retry (default 1+3 percobaan, backoff 1/2/4 dtk).
      *
      * @param answersOverride jawaban pengganti — dipakai jalur recovery
      *        (resubmitPendingAnswers) yang mengirim dari prefs; default
      *        memakai jawaban dari getAnswers (alur normal / auto-submit).
+     * @param maxAttempts jumlah percobaan; recovery memakai 1 agar tombol
+     *        "Kirim Lagi" tidak terkunci lama saat jaringan bermasalah.
+     * @param queuedPollDeadlineMs anggaran polling /result untuk submit async.
      * @return SubmitResult — sukses hanya bila server menerima (sync) ATAU
      *         worker mengkonfirmasi durable via polling /result (async 202).
      */
-    suspend fun submitWithRetry(answersOverride: Map<String, Any>? = null): ApiClient.SubmitResult {
+    suspend fun submitWithRetry(
+        answersOverride: Map<String, Any>? = null,
+        maxAttempts: Int = 4,
+        queuedPollDeadlineMs: Long = QueuedResultPolling.POLL_DEADLINE_MS
+    ): ApiClient.SubmitResult {
         val delays = listOf(1000L, 2000L, 4000L)
+        val attempts = maxAttempts.coerceAtLeast(1)
         var last = ApiClient.SubmitResult(
             false, context.getString(R.string.answer_submit_error), null
         )
-        for (attempt in 0..3) {
+        for (attempt in 0 until attempts) {
             try {
                 val answers = answersOverride ?: (getAnswers?.invoke() ?: emptyMap())
                 val result = withContext(Dispatchers.IO) {
@@ -504,16 +523,18 @@ class SubmissionManager(
                     // the worker to make them durable before clearing the local
                     // copy (clearSavedAnswers runs in the caller only when
                     // this returns success).
-                    return result.copy(success = awaitQueuedResultDurable())
+                    return result.copy(success = awaitQueuedResultDurable(queuedPollDeadlineMs))
                 }
                 last = result
-                if (attempt < 3) delay(delays[attempt])
+                if (attempt < attempts - 1) {
+                    delay(delays.getOrElse(attempt) { delays.last() })
+                }
             } catch (e: Exception) {
                 last = ApiClient.SubmitResult(
                     false, e.message ?: context.getString(R.string.answer_submit_error), null
                 )
-                if (attempt < 3) {
-                    delay(delays[attempt])
+                if (attempt < attempts - 1) {
+                    delay(delays.getOrElse(attempt) { delays.last() })
                 } else {
                     break
                 }
@@ -615,7 +636,11 @@ class SubmissionManager(
             return
         }
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
-            val result = submitWithRetry(saved)
+            val result = submitWithRetry(
+                answersOverride = saved,
+                maxAttempts = RECOVERY_SUBMIT_ATTEMPTS,
+                queuedPollDeadlineMs = RECOVERY_QUEUED_POLL_DEADLINE_MS
+            )
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 if (result.success) clearSavedAnswers()
                 onResult(result)

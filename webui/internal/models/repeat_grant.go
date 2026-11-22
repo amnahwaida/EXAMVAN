@@ -27,9 +27,18 @@ type RepeatGrant struct {
 // monitoring bisa menampilkan siswa yang sedang mengerjakan. Kalau baris
 // kosong ikut dihitung, polling kedua dari ujian yang SEDANG BERLANGSUNG
 // akan terbaca sebagai "sudah mengulang" dan siswa terkunci di tengah ujian.
-func hasSubmittedAnswersFilter() string {
-	return "COALESCE(NULLIF(BTRIM(answers_json), ''), '') <> ''"
-}
+// SubmittedAnswersFilterSQL adalah predikat SQL "submission ini punya
+// jawaban nyata". Diekspor karena request-approval perlu mengecek definisi
+// yang SAMA di dalam ON CONFLICT DO UPDATE (di bawah row lock), dan
+// duplikasi string itu gampang melenceng.
+//
+// answers_json = '{}' / '[]' adalah payload kosong yang tetap ditulis
+// client saat auto-submit tidak punya jawaban. Itu BUKAN attempt: kalau
+// dihitung, siswa yang ter-auto-submit tanpa menjawab apa pun terkunci
+// "sudah mengerjakan" padahal tidak ada jawaban yang perlu dilindungi.
+const SubmittedAnswersFilterSQL = `COALESCE(NULLIF(BTRIM(answers_json), ''), '') NOT IN ('', '{}', '[]', 'null')`
+
+func hasSubmittedAnswersFilter() string { return SubmittedAnswersFilterSQL }
 
 // Pencocokan memakai exam_number dulu, karena itu yang paling stabil dan
 // paling unik di kelas. Hanya kalau kolomnya kosong untuk semua baris
@@ -83,6 +92,117 @@ func HasSubmissionForStudentKey(
 		return false, fmt.Errorf("count submissions by name: %w", err)
 	}
 	return byName > 0, nil
+}
+
+// openRepeatAttemptSQL detects an open repeat attempt for a student:
+// $1 = exam_id, $2 = student_key. The approval bookkeeping transaction reuses
+// it to consume a one-shot repeat grant atomically with the new open row.
+const openRepeatAttemptSQL = `EXISTS (
+	WITH keyed AS (
+		SELECT
+			LOWER(BTRIM(COALESCE(exam_number, ''))) AS number_key,
+			LOWER(BTRIM(COALESCE(student_name, ''))) AS name_key,
+			(answers_json IS NULL OR BTRIM(answers_json) = '') AS is_open,
+			(BTRIM(COALESCE(start_time, '')) <> '') AS has_start,
+			created_at,
+			` + SubmittedAnswersFilterSQL + ` AS is_completed
+		FROM submissions
+		WHERE exam_id = $1
+	),
+	has_numbers AS (
+		SELECT EXISTS(SELECT 1 FROM keyed WHERE number_key <> '') AS any_number
+	),
+	matched AS (
+		SELECT * FROM keyed
+		WHERE (number_key = $2 AND (SELECT any_number FROM has_numbers))
+		   OR (name_key = $2 AND NOT (SELECT any_number FROM has_numbers))
+	),
+	latest_completed AS (
+		SELECT MAX(created_at) AS ts FROM matched WHERE is_completed
+	)
+	SELECT 1 FROM matched m, latest_completed lc
+	WHERE m.is_open AND m.has_start AND lc.ts IS NOT NULL
+	  AND m.created_at > lc.ts
+)`
+
+// HasOpenRepeatAttempt melaporkan apakah siswa punya baris attempt yang masih
+// terbuka (belum dijawab) SETELAH attempt selesai terakhirnya. Baris itu
+// adalah penanda bahwa pengawas sudah menyetujui repeat yang sedang berjalan.
+// Setelah siswa submit, tidak ada lagi baris terbuka setelah attempt terakhir,
+// sehingga permintaan repeat berikutnya kembali masuk antrean pending — satu
+// approval untuk satu attempt, bukan izin permanen.
+//
+// Pencocokan memakai aturan yang sama dengan HasSubmissionForStudentKey:
+// nomor ujian dulu, fallback nama hanya bila tidak ada satu pun submission di
+// ujian itu yang punya nomor.
+func HasOpenRepeatAttempt(
+	ctx context.Context, pool *pgxpool.Pool, examID int, studentKey string,
+) (bool, error) {
+	studentKey = strings.ToLower(strings.TrimSpace(studentKey))
+	if studentKey == "" {
+		return false, nil
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT `+openRepeatAttemptSQL,
+		examID, studentKey).Scan(&exists); err != nil {
+		return false, fmt.Errorf("has open repeat attempt: %w", err)
+	}
+	return exists, nil
+}
+
+// SubmittedStudentKeys mengembalikan himpunan kunci siswa yang punya minimal
+// satu submission BERJAWABAN untuk ujian ini, memakai aturan pencocokan yang
+// sama dengan HasSubmissionForStudentKey (nomor dulu; fallback nama hanya bila
+// tidak ada satu pun submission di ujian itu yang punya nomor).
+//
+// Dipakai halaman pengawas untuk menandai baris perangkat yang status
+// terbarunya masih "mengerjakan" (placeholder NULL) tetapi siswa tersebut
+// sudah punya attempt selesai di baris/perangkat lain. Tanpa flag ini tombol
+// "Izinkan Mengulang" hanya muncul saat baris terbaru submitted, sehingga
+// supervisor tidak punya cara melepas siswa yang terblokir.
+func SubmittedStudentKeys(
+	ctx context.Context, pool *pgxpool.Pool, examID int,
+) (map[string]bool, error) {
+	var anyWithNumber bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM submissions
+			WHERE exam_id = $1 AND BTRIM(COALESCE(exam_number, '')) <> ''
+		)`, examID,
+	).Scan(&anyWithNumber); err != nil {
+		return nil, fmt.Errorf("check submissions with number: %w", err)
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT DISTINCT BTRIM(COALESCE(exam_number, '')), BTRIM(COALESCE(student_name, ''))
+		 FROM submissions
+		 WHERE exam_id = $1 AND `+hasSubmittedAnswersFilter(),
+		examID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list submitted student keys: %w", err)
+	}
+	defer rows.Close()
+
+	keys := make(map[string]bool)
+	for rows.Next() {
+		var number, name string
+		if err := rows.Scan(&number, &name); err != nil {
+			return nil, fmt.Errorf("scan submitted student key: %w", err)
+		}
+		key := number
+		if key == "" {
+			if anyWithNumber {
+				continue
+			}
+			key = name
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key != "" {
+			keys[key] = true
+		}
+	}
+	return keys, rows.Err()
 }
 
 // HasRepeatGrant melapor apakah izin mengulang sudah diberikan.

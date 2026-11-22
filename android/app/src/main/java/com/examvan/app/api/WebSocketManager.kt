@@ -4,12 +4,10 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.examvan.app.BuildConfig
 import com.google.gson.Gson
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 
 /**
  * Manages a persistent WebSocket connection to the EXAMVAN server
@@ -64,21 +62,15 @@ object WebSocketManager {
     private var studentClass: String = ""
     private var deviceInfo: String = ""
 
-    /** OkHttp client with longer timeouts for WebSocket. */
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .readTimeout(0, TimeUnit.MILLISECONDS) // WebSocket needs no read timeout
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .addInterceptor { chain ->
-                val original = chain.request()
-                val request = original.newBuilder()
-                    .header("X-App-Version", BuildConfig.VERSION_NAME)
-                    .build()
-                chain.proceed(request)
-            }
-            .build()
-    }
+    /**
+     * Client WebSocket — berbagi dispatcher & connection pool dengan
+     * ApiClient (hindari OkHttpClient kedua). Interceptor X-App-Version dan
+     * certificate pinning ikut terbawa dari client HTTP.
+     */
+    private val client: OkHttpClient by lazy { ApiClient.newWebSocketClient() }
+
+    /** Client HTTP normal untuk notifikasi complete (timeout baca 30 detik). */
+    private val httpClient: OkHttpClient by lazy { ApiClient.httpClient() }
 
     /**
      * Connect to the EXAMVAN WebSocket server.
@@ -283,7 +275,26 @@ object WebSocketManager {
         webSocket?.close(1000, "Exam completed")
         webSocket = null
         connected = false
+        clearSessionData()
         Log.d(TAG, "Exam completed — presence cleared via HTTP")
+    }
+
+    /**
+     * Lepaskan referensi sesi. Callback adalah lambda milik Activity —
+     * menyimpannya di object singleton setelah sesi selesai = Activity leak
+     * (seluruh view hierarchy ikut tertahan). Token juga jangan menetap.
+     */
+    private fun clearSessionData() {
+        onEventCallback = null
+        token = ""
+        macAddress = ""
+        studentName = ""
+        examNumber = ""
+        studentClass = ""
+        deviceInfo = ""
+        baseUrl = ""
+        examId = -1
+        reconnectAttempts = 0
     }
 
     /**
@@ -303,7 +314,7 @@ object WebSocketManager {
                 .post(payload.toRequestBody(mediaType))
                 .header("X-Exam-Token", token)
                 .build()
-            client.newCall(request).enqueue(object : Callback {
+            httpClient.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: java.io.IOException) {
                     Log.w(TAG, "HTTP notify completed failed: ${e.message}")
                 }
@@ -367,9 +378,11 @@ object WebSocketManager {
         sessionActive = false
         stopHeartbeat()
         reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
+        reconnectRunnable = null
         webSocket?.close(1000, "Client disconnect")
         webSocket = null
         connected = false
+        clearSessionData()
         Log.d(TAG, "Disconnected")
     }
 

@@ -519,7 +519,7 @@ func TestDashboardInstansiCardOnlyForManagementRoles(t *testing.T) {
 	defer srv.Close()
 
 	const cardMarker = `class="stat-card stat-instansi"`
-	const cardLabel = "Instansi (Klik untuk Ubah)"
+	const cardLabel = `class="instansi-eyebrow">Instansi`
 	cases := []struct {
 		name     string
 		userID   int

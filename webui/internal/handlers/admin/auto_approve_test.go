@@ -804,6 +804,109 @@ func TestApprovalDecisionRepeatOnKnownDeviceStillAudited(t *testing.T) {
 	}
 }
 
+// Approving a repeat request must create the fresh attempt row BEFORE the
+// status flips, so the student's 5s poll cannot demote the approved row back
+// to pending. The open row is the per-attempt marker; no persistent grant is
+// created (each repeat needs a new approval).
+func TestApprovalDecisionCreatesOpenRepeatAttempt(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:12"
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Ulang', '12', 'XII A', 'pending')`,
+		fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
+		VALUES ($1, 'Siswa Ulang', '12', '{"1":"A"}')`, fx.ExamID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac)
+	if code, out := client.do(http.MethodPost, path, map[string]interface{}{"status": "approved"}); code != http.StatusOK || out["success"] != true {
+		t.Fatalf("approve status=%d out=%v, want 200 success", code, out)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		fx.ExamID, mac).Scan(&status); err != nil {
+		t.Fatalf("read approval: %v", err)
+	}
+	if status != "approved" {
+		t.Fatalf("approval status = %q, want approved", status)
+	}
+
+	// The per-attempt marker: an open row for this device, created after the
+	// prior completed attempt.
+	var open int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM submissions
+		WHERE exam_id = $1 AND mac_address = $2
+		  AND (answers_json IS NULL OR BTRIM(answers_json) = '')
+		  AND BTRIM(COALESCE(start_time, '')) <> ''`,
+		fx.ExamID, mac).Scan(&open); err != nil {
+		t.Fatalf("count open rows: %v", err)
+	}
+	if open != 1 {
+		t.Fatalf("open repeat rows = %d, want 1", open)
+	}
+
+	// No persistent grant: the next repeat must go through approval again.
+	var granted bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM exam_repeat_grants WHERE exam_id = $1 AND student_key = '12')`,
+		fx.ExamID).Scan(&granted); err != nil {
+		t.Fatalf("check grant: %v", err)
+	}
+	if granted {
+		t.Fatal("approval queue must not create a persistent repeat grant")
+	}
+}
+
+// A first-time device must not receive a repeat grant: the grant is a
+// per-student authorization, not a side effect of every approval.
+func TestApprovalDecisionNoRepeatGrantForFirstAttempt(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:13"
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Baru', '13', 'XII A', 'pending')`,
+		fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac)
+	if code, out := client.do(http.MethodPost, path, map[string]interface{}{"status": "approved"}); code != http.StatusOK || out["success"] != true {
+		t.Fatalf("approve status=%d out=%v, want 200 success", code, out)
+	}
+
+	var granted bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM exam_repeat_grants WHERE exam_id = $1 AND student_key = '13')`,
+		fx.ExamID).Scan(&granted); err != nil {
+		t.Fatalf("check grant: %v", err)
+	}
+	if granted {
+		t.Fatal("first-time approval must not create a repeat grant")
+	}
+}
+
 // A denied pengawas must not be able to leave approval-decision rows either:
 // the 403 gate fires before any update or audit write.
 func TestApprovalDecisionUnauthorizedWritesNoAuditLog(t *testing.T) {

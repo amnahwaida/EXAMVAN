@@ -147,4 +147,48 @@ class PdfCacheTest {
         val dir = newTempDir()
         assertEquals("dir kosong -> nol", 0, PdfCache.clearAll(dir))
     }
+
+    // ------------------------------------------------------------------
+    // Pembersihan startup: PDF basi + file temp unduhan terputus.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun pruneStale_removesOldExamPdfAndTemp_keepsFreshAndUnrelated() {
+        val dir = newTempDir()
+        val now = System.currentTimeMillis()
+
+        val stale = PdfCache.pdfFile(dir, 1).apply { writeText("%PDF-1.4") }
+        stale.setLastModified(now - PdfCache.MAX_AGE_MS - 60_000L)
+        val fresh = PdfCache.pdfFile(dir, 2).apply { writeText("%PDF-1.4") }
+        fresh.setLastModified(now - 1_000L)
+        val temp = File(dir, "temp_exam_3.pdf").apply { writeText("%PDF") }
+        val unrelated = File(dir, "unrelated.txt").apply { writeText("x") }
+
+        val removed = PdfCache.pruneStale(dir, now)
+
+        assertEquals("stale + temp terhapus", 2, removed)
+        assertFalse("pdf basi hilang", stale.exists())
+        assertFalse("file temp hilang", temp.exists())
+        assertTrue("pdf segar dipertahankan", fresh.exists())
+        assertTrue("berkas non-PDF dipertahankan", unrelated.exists())
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun pruneStale_tempIsRemovedEvenWhenFresh() {
+        val dir = newTempDir()
+        val temp = File(dir, "temp_exam_9.pdf").apply { writeText("%PDF") }
+        temp.setLastModified(System.currentTimeMillis())
+
+        assertEquals("temp selalu dibersihkan", 1, PdfCache.pruneStale(dir, System.currentTimeMillis()))
+        assertFalse(temp.exists())
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun pruneStale_emptyDir_returnsZero() {
+        val dir = newTempDir()
+        assertEquals(0, PdfCache.pruneStale(dir, System.currentTimeMillis()))
+        dir.deleteRecursively()
+    }
 }

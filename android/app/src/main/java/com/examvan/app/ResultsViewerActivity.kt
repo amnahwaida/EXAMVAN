@@ -123,6 +123,18 @@ class ResultsViewerActivity : BaseSecureActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        binding.webView.onPause()
+        binding.webView.pauseTimers()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.webView.onResume()
+        binding.webView.resumeTimers()
+    }
+
     /** Back fisik/gesture menutup halaman hasil, bukan keluar dari app. */
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {

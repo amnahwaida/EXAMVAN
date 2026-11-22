@@ -515,9 +515,14 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			StudentClass string                 `json:"student_class"`
 			IdentityData map[string]interface{} `json:"identity_data"`
 			Submitted    bool                   `json:"submitted"`
-			Score        *float64               `json:"score"`
-			StartTime    string                 `json:"start_time"`
-			CreatedAt    string                 `json:"created_at"`
+			// RepeatBlocked menandai siswa ini sudah punya attempt selesai
+			// (di baris/perangkat lain) walau baris terbaru perangkat ini
+			// masih placeholder "mengerjakan". Halaman pengawas memakai ini
+			// untuk tetap menampilkan tombol Izinkan Mengulang.
+			RepeatBlocked bool     `json:"repeat_blocked"`
+			Score         *float64 `json:"score"`
+			StartTime     string   `json:"start_time"`
+			CreatedAt     string   `json:"created_at"`
 			// SubmittedAt is the submit moment ("Waktu Kumpul"), empty for
 			// approval placeholders and legacy rows — the card falls back to
 			// created_at in that case.
@@ -575,7 +580,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		// behaviour; with no Redis configured every device stays offline.
 		onlineByMAC := make(map[string]bool)
 		if rdb, exists := c.Get("redis"); exists && rdb != nil {
-			if redisClient, ok := rdb.(*redis.Client); ok && len(macs) > 0 {
+			if redisClient, ok := rdb.(*redis.Client); ok && redisClient != nil && len(macs) > 0 {
 				pipe := redisClient.Pipeline()
 				cmds := make([]*redis.IntCmd, len(macs))
 				for i, mac := range macs {
@@ -593,6 +598,16 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 					}
 				}
 			}
+		}
+
+		// Students with at least one completed attempt for this exam, keyed
+		// the same way as the repeat gate. Best-effort: a lookup failure must
+		// not take down the monitoring table; the UI then simply falls back
+		// to the old submitted-only button.
+		submittedKeys, keysErr := models.SubmittedStudentKeys(ctx, pool, examID)
+		if keysErr != nil {
+			log.Printf("pengawas submitted student keys error: %v", keysErr)
+			submittedKeys = map[string]bool{}
 		}
 
 		subsData := make([]subItem, 0, len(result.Submissions))
@@ -637,14 +652,16 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			// occupant's attempts into the current student's modal).
 			subHistory := filterSubmissionHistoryByExamNumber(historyByMAC[sub.MACAddress], sub.ExamNumber)
 
+			studentKey := helpers.StudentKey(sub.ExamNumber, sub.StudentName, sub.StudentClass)
 			subsData = append(subsData, subItem{
 				ID:                sub.ID,
 				StudentName:       sub.StudentName,
-				StudentKey:        helpers.StudentKey(sub.ExamNumber, sub.StudentName, sub.StudentClass),
+				StudentKey:        studentKey,
 				ExamNumber:        sub.ExamNumber,
 				StudentClass:      sub.StudentClass,
 				IdentityData:      identityData,
 				Submitted:         submitted,
+				RepeatBlocked:     submittedKeys[studentKey],
 				Score:             sub.Score,
 				StartTime:         startTimeStr,
 				CreatedAt:         sub.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -751,7 +768,7 @@ func PengawasExamPresence() gin.HandlerFunc {
 		}
 
 		if rdbRaw, exists := c.Get("redis"); exists && rdbRaw != nil {
-			if rdb, ok := rdbRaw.(*redis.Client); ok && len(macs) > 0 {
+			if rdb, ok := rdbRaw.(*redis.Client); ok && rdb != nil && len(macs) > 0 {
 				pipe := rdb.Pipeline()
 				cmds := make([]*redis.StringCmd, len(macs))
 				for i, mac := range macs {
@@ -1014,6 +1031,15 @@ func GetPendingApprovals() gin.HandlerFunc {
 		}
 		defer rows.Close()
 
+		// Mark repeat requests so the pengawas can tell them apart from a
+		// first-time device. One query for the whole page (not N+1): the same
+		// student-key rule the repeat gate uses.
+		submittedKeys, subErr := models.SubmittedStudentKeys(ctx, pool, examID)
+		if subErr != nil {
+			log.Printf("pending approvals: submitted student keys: %v", subErr)
+			submittedKeys = map[string]bool{}
+		}
+
 		type approvalItem struct {
 			MACAddress   string                 `json:"mac_address"`
 			StudentName  string                 `json:"student_name"`
@@ -1022,6 +1048,7 @@ func GetPendingApprovals() gin.HandlerFunc {
 			IdentityData map[string]interface{} `json:"identity_data"`
 			CreatedAt    string                 `json:"created_at"`
 			Status       string                 `json:"status"`
+			IsRepeat     bool                   `json:"is_repeat"`
 		}
 
 		var items []approvalItem
@@ -1035,6 +1062,7 @@ func GetPendingApprovals() gin.HandlerFunc {
 				if idDataStr != "" {
 					json.Unmarshal([]byte(idDataStr), &i.IdentityData)
 				}
+				i.IsRepeat = submittedKeys[helpers.StudentKey(i.ExamNumber, i.StudentName, i.StudentClass)]
 				items = append(items, i)
 			}
 		}
@@ -1103,6 +1131,24 @@ func SetApprovalStatus() gin.HandlerFunc {
 			return
 		}
 
+		// Entry bookkeeping must happen BEFORE the status flips to approved.
+		// The student's 5s poll treats an open submission row created after
+		// the latest completed attempt as proof that this repeat was approved;
+		// creating it after the UPDATE would leave a window where the poll
+		// sees approved-without-open-row and demotes the row back to pending.
+		//
+		// For a first-time approval the same call creates the monitoring row
+		// (see models.EnsureFreshSubmissionOnApproval). It is a no-op when the
+		// device has no approval row, so the unknown-device contract below is
+		// unchanged.
+		if req.Status == "approved" {
+			if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, examID, macAddress); err != nil {
+				log.Printf("failed to insert submission on approval: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyiapkan sesi peserta")
+				return
+			}
+		}
+
 		// Update atomically and snapshot the student identity in one statement
 		// (RETURNING): no separate read, and the "did anything match" signal
 		// comes from the same round trip, so a row deleted in between cannot
@@ -1142,14 +1188,6 @@ func SetApprovalStatus() gin.HandlerFunc {
 		}
 		if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c), action, examID, detail); err != nil {
 			log.Printf("audit approval decision: %v", err)
-		}
-
-		if req.Status == "approved" {
-			// Entry bookkeeping shared with server-side auto-approve (see
-			// models.EnsureFreshSubmissionOnApproval).
-			if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, examID, macAddress); err != nil {
-				log.Printf("failed to insert submission on approval: %v", err)
-			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{

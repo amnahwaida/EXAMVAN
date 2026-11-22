@@ -76,7 +76,7 @@ test('L44: tombol kontrol disabled merujuk penjelas yang selalu dirender', () =>
 // ---------------------------------------------------------------------------
 
 test('L45: toggle "Terima Otomatis" punya label teks terlihat + label[for]', () => {
-    assert.match(DETAIL, /<label for="autoAcceptToggle"[^>]*class="pd-toggle-switch"/,
+    assert.match(DETAIL, /<label for="autoAcceptToggle"[^>]*class="pd-toggle-switch[^"]*"/,
         'label terikat eksplisit ke input via for');
     assert.match(DETAIL, /<span class="pd-toggle-label">Terima Otomatis<\/span>/,
         'nama fungsi toggle terlihat oleh pengguna sighted non-hover');

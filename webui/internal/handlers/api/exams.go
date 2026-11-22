@@ -605,41 +605,50 @@ func RequestApproval() gin.HandlerFunc {
 		}
 
 		// --- Izin mengulang (per siswa, diberikan pengawas) ---
-		// Default: siswa yang SUDAH mengirim jawaban untuk ujian ini tidak
-		// boleh mengulang. Client tidak pernah memblokir; aturan ini
-		// hidup di server, di tempat yang bisa diaudit dan dicabut pengawas.
+		// Siswa yang SUDAH mengirim jawaban tetap boleh MENGULANG. Saat
+		// auto-approve MATI, permintaan attempt baru masuk antrean pending
+		// dan menunggu keputusan pengawas. Saat auto-approve HIDUP, attempt
+		// baru langsung approved dan baris attempt terbuka dibuat oleh
+		// EnsureFreshSubmissionOnApproval setelah INSERT (penanda per-attempt;
+		// polling berikutnya tidak menurunkannya ke pending). Grant
+		// ("Izinkan Mengulang") tetap dihormati dan dikonsumsi satu kali.
+		// Gerbang approval perangkat tetap berlaku; client tidak pernah
+		// memblokir sendiri.
 		//
 		// Diuji di sini, di RequestApproval, bukan di ExamByToken: pada
 		// endpoint itu identitas siswa belum diketahui, jadi tidak ada yang
 		// bisa dicocokkan. Di sini identitas sudah ada, dan polling di client
-		// akan terus berjalan sampai pengawas melepas -- jadi siswa tidak
-		// perlu menutup dan membuka ulang aplikasi.
+		// akan terus berjalan sampai pengawas memutuskan.
 		//
-		// Auto-approve TIDAK melewati gerbang ini: flag itu menyetujui
-		// perangkat, bukan melepas aturan ujian.
 		// studentKey kosong = identitas tidak terbaca. Kasus itu TIDAK
-		// diblokir: mengunci siswa yang tidak bisa diidentifikasi hanya
-		// akan menjebak mereka dengan tidak ada yang bisa melepas.
+		// dipaksa pending: mengunci siswa yang tidak bisa diidentifikasi
+		// hanya akan menjebak mereka dengan tidak ada yang bisa dilepas.
 		studentKey := helpers.StudentKey(req.ExamNumber, req.StudentName, req.StudentClass)
+		// repeatNeedsApproval: siswa sudah submit dan belum punya grant.
+		// Nilainya dipakai SQL untuk memutuskan demote/pending saat
+		// auto-approve TIDAK aktif. repeatCheckFailed adalah fail-safe:
+		// kalau status submit/grant tidak bisa dipastikan, jangan
+		// auto-approve.
+		repeatNeedsApproval := false
+		repeatCheckFailed := false
 		if studentKey != "" {
 			submitted, err := models.HasSubmissionForStudentKey(
 				ctx, pool, req.ExamID, studentKey)
 			if err != nil {
+				// Fail-safe: kalau status submit tidak bisa dipastikan,
+				// jangan auto-approve. Pengawas masih bisa menyetujui.
 				log.Printf("request approval: check submission: %v", err)
+				repeatNeedsApproval = true
+				repeatCheckFailed = true
 			} else if submitted {
 				granted, err := models.HasRepeatGrant(
 					ctx, pool, req.ExamID, studentKey)
 				if err != nil {
 					log.Printf("request approval: check repeat grant: %v", err)
+					repeatNeedsApproval = true
+					repeatCheckFailed = true
 				} else if !granted {
-					c.JSON(http.StatusOK, gin.H{
-						"success":     false,
-						"status":      "repeat_required",
-						"student_key": studentKey,
-						"message": "Ujian ini sudah Anda kerjakan. " +
-							"Hubungi pengawas bila perlu izin mengulang.",
-					})
-					return
+					repeatNeedsApproval = true
 				}
 			}
 		}
@@ -650,6 +659,11 @@ func RequestApproval() gin.HandlerFunc {
 		// already reached — then the request falls back to the pending queue
 		// so a leaked token cannot mint unlimited approved devices.
 		//
+		// Auto-approve also covers repeat requests: an already-approved
+		// device repeating does not need a new supervisor decision, and its
+		// per-attempt marker is created by EnsureFreshSubmissionOnApproval
+		// after the approval INSERT.
+		//
 		// ATOMIC when auto-approve is live: the approved-count check and the
 		// INSERT run under one per-exam advisory lock (approval-cap:<exam_id>),
 		// so two devices auto-approving CONCURRENTLY can never BOTH count the
@@ -659,7 +673,8 @@ func RequestApproval() gin.HandlerFunc {
 		// however many requests raced. Pending-queue INSERTs (flag off) need
 		// no lock: the cap is not in play.
 		autoApproveLive := exam.AutoApprove && exam.IsActive() &&
-			exam.ExamStartedAt != nil && !models.ExamScheduleEnded(&exam, time.Now().UTC())
+			exam.ExamStartedAt != nil && !models.ExamScheduleEnded(&exam, time.Now().UTC()) &&
+			!repeatCheckFailed
 
 		// Single INSERT core shared by both paths (see the status CASE below).
 		insertApprovalSQL := `INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data, status)
@@ -671,15 +686,35 @@ func RequestApproval() gin.HandlerFunc {
 			     student_class = EXCLUDED.student_class,
 			     identity_data = EXCLUDED.identity_data,
 		     status = CASE
-		         -- Explicit retry ("Minta Izin Lagi"): fresh decision. An
-		         -- already-approved device is never demoted, even when the
-		         -- per-exam cap blocks further auto-approvals.
-		         WHEN $7::boolean THEN CASE WHEN $8::boolean THEN 'approved'
-		                                  WHEN exam_approvals.status = 'approved' THEN 'approved'
-		                                  ELSE 'pending' END
+		         -- Permintaan mengulang tanpa izin DAN tanpa attempt terbuka:
+		         -- saat auto-approve MATI, turunkan baris approved lama ke
+		         -- pending supaya pengawas melihat permintaannya. Saat
+		         -- auto-approve HIDUP, pertahankan approved: cabang $8
+		         -- mencegah demote walau baris attempt belum dibuat; post-
+		         -- insert helper di bawah yang membuat penanda attempt-nya.
+		         -- Jangan turunkan baris rejected (keputusan pengawas tidak
+		         -- boleh dibatalkan polling) atau baris yang punya grant
+		         -- (pre-authorization "Izinkan Mengulang").
+		         WHEN $9::boolean AND exam_approvals.status = 'approved'
+		              AND NOT EXISTS (
+		                  SELECT 1 FROM exam_repeat_grants
+		                  WHERE exam_id = $1 AND student_key = $10
+		              ) THEN
+		             CASE WHEN $8::boolean THEN 'approved'
+		                  WHEN NOT ` + openRepeatAttemptSQL + ` THEN 'pending'
+		                  ELSE exam_approvals.status END
+		         -- Explicit retry ("Minta Izin Lagi"): fresh decision. With
+		         -- auto-approve live it approves even a previously rejected
+		         -- repeat (the student asked again); a poll never overrides
+		         -- rejection. An already-approved device is never demoted,
+		         -- even when the per-exam cap blocks further auto-approvals.
+		         WHEN $7::boolean THEN CASE
+		             WHEN $8::boolean THEN 'approved'
+		             WHEN exam_approvals.status = 'approved' THEN 'approved'
+		             ELSE 'pending' END
 		         -- Poll (reset=false): auto-approve flips a leftover pending
-		         -- row to approved (it was never decided manually), but
-		         -- never overrides an explicit rejection.
+		         -- row to approved (it was never decided manually), including
+		         -- a pending repeat; it never overrides an explicit rejection.
 		         WHEN $8::boolean AND exam_approvals.status = 'pending' THEN 'approved'
 		         ELSE exam_approvals.status
 		     END,
@@ -726,18 +761,33 @@ func RequestApproval() gin.HandlerFunc {
 			// approval before this one (a concurrent approver's commit is
 			// visible once we hold the lock and it has released it).
 			// approvalCap was read above, before the tx began.
+			//
+			// An already-approved device does not consume a new slot when it
+			// repeats, so the cap must not demote its repeat to pending. Only
+			// a device that is not yet approved competes for a free slot.
 			autoApprove := true
 			if approvalCap > 0 {
-				var approvedCount int
-				if err := tx.QueryRow(ctx,
-					`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'approved'`,
-					req.ExamID).Scan(&approvedCount); err == nil && approvedCount >= approvalCap {
-					autoApprove = false
+				var currentStatus string
+				currentErr := tx.QueryRow(ctx,
+					`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+					req.ExamID, macAddress).Scan(&currentStatus)
+				alreadyApproved := currentErr == nil && currentStatus == "approved"
+				if currentErr != nil && currentErr != pgx.ErrNoRows {
+					log.Printf("request approval: read current status (%d/%s): %v", req.ExamID, macAddress, currentErr)
+				}
+				if !alreadyApproved {
+					var approvedCount int
+					if err := tx.QueryRow(ctx,
+						`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'approved'`,
+						req.ExamID).Scan(&approvedCount); err == nil && approvedCount >= approvalCap {
+						autoApprove = false
+					}
 				}
 			}
 
 			if err := tx.QueryRow(ctx, insertApprovalSQL,
-				req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status); err != nil {
+				req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove,
+				repeatNeedsApproval, studentKey).Scan(&status); err != nil {
 				log.Printf("request approval error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
 				return
@@ -750,7 +800,8 @@ func RequestApproval() gin.HandlerFunc {
 		} else {
 			autoApprove := false
 			if err := pool.QueryRow(ctx, insertApprovalSQL,
-				req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status); err != nil {
+				req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove,
+				repeatNeedsApproval, studentKey).Scan(&status); err != nil {
 				log.Printf("request approval error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
 				return
@@ -775,6 +826,42 @@ func RequestApproval() gin.HandlerFunc {
 // ---------------------------------------------------------------------------
 // 2. GET /api/exams/token/:token — Start Exam (Android/Web)
 // ---------------------------------------------------------------------------
+
+// openRepeatAttemptSQL is the SQL half of the per-attempt repeat gate: true
+// when the student has an open (unanswered) submission row created after their
+// latest completed attempt. The Go-side models.HasOpenRepeatAttempt makes the
+// decision; this copy is re-evaluated inside the approval INSERT so a poll
+// racing the supervisor's approval cannot demote a just-approved row.
+//
+// The placeholders match RequestApproval's INSERT: $1 = exam_id, $10 =
+// student_key.
+const openRepeatAttemptSQL = `EXISTS (
+	WITH keyed AS (
+		SELECT
+			LOWER(BTRIM(COALESCE(exam_number, ''))) AS number_key,
+			LOWER(BTRIM(COALESCE(student_name, ''))) AS name_key,
+			(answers_json IS NULL OR BTRIM(answers_json) = '') AS is_open,
+			(BTRIM(COALESCE(start_time, '')) <> '') AS has_start,
+			created_at,
+			` + models.SubmittedAnswersFilterSQL + ` AS is_completed
+		FROM submissions
+		WHERE exam_id = $1
+	),
+	has_numbers AS (
+		SELECT EXISTS(SELECT 1 FROM keyed WHERE number_key <> '') AS any_number
+	),
+	matched AS (
+		SELECT * FROM keyed
+		WHERE (number_key = $10 AND (SELECT any_number FROM has_numbers))
+		   OR (name_key = $10 AND NOT (SELECT any_number FROM has_numbers))
+	),
+	latest_completed AS (
+		SELECT MAX(created_at) AS ts FROM matched WHERE is_completed
+	)
+	SELECT 1 FROM matched m, latest_completed lc
+	WHERE m.is_open AND m.has_start AND lc.ts IS NOT NULL
+	  AND m.created_at > lc.ts
+)`
 
 // ExamByToken returns a gin.HandlerFunc for the token-based exam lookup.
 // The Android app calls this to fetch exam metadata after scanning a QR code

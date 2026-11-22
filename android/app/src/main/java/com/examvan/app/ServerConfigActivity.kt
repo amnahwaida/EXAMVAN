@@ -19,7 +19,9 @@ import androidx.core.content.ContextCompat
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.helper.UpdateManager
+import com.examvan.app.helper.ExamIntentPolicy
 import com.examvan.app.helper.ExamModePolicy
+import com.examvan.app.helper.IdentityFormPolicy
 import com.examvan.app.helper.PdfCache
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
@@ -35,14 +37,9 @@ import org.json.JSONObject
  */
 class ServerConfigActivity : BaseSecureActivity() {
 
-    private companion object {
-        // Batas aman ukuran questions_json yang ikut Intent. Binder transaction
-        // dibatasi ~1MB (UTF-16 = 2 byte/char), jadi 200k char (~400KB) memberi
-        // ruang untuk extras lain. Di atas ini, prefs/re-fetch yang menjadi sumber.
-        private const val MAX_QUESTIONS_EXTRA_CHARS = 200_000
-    }
-
     private lateinit var binding: ActivityServerConfigBinding
+    // Jangan lepas pin saat activity ini hanya transit untuk auto-resume.
+    private var autoResuming = false
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,6 +52,14 @@ class ServerConfigActivity : BaseSecureActivity() {
         // adjustResize tidak lagi men-resize window, keyboard harus
         // ditangani lewat WindowInsets.
         applyEdgeToEdgeInsets(binding.root, includeIme = true)
+
+        // OEM (MIUI/HyperOS) bisa membunuh proses saat siswa keluar sebentar
+        // di mode strict/gesture. Bila sesi ujian masih aktif, langsung
+        // lanjutkan ke soal — jangan paksa siswa mengetik token lagi.
+        if (com.examvan.app.helper.ActiveExamResumeLauncher.resumeIfActive(this)) {
+            autoResuming = true
+            return
+        }
 
         // Accessor Safe: tidak pernah crash saat keystore corrupt — AppPrefs
         // otomatis fallback ke prefs plaintext agar app tetap berjalan (user
@@ -384,7 +389,7 @@ class ServerConfigActivity : BaseSecureActivity() {
             // Normalisasi di titik intake (fix review low-mode #1): nilai
             // mentah server ("LOW", " Low ") tidak boleh lolos ke hilir.
             val securityLevel = ExamModePolicy.normalize(exam.security_level)
-            val strictMode = exam.strict_mode ?: false
+            val strictMode = ExamModePolicy.isStrict(securityLevel, exam.strict_mode ?: false)
             val panelColor = exam.panel_color ?: ""
             // Safe accessor: tidak crash saat keystore corrupt (fallback plaintext).
             // apply() (bukan commit): tidak memblokir main thread pada disk
@@ -395,54 +400,18 @@ class ServerConfigActivity : BaseSecureActivity() {
                 .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
                 .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
                 .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
+                .putString(AppPrefs.KEY_EXAM_NAME, exam.name)
+                .putString(AppPrefs.KEY_END_TIME, exam.end_time ?: "")
+                .putInt(AppPrefs.KEY_ACTIVE_EXAM_ID, exam.id)
+                .putString(AppPrefs.KEY_ACTIVE_SERVER_URL, serverUrl)
+                .remove(AppPrefs.KEY_AUTO_RESUME_PENDING)
                 .apply()
+            // Token sesi aktif disimpan terpisah dari "Ingat URL" agar
+            // auto-resume tetap bekerja walau checkbox tidak dicentang.
+            AppPrefs.setActiveExamToken(this@ServerConfigActivity, token)
 
-            // Extract legacy fields for backward compat with ExamViewer with smart fallbacks for custom keys
-            var name = identityJson.optString("student_name", "")
-            if (name.isEmpty()) {
-                for (key in identityJson.keys()) {
-                    val lowerKey = key.lowercase()
-                    if (lowerKey.contains("nama") || lowerKey.contains("name")) {
-                        name = identityJson.optString(key, "")
-                        if (name.isNotEmpty()) break
-                    }
-                }
-            }
-            if (name.isEmpty() && identityJson.length() > 0) {
-                val firstKey = identityJson.keys().next()
-                name = identityJson.optString(firstKey, "")
-            }
-
-            var number = identityJson.optString("exam_number", "")
-            if (number.isEmpty()) {
-                for (key in identityJson.keys()) {
-                    val lowerKey = key.lowercase()
-                    if (lowerKey.contains("nomor") || lowerKey.contains("no") || lowerKey.contains("nis") || lowerKey.contains("number")) {
-                        number = identityJson.optString(key, "")
-                        if (number.isNotEmpty()) break
-                    }
-                }
-            }
-            if (number.isEmpty() && identityJson.length() > 1) {
-                val keys = identityJson.keys()
-                keys.next()
-                if (keys.hasNext()) {
-                    number = identityJson.optString(keys.next(), "")
-                }
-            }
-
-            var sClass = identityJson.optString("student_class", "")
-            if (sClass.isEmpty()) {
-                for (key in identityJson.keys()) {
-                    val lowerKey = key.lowercase()
-                    if (lowerKey.contains("kelas") || lowerKey.contains("class")) {
-                        sClass = identityJson.optString(key, "")
-                        if (sClass.isNotEmpty()) break
-                    }
-                }
-            }
-
-            navigateToWaitingApproval(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time, securityLevel, strictMode, questionsJson)
+            val legacy = IdentityFormPolicy.extractLegacy(identityJson)
+            navigateToWaitingApproval(exam.id, exam.name, serverUrl, token, legacy.name, legacy.number, legacy.studentClass, identityDataStr, exam.end_time, securityLevel, strictMode, questionsJson)
         }
 
         alertDialog.show()
@@ -470,7 +439,7 @@ class ServerConfigActivity : BaseSecureActivity() {
             // Fallback tahan-banting: lembar jawaban tidak lagi bergantung
             // penuh pada prefs terenkripsi (yang bisa gagal dibaca di sebagian
             // perangkat Samsung/keystore). Ukuran dibatasi agar aman Binder.
-            if (questionsJson.isNotBlank() && questionsJson.length <= MAX_QUESTIONS_EXTRA_CHARS) {
+            if (ExamIntentPolicy.canAttachQuestions(questionsJson)) {
                 putExtra("questions_json", questionsJson)
             }
         }
@@ -479,6 +448,21 @@ class ServerConfigActivity : BaseSecureActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (autoResuming) return
+        // OEM (MIUI/HyperOS) dapat menghancurkan ExamViewer saat app di
+        // background tanpa membunuh proses. Activity token lalu hanya
+        // di-resume dari back stack — onCreate TIDAK dipanggil — sehingga
+        // auto-resume di onCreate tidak pernah jalan. Flag ini di-set dari
+        // ExamViewer.onDestroy (hanya saat dihancurkan sistem, bukan finish).
+        val examPrefs = AppPrefs.getExamPrefsSafe(this)
+        if (examPrefs.getBoolean(AppPrefs.KEY_AUTO_RESUME_PENDING, false)) {
+            examPrefs.edit().putBoolean(AppPrefs.KEY_AUTO_RESUME_PENDING, false).apply()
+            android.util.Log.i("ExamResume", "pending flag seen in ServerConfig.onResume")
+            if (com.examvan.app.helper.ActiveExamResumeLauncher.resumeIfActive(this)) {
+                autoResuming = true
+                return
+            }
+        }
         // Jaring pengaman OEM: bila screen pinning masih tersisa saat kembali
         // ke menu token (stopLockTask tertunda di activity ujian yang finish),
         // lepas di sini. Saat tidak di-pin, IllegalStateException diabaikan.
@@ -528,7 +512,13 @@ class ServerConfigActivity : BaseSecureActivity() {
      * already tells the user that encryption is degraded).
      */
     private fun safeConfigWrite(block: SharedPreferences.Editor.() -> Unit) {
-        AppPrefs.getConfigPrefsSafe(this).edit().apply(block)
+        val editor = AppPrefs.getConfigPrefsSafe(this).edit()
+        editor.block()
+        // PENTING: ini harus memanggil Editor.apply() milik Android, bukan
+        // Kotlin apply { }. Versi lama `edit().apply(block)` hanya menjalankan
+        // block lalu membuang editor tanpa commit — URL, exam_id, dan
+        // identity_data tidak pernah tersimpan.
+        editor.apply()
     }
 
     private fun setLoading(loading: Boolean) {

@@ -131,6 +131,73 @@ func TestHasSubmissionIgnoresEmptyAnswerRows(t *testing.T) {
 	}
 }
 
+func TestHasSubmissionIgnoresEmptyJsonAnswers(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+
+	// Auto-submit tanpa jawaban menulis "{}" (bukan NULL). Itu bukan attempt
+	// dan tidak boleh mengunci siswa yang belum menjawab apa pun.
+	for _, empty := range []string{`{}`, `[]`, `null`} {
+		insertRepeatSubmission(t, pool, examID, "N01", "Andi", empty)
+		submitted, err := HasSubmissionForStudentKey(ctx, pool, examID, "n01")
+		if err != nil {
+			t.Fatalf("answers=%q: %v", empty, err)
+		}
+		if submitted {
+			t.Fatalf("answers=%q bukan attempt berjawaban; tidak boleh memblokir", empty)
+		}
+	}
+
+	insertRepeatSubmission(t, pool, examID, "N01", "Andi", `{"1":"A"}`)
+	submitted, err := HasSubmissionForStudentKey(ctx, pool, examID, "n01")
+	if err != nil {
+		t.Fatalf("check submission: %v", err)
+	}
+	if !submitted {
+		t.Fatal("jawaban nyata harus tetap terdeteksi")
+	}
+}
+
+func TestSubmittedStudentKeysIgnoresEmptyAndPlaceholderRows(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+
+	// N01 punya "{}" (bukan attempt) dan N02 punya jawaban nyata + baris
+	// placeholder monitoring.
+	insertRepeatSubmission(t, pool, examID, "N01", "Andi", `{}`)
+	insertRepeatSubmission(t, pool, examID, "N02", "Budi", `{"1":"B"}`)
+	insertRepeatSubmission(t, pool, examID, "N02", "Budi", "")
+
+	keys, err := SubmittedStudentKeys(ctx, pool, examID)
+	if err != nil {
+		t.Fatalf("submitted keys: %v", err)
+	}
+	if keys["n01"] {
+		t.Fatal("baris {} tidak boleh masuk himpunan siswa yang sudah menjawab")
+	}
+	if !keys["n02"] {
+		t.Fatal("baris berjawaban harus masuk himpunan")
+	}
+}
+
+func TestSubmittedStudentKeysFallsBackToNameWhenNoNumber(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+
+	insertRepeatSubmission(t, pool, examID, "", "Andi", `{"1":"A"}`)
+
+	keys, err := SubmittedStudentKeys(ctx, pool, examID)
+	if err != nil {
+		t.Fatalf("submitted keys: %v", err)
+	}
+	if !keys["andi"] {
+		t.Fatal("ujian tanpa nomor harus memakai nama sebagai kunci")
+	}
+}
+
 func TestHasSubmissionMatchesCaseInsensitively(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "models")
 	ctx := context.Background()
@@ -203,5 +270,257 @@ func TestHasSubmissionPrefersNumberWhenOthersHaveIt(t *testing.T) {
 	}
 	if !submitted {
 		t.Fatal("n01 harus terdeteksi lewat nomor ujian")
+	}
+}
+
+func TestHasOpenRepeatAttemptAfterCompletedAttempt(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+
+	// Attempt pertama selesai.
+	insertRepeatSubmission(t, pool, examID, "N01", "Andi", `{"1":"A"}`)
+
+	// Belum ada attempt terbuka: repeat harus menunggu approval.
+	open, err := HasOpenRepeatAttempt(ctx, pool, examID, "n01")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if open {
+		t.Fatal("tanpa baris terbuka, repeat belum disetujui")
+	}
+
+	// Pengawas menyetujui: baris attempt terbuka setelah attempt selesai.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json, start_time, created_at)
+		VALUES ($1, 'Andi', 'N01', NULL, '2026-01-01T00:00:00Z', CURRENT_TIMESTAMP + INTERVAL '1 second')`,
+		examID); err != nil {
+		t.Fatalf("insert open row: %v", err)
+	}
+
+	open, err = HasOpenRepeatAttempt(ctx, pool, examID, "n01")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if !open {
+		t.Fatal("baris terbuka setelah attempt selesai = repeat sudah disetujui")
+	}
+
+	// Setelah repeat disubmit, tidak ada lagi baris terbuka setelah attempt
+	// terakhir: repeat berikutnya harus menunggu approval lagi.
+	if _, err := pool.Exec(ctx,
+		`UPDATE submissions SET answers_json = '{"1":"B"}'
+		 WHERE exam_id = $1 AND exam_number = 'N01' AND answers_json IS NULL`,
+		examID); err != nil {
+		t.Fatalf("submit repeat: %v", err)
+	}
+	open, err = HasOpenRepeatAttempt(ctx, pool, examID, "n01")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if open {
+		t.Fatal("setelah repeat disubmit, repeat berikutnya harus pending")
+	}
+}
+
+func TestHasOpenRepeatAttemptIgnoresStaleOpenRow(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+
+	// Baris terbuka lama (mis. sisa attempt pertama) TIDAK boleh dianggap
+	// sebagai approval repeat untuk attempt yang selesai sesudahnya.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json, start_time, created_at)
+		VALUES ($1, 'Andi', 'N01', NULL, '2026-01-01T00:00:00Z', CURRENT_TIMESTAMP - INTERVAL '1 minute')`,
+		examID); err != nil {
+		t.Fatalf("insert stale open row: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json, created_at)
+		VALUES ($1, 'Andi', 'N01', '{"1":"A"}', CURRENT_TIMESTAMP)`,
+		examID); err != nil {
+		t.Fatalf("insert completed row: %v", err)
+	}
+
+	open, err := HasOpenRepeatAttempt(ctx, pool, examID, "n01")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if open {
+		t.Fatal("baris terbuka SEBELUM attempt selesai terakhir bukan approval repeat")
+	}
+}
+
+func TestEnsureFreshSubmissionConsumesGrantOnRepeat(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+	mac := "AA:BB:CC:00:00:30"
+
+	insertRepeatSubmission(t, pool, examID, "N30", "Andi", `{"1":"A"}`)
+	if err := GrantRepeat(ctx, pool, examID, "n30", "1"); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Andi', 'N30', '9A', 'approved')`, examID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+
+	if err := EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure fresh submission: %v", err)
+	}
+
+	open, err := HasOpenRepeatAttempt(ctx, pool, examID, "n30")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if !open {
+		t.Fatal("approval repeat harus membuat baris attempt terbuka")
+	}
+	granted, err := HasRepeatGrant(ctx, pool, examID, "n30")
+	if err != nil {
+		t.Fatalf("has grant: %v", err)
+	}
+	if granted {
+		t.Fatal("izin eksplisit harus habis setelah dipakai satu attempt")
+	}
+}
+
+func TestEnsureFreshSubmissionKeepsGrantOnFirstAttempt(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+	mac := "AA:BB:CC:00:00:31"
+
+	// Izin diberikan sebelum attempt pertama: bukan untuk attempt ini.
+	if err := GrantRepeat(ctx, pool, examID, "n31", "1"); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Andi', 'N31', '9A', 'approved')`, examID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+
+	if err := EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure first attempt: %v", err)
+	}
+	granted, err := HasRepeatGrant(ctx, pool, examID, "n31")
+	if err != nil {
+		t.Fatalf("has grant: %v", err)
+	}
+	if !granted {
+		t.Fatal("attempt pertama tidak boleh menghabiskan izin repeat")
+	}
+
+	// Attempt pertama selesai; repeat berikutnya memakai izin tersebut.
+	if _, err := pool.Exec(ctx,
+		`UPDATE submissions SET answers_json = '{"1":"A"}'
+		 WHERE exam_id = $1 AND mac_address = $2 AND answers_json IS NULL`,
+		examID, mac); err != nil {
+		t.Fatalf("submit first attempt: %v", err)
+	}
+	if err := EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure repeat: %v", err)
+	}
+	open, err := HasOpenRepeatAttempt(ctx, pool, examID, "n31")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if !open {
+		t.Fatal("repeat dengan izin harus membuka attempt")
+	}
+	granted, err = HasRepeatGrant(ctx, pool, examID, "n31")
+	if err != nil {
+		t.Fatalf("has grant after repeat: %v", err)
+	}
+	if granted {
+		t.Fatal("izin harus habis setelah repeat dibuka")
+	}
+}
+
+func TestEnsureFreshSubmissionKeepsGrantForNextRepeatWhileOpen(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+	mac := "AA:BB:CC:00:00:32"
+
+	insertRepeatSubmission(t, pool, examID, "N32", "Andi", `{"1":"A"}`)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Andi', 'N32', '9A', 'approved')`, examID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+
+	// Repeat pertama disetujui: baris terbuka dibuat.
+	if err := EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure first repeat: %v", err)
+	}
+
+	// Pengawas memberi izin untuk repeat BERIKUTNYA saat attempt ini masih
+	// berjalan. Izin tidak boleh langsung habis.
+	if err := GrantRepeat(ctx, pool, examID, "n32", "1"); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	if err := EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure while open: %v", err)
+	}
+	granted, err := HasRepeatGrant(ctx, pool, examID, "n32")
+	if err != nil {
+		t.Fatalf("has grant: %v", err)
+	}
+	if !granted {
+		t.Fatal("izin untuk repeat berikutnya tidak boleh habis saat attempt lama masih terbuka")
+	}
+
+	// Attempt berjalan selesai; repeat berikutnya memakai izin tersebut.
+	if _, err := pool.Exec(ctx,
+		`UPDATE submissions SET answers_json = '{"1":"B"}'
+		 WHERE exam_id = $1 AND mac_address = $2 AND answers_json IS NULL`,
+		examID, mac); err != nil {
+		t.Fatalf("submit repeat: %v", err)
+	}
+	if err := EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure next repeat: %v", err)
+	}
+	granted, err = HasRepeatGrant(ctx, pool, examID, "n32")
+	if err != nil {
+		t.Fatalf("has grant after next repeat: %v", err)
+	}
+	if granted {
+		t.Fatal("izin harus habis setelah dipakai repeat berikutnya")
+	}
+}
+
+func TestHasOpenRepeatAttemptFallsBackToName(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+	examID := seedRepeatExam(t, pool)
+
+	// Ujian tanpa nomor: kunci berarti nama.
+	insertRepeatSubmission(t, pool, examID, "", "Andi", `{"1":"A"}`)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json, start_time, created_at)
+		VALUES ($1, 'Andi', '', NULL, '2026-01-01T00:00:00Z', CURRENT_TIMESTAMP + INTERVAL '1 second')`,
+		examID); err != nil {
+		t.Fatalf("insert open row: %v", err)
+	}
+
+	open, err := HasOpenRepeatAttempt(ctx, pool, examID, "andi")
+	if err != nil {
+		t.Fatalf("open repeat: %v", err)
+	}
+	if !open {
+		t.Fatal("ujian tanpa nomor harus memakai nama untuk mendeteksi repeat")
+	}
+
+	open, err = HasOpenRepeatAttempt(ctx, pool, examID, "budi")
+	if err != nil {
+		t.Fatalf("open repeat budi: %v", err)
+	}
+	if open {
+		t.Fatal("nama berbeda tidak boleh ikut terdeteksi")
 	}
 }

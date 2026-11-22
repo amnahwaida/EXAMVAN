@@ -67,8 +67,13 @@ type Exam struct {
 // IsActive returns true when the exam status is "active".
 func (e *Exam) IsActive() bool { return e.Status == "active" }
 
-// IsStrict returns true when strict_mode is non-zero.
-func (e *Exam) IsStrict() bool { return e.StrictMode != 0 }
+// IsStrict returns true when strict_mode is non-zero OR the exam's security
+// level is "high". The webui saves strict_mode=1 for high, but historical rows
+// and older API responses can carry high with strict_mode=0; treating those as
+// non-strict makes the Android client fall back to MEDIUM auto-submit.
+func (e *Exam) IsStrict() bool {
+	return e.StrictMode != 0 || strings.EqualFold(strings.TrimSpace(e.SecurityLevel), "high")
+}
 
 // AreResultsPublic returns true when public_results is non-zero.
 func (e *Exam) AreResultsPublic() bool { return e.PublicResults != 0 }

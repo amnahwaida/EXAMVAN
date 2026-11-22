@@ -29,6 +29,21 @@ object AppPrefs {
     const val KEY_EXAM_START_TIME = "exam_start_time"
     const val KEY_SUBMITTED_OR_EXITED = "submitted_or_exited"
     const val KEY_LAST_VERSION_CHECK_TS = "last_version_check_ts"
+    // Data sesi aktif untuk auto-resume saat proses/task dibunuh OEM.
+    // Token sesi dipisah dari KEY_EXAM_TOKEN (fitur "ingat token") supaya
+    // auto-resume tetap bekerja walau siswa tidak mencentang "Ingat URL".
+    const val KEY_EXAM_NAME = "exam_name"
+    const val KEY_END_TIME = "end_time"
+    const val KEY_ACTIVE_EXAM_TOKEN = "active_exam_token"
+    // Exam ID + server URL sesi aktif. Disimpan terpisah dari config prefs
+    // karena keduanya dihapus saat siswa tidak mencentang "Ingat URL" —
+    // tanpa ini auto-resume tidak tahu harus membuka ujian yang mana.
+    const val KEY_ACTIVE_EXAM_ID = "active_exam_id"
+    const val KEY_ACTIVE_SERVER_URL = "active_server_url"
+    // Set saat ExamViewer dihancurkan sistem (bukan finish) dalam sesi aktif.
+    // ServerConfigActivity memakainya untuk auto-resume di onResume, karena
+    // activity token bisa hanya di-resume dari back stack (onCreate tak jalan).
+    const val KEY_AUTO_RESUME_PENDING = "auto_resume_pending"
 
     /**
      * Baseline clock-drift sesi ujian (wallClock - elapsedRealtime saat mulai).
@@ -41,6 +56,19 @@ object AppPrefs {
 
     fun getSubmittedOrExitedKey(examId: Int): String {
         return "${KEY_SUBMITTED_OR_EXITED}_$examId"
+    }
+
+    /**
+     * Hapus penanda lokal "sudah submit/keluar" untuk [examId] saat pengawas
+     * menyetujui attempt baru (termasuk repeat). Penanda ini hanya menjaga
+     * re-entry ke attempt yang sudah selesai; server tetap menjadi sumber
+     * kebenaran gerbang repeat.
+     */
+    fun clearSubmittedState(context: Context, examId: Int) {
+        if (examId <= 0) return
+        getExamPrefsSafe(context).edit()
+            .remove(getSubmittedOrExitedKey(examId))
+            .apply()
     }
 
     @Volatile
@@ -73,7 +101,14 @@ object AppPrefs {
             return false
         }
         val prefs = getExamPrefsSafe(context)
-        val editor = prefs.edit().remove(KEY_EXAM_START_TIME)
+        val editor = prefs.edit()
+            .remove(KEY_EXAM_START_TIME)
+            .remove(KEY_EXAM_NAME)
+            .remove(KEY_END_TIME)
+            .remove(KEY_ACTIVE_EXAM_TOKEN)
+            .remove(KEY_ACTIVE_EXAM_ID)
+            .remove(KEY_ACTIVE_SERVER_URL)
+            .remove(KEY_AUTO_RESUME_PENDING)
         val prunable = com.examvan.app.helper.ExamSessionResetPolicy
             .prunableSubmittedFlagKeys(prefs.all.keys, keepExamId = newExamId)
         prunable.forEach { editor.remove(it) }
@@ -150,18 +185,34 @@ object AppPrefs {
     @Volatile
     private var memoryExamToken: String? = null
 
+    // Token sesi ujian yang sedang berjalan. Disimpan terenkripsi di exam
+    // prefs (bukan config prefs) dan hanya selama sesi aktif; dihapus saat
+    // submit sukses. Fallback keystore corrupt tetap memory-only.
+    @Volatile
+    private var memoryActiveExamToken: String? = null
+
     /**
      * Read the exam token. Memory (fallback mode) first, then the encrypted
      * prefs. Never reads the plain fallback file, so a corrupt keystore can
      * never serve a previously persisted plaintext token.
      */
     fun getExamToken(context: Context): String {
-        memoryExamToken?.let { return it }
+        memoryExamToken?.let {
+            Log.i("AppPrefs", "getExamToken: memory len=${it.length}")
+            return it
+        }
         return try {
-            getConfigPrefs(context).getString(KEY_EXAM_TOKEN, "") ?: ""
+            val value = getConfigPrefs(context).getString(KEY_EXAM_TOKEN, "") ?: ""
+            Log.i(
+                "AppPrefs",
+                "getExamToken: encrypted len=${value.length} fallback=${isConfigFallbackInUse()}"
+            )
+            value
         } catch (e: GeneralSecurityException) {
+            Log.w("AppPrefs", "getExamToken failed: ${e.javaClass.simpleName}")
             ""
         } catch (e: IOException) {
+            Log.w("AppPrefs", "getExamToken failed: ${e.javaClass.simpleName}")
             ""
         }
     }
@@ -178,15 +229,23 @@ object AppPrefs {
         }
         if (isConfigFallbackInUse()) {
             memoryExamToken = token
+            Log.w("AppPrefs", "setExamToken: fallback active, memory-only len=${token.length}")
             return
         }
         try {
-            getConfigPrefs(context).edit().putString(KEY_EXAM_TOKEN, token).apply()
+            // commit() (bukan apply) agar token benar-benar durable sebelum
+            // ujian berjalan — proses bisa dibunuh OEM kapan saja.
+            val ok = getConfigPrefs(context).edit()
+                .putString(KEY_EXAM_TOKEN, token)
+                .commit()
             memoryExamToken = null // encrypted prefs are the source of truth
+            Log.i("AppPrefs", "setExamToken: committed=$ok len=${token.length}")
         } catch (e: GeneralSecurityException) {
             memoryExamToken = token
+            Log.w("AppPrefs", "setExamToken failed: ${e.javaClass.simpleName} — memory-only")
         } catch (e: IOException) {
             memoryExamToken = token
+            Log.w("AppPrefs", "setExamToken failed: ${e.javaClass.simpleName} — memory-only")
         }
     }
 
@@ -195,6 +254,71 @@ object AppPrefs {
         memoryExamToken = null
         try {
             getConfigPrefs(context).edit().remove(KEY_EXAM_TOKEN).apply()
+        } catch (e: GeneralSecurityException) {
+            // nothing persisted — nothing to remove
+        } catch (e: IOException) {
+            // nothing persisted — nothing to remove
+        }
+    }
+
+    // ── Active exam session token (auto-resume) ────────────────────────────
+    //
+    // The remembered token (KEY_EXAM_TOKEN) is optional: a student may
+    // uncheck "Ingat URL". Auto-resume still needs the session token while an
+    // exam is in progress, so it is stored separately in the encrypted exam
+    // prefs and cleared as soon as the submission succeeds. Never persisted to
+    // the plaintext fallback (same policy as KEY_EXAM_TOKEN).
+
+    fun getActiveExamToken(context: Context): String {
+        memoryActiveExamToken?.let {
+            Log.i("AppPrefs", "getActiveExamToken: memory len=${it.length}")
+            return it
+        }
+        return try {
+            val value = getExamPrefs(context).getString(KEY_ACTIVE_EXAM_TOKEN, "") ?: ""
+            Log.i(
+                "AppPrefs",
+                "getActiveExamToken: encrypted len=${value.length} fallback=${isExamFallbackInUse()}"
+            )
+            value
+        } catch (e: GeneralSecurityException) {
+            Log.w("AppPrefs", "getActiveExamToken failed: ${e.javaClass.simpleName}")
+            ""
+        } catch (e: IOException) {
+            Log.w("AppPrefs", "getActiveExamToken failed: ${e.javaClass.simpleName}")
+            ""
+        }
+    }
+
+    fun setActiveExamToken(context: Context, token: String) {
+        if (token.isEmpty()) {
+            removeActiveExamToken(context)
+            return
+        }
+        if (isExamFallbackInUse()) {
+            memoryActiveExamToken = token
+            Log.w("AppPrefs", "setActiveExamToken: fallback active, memory-only len=${token.length}")
+            return
+        }
+        try {
+            val ok = getExamPrefs(context).edit()
+                .putString(KEY_ACTIVE_EXAM_TOKEN, token)
+                .commit()
+            memoryActiveExamToken = null
+            Log.i("AppPrefs", "setActiveExamToken: committed=$ok len=${token.length}")
+        } catch (e: GeneralSecurityException) {
+            memoryActiveExamToken = token
+            Log.w("AppPrefs", "setActiveExamToken failed: ${e.javaClass.simpleName} — memory-only")
+        } catch (e: IOException) {
+            memoryActiveExamToken = token
+            Log.w("AppPrefs", "setActiveExamToken failed: ${e.javaClass.simpleName} — memory-only")
+        }
+    }
+
+    fun removeActiveExamToken(context: Context) {
+        memoryActiveExamToken = null
+        try {
+            getExamPrefs(context).edit().remove(KEY_ACTIVE_EXAM_TOKEN).apply()
         } catch (e: GeneralSecurityException) {
             // nothing persisted — nothing to remove
         } catch (e: IOException) {
@@ -271,6 +395,7 @@ object AppPrefs {
      */
     fun clearAllData(context: Context): Boolean {
         memoryExamToken = null
+        memoryActiveExamToken = null
         var clearedAny = false
         try {
             getConfigPrefs(context).edit().clear().apply()

@@ -162,7 +162,7 @@ func TestDeleteExamRefusedWhileRunning(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, want 409 (body: %s)", resp.StatusCode, body)
 	}
-	if examExistsMid(t, pool, runningID) {
+	if !examExistsMid(t, pool, runningID) {
 		t.Error("ujian berjalan tidak boleh terhapus oleh gerbang mid-exam")
 	}
 }
@@ -346,7 +346,7 @@ func TestBulkDeleteSkipsRunningExam(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if examExistsMid(t, pool, runningID) {
+	if !examExistsMid(t, pool, runningID) {
 		t.Error("ujian berjalan tidak boleh terhapus oleh bulk delete")
 	}
 	if examExistsMid(t, pool, stoppedID) {

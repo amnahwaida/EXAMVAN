@@ -295,3 +295,59 @@ func TestPengawasExamSubmissionsUnauthorizedDenied(t *testing.T) {
 		t.Fatalf("GET status=%d out=%v, want 403 for unassigned pengawas", code, out)
 	}
 }
+
+// The latest row per device can be an approval placeholder ("sedang
+// mengerjakan") while the SAME student already has a completed attempt on an
+// older row. The repeat gate still blocks that student, so the monitoring row
+// must expose repeat_blocked — otherwise the supervisor sees only an
+// in-progress row and the "Izinkan Mengulang" button never renders.
+func TestPengawasSubmissionsExposeRepeatBlockedForPlaceholder(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `UPDATE exams SET exam_started_at = CURRENT_TIMESTAMP WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("start exam: %v", err)
+	}
+
+	mac := "AA:BB:CC:DD:EE:F1"
+	older := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 8, 3, 9, 10, 0, 0, time.UTC)
+
+	// Completed attempt first, then the approval placeholder that becomes the
+	// latest row for this device.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, answers_json, created_at)
+		VALUES ($1, $2, 'Siswa Ulang', '77', 'XII A', '{"1":"a"}', $3)`,
+		fx.ExamID, mac, older); err != nil {
+		t.Fatalf("insert completed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, created_at)
+		VALUES ($1, $2, 'Siswa Ulang', '77', 'XII A', $3)`,
+		fx.ExamID, mac, newer); err != nil {
+		t.Fatalf("insert placeholder: %v", err)
+	}
+
+	srv := httptest.NewServer(newSubmissionsRedisRouter(pool, nil))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/submissions?per_page=20", fx.ExamID), nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("GET status=%d out=%v, want 200 success", code, out)
+	}
+	subs, ok := out["submissions"].([]interface{})
+	if !ok || len(subs) != 1 {
+		t.Fatalf("submissions = %v, want 1 deduped row", out["submissions"])
+	}
+	row := subs[0].(map[string]interface{})
+	if row["submitted"] != false {
+		t.Fatalf("latest row is a placeholder; submitted = %v, want false", row["submitted"])
+	}
+	if row["repeat_blocked"] != true {
+		t.Fatalf("repeat_blocked = %v, want true (older completed attempt exists)", row["repeat_blocked"])
+	}
+}

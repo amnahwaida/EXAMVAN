@@ -416,7 +416,7 @@ func TestRequestApprovalAutoApproveConcurrentNoDuplicate(t *testing.T) {
 		"exam_id": examID, "mac_address": mac,
 		"student_name": "Gita", "exam_number": "09", "student_class": "X E",
 		"identity_data": map[string]interface{}{}, "reset": true,
-		"token":     examToken,
+		"token": examToken,
 	}
 
 	const workers = 8
@@ -591,6 +591,44 @@ func TestRequestApprovalCapLimitsAutoApprovedDevices(t *testing.T) {
 	}, examToken)
 	if code != http.StatusOK || out["status"] != "approved" {
 		t.Fatalf("already-approved retry status=%d out=%v, want approved preserved", code, out)
+	}
+}
+
+// An already-approved device repeating must not be blocked by the cap: it
+// does not consume a new device slot, so auto-approve stays live even when
+// the exam is at max_approvals_per_exam.
+func TestRequestApprovalCapAllowsAlreadyApprovedRepeat(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
+	if err := models.SetSaasSetting(context.Background(), pool, models.SettingMaxApprovalsPerExam, "1"); err != nil {
+		t.Fatalf("set cap: %v", err)
+	}
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+	ctx := context.Background()
+
+	mac := "AA:BB:CC:DD:EE:F6"
+	payload := map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Siswa Repeat Cap", "exam_number": "F6", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}
+	code, out := postRequestApproval(t, srv, payload, examToken)
+	if code != http.StatusOK || out["status"] != "approved" {
+		t.Fatalf("first attempt status=%d out=%v, want approved", code, out)
+	}
+
+	// Complete the first attempt; the next request is a repeat.
+	if _, err := pool.Exec(ctx, `
+		UPDATE submissions SET answers_json = '{"1":"A"}'
+		WHERE exam_id = $1 AND mac_address = $2
+		  AND (answers_json IS NULL OR BTRIM(answers_json) = '')`, examID, mac); err != nil {
+		t.Fatalf("complete first attempt: %v", err)
+	}
+
+	code, out = postRequestApproval(t, srv, payload, examToken)
+	if code != http.StatusOK || out["status"] != "approved" {
+		t.Fatalf("already-approved repeat status=%d out=%v, want approved despite cap", code, out)
 	}
 }
 

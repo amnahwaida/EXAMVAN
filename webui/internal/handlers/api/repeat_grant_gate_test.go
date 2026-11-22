@@ -102,57 +102,321 @@ func TestRepeatGateIgnoresTheEmptyMonitoringRow(t *testing.T) {
 	}
 }
 
-// TestRepeatGateBlocksAfterSubmitThenGrantUnblocks adalah alur utuh:
-// submit -> ditolak -> pengawas memberi izin -> boleh masuk lagi.
-func TestRepeatGateBlocksAfterSubmitThenGrantUnblocks(t *testing.T) {
+// TestRepeatGateIgnoresEmptyJsonSubmission: auto-submit tanpa jawaban
+// menyimpan answers_json = "{}", bukan NULL. Itu bukan attempt dan tidak
+// boleh mengunci siswa yang tidak pernah menjawab.
+func TestRepeatGateIgnoresEmptyJsonSubmission(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
+		VALUES ($1, 'Andi', 'N09', '{}')`, examID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	out := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:00:00:09",
+		"student_name": "Andi", "exam_number": "N09", "student_class": "9A",
+	})
+	if out["status"] == "repeat_required" {
+		t.Fatalf("submission {} bukan attempt; siswa tidak boleh diblokir: %v", out)
+	}
+}
+
+// TestRepeatGateAutoApproveApprovesRepeatAndCreatesAttempt: saat auto-approve
+// menyala, permintaan mengulang TIDAK masuk antrean — server langsung
+// menyetujui dan membuat baris attempt baru. Setelah attempt itu selesai,
+// repeat berikutnya juga langsung disetujui (satu baris per attempt).
+func TestRepeatGateAutoApproveApprovesRepeatAndCreatesAttempt(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 	ctx := context.Background()
 
-	// Siswa mengirim jawaban.
+	mac := "AA:BB:CC:00:00:03"
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
 		VALUES ($1, 'Andi', 'N03', '{"1":"A"}')`, examID); err != nil {
 		t.Fatalf("insert submission: %v", err)
 	}
 
-	// Tanpa izin: ditolak.
-	blocked := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
-		"exam_id": examID, "mac_address": "AA:BB:CC:00:00:03",
+	first := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
 		"student_name": "Andi", "exam_number": "N03", "student_class": "9A",
 		"reset": true,
 	})
-	if blocked["status"] != "repeat_required" {
-		t.Fatalf("siswa yang sudah mengulang harus ditolak, dapat %v", blocked)
-	}
-	if blocked["success"] != false {
-		t.Fatalf("repeat_required harus success=false: %v", blocked)
-	}
-	if blocked["student_key"] != "n03" {
-		t.Fatalf("respons harus menyebut student_key, dapat %v", blocked["student_key"])
-	}
-	if _, ok := blocked["message"]; !ok {
-		t.Fatal("respons harus punya message untuk ditampilkan ke siswa")
+	if first["status"] != "approved" {
+		t.Fatalf("auto-approve harus menyetujui repeat, dapat %v", first)
 	}
 
-	// Pengawas memberi izin.
-	if err := models.GrantRepeat(ctx, pool, examID, "n03", "1"); err != nil {
+	var open int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM submissions
+		WHERE exam_id = $1 AND mac_address = $2
+		  AND (answers_json IS NULL OR BTRIM(answers_json) = '')
+		  AND BTRIM(COALESCE(start_time, '')) <> ''`, examID, mac).Scan(&open); err != nil {
+		t.Fatalf("count open rows: %v", err)
+	}
+	if open != 1 {
+		t.Fatalf("baris attempt repeat terbuka = %d, want 1", open)
+	}
+
+	// Selesaikan attempt kedua, lalu minta repeat lagi: tetap auto-approved.
+	if _, err := pool.Exec(ctx, `
+		UPDATE submissions SET answers_json = '{"1":"B"}'
+		WHERE exam_id = $1 AND mac_address = $2
+		  AND (answers_json IS NULL OR BTRIM(answers_json) = '')`, examID, mac); err != nil {
+		t.Fatalf("submit repeat: %v", err)
+	}
+	second := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N03", "student_class": "9A",
+		"reset": false,
+	})
+	if second["status"] != "approved" {
+		t.Fatalf("repeat berikutnya harus tetap auto-approved, dapat %v", second)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM submissions
+		WHERE exam_id = $1 AND mac_address = $2
+		  AND (answers_json IS NULL OR BTRIM(answers_json) = '')
+		  AND BTRIM(COALESCE(start_time, '')) <> ''`, examID, mac).Scan(&open); err != nil {
+		t.Fatalf("count open rows: %v", err)
+	}
+	if open != 1 {
+		t.Fatalf("baris attempt repeat terbuka = %d, want 1", open)
+	}
+}
+
+// TestRepeatGateQueuesRepeatWhenAutoApproveOff: saat auto-approve mati,
+// repeat tetap masuk antrean pending. Grant hanya melepas gerbang repeat;
+// keputusan perangkat tetap manual, dan grant dikonsumsi saat disetujui.
+func TestRepeatGateQueuesRepeatWhenAutoApproveOff(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+	ctx := context.Background()
+
+	mac := "AA:BB:CC:00:00:04"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
+		VALUES ($1, 'Andi', 'N04', '{"1":"A"}')`, examID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	first := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N04", "student_class": "9A",
+		"reset": true,
+	})
+	if first["status"] != "pending" {
+		t.Fatalf("repeat tanpa auto-approve harus pending, dapat %v", first)
+	}
+
+	if err := models.GrantRepeat(ctx, pool, examID, "n04", "1"); err != nil {
 		t.Fatalf("grant: %v", err)
 	}
 
-	// Dengan izin: boleh.
-	allowed := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
-		"exam_id": examID, "mac_address": "AA:BB:CC:00:00:03",
-		"student_name": "Andi", "exam_number": "N03", "student_class": "9A",
+	afterGrant := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N04", "student_class": "9A",
 		"reset": true,
 	})
-	if allowed["status"] == "repeat_required" {
-		t.Fatalf("izin sudah diberikan, siswa harus boleh masuk: %v", allowed)
+	if afterGrant["status"] != "pending" {
+		t.Fatalf("grant tidak boleh auto-approve saat flag mati, dapat %v", afterGrant)
 	}
+
+	// Pengawas menyetujui perangkat: helper membuat attempt terbuka dan
+	// mengonsumsi grant, lalu status di-set approved.
+	if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure fresh submission: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE exam_approvals SET status = 'approved' WHERE exam_id = $1 AND mac_address = $2`,
+		examID, mac); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+
+	allowed := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N04", "student_class": "9A",
+		"reset": true,
+	})
 	if allowed["status"] != "approved" {
-		t.Fatalf("auto-approve harus menyetujui setelah izin: %v", allowed)
+		t.Fatalf("setelah disetujui pengawas harus approved, dapat %v", allowed)
+	}
+
+	var granted bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM exam_repeat_grants WHERE exam_id = $1 AND student_key = 'n04')`,
+		examID).Scan(&granted); err != nil {
+		t.Fatalf("check grant: %v", err)
+	}
+	if granted {
+		t.Fatal("grant harus dikonsumsi setelah approval")
+	}
+}
+
+// TestRepeatGateDemotesApprovedRowOnPoll: perangkat yang sudah approved dari
+// attempt pertama harus turun ke pending saat siswa meminta mengulang, supaya
+// permintaannya terlihat pengawas.
+func TestRepeatGateDemotesApprovedRowOnPoll(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+	ctx := context.Background()
+
+	mac := "AA:BB:CC:00:00:0A"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Andi', 'N10', '9A', 'approved')`, examID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
+		VALUES ($1, 'Andi', 'N10', '{"1":"A"}')`, examID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	out := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N10", "student_class": "9A",
+		"reset": false,
+	})
+	if out["status"] != "pending" {
+		t.Fatalf("poll mengulang harus pending, dapat %v", out)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, mac).Scan(&status); err != nil {
+		t.Fatalf("read approval: %v", err)
+	}
+	if status != "pending" {
+		t.Fatalf("baris approval harus turun ke pending, dapat %q", status)
+	}
+
+	// Pengawas menyetujui: baris attempt repeat terbuka dibuat lebih dulu
+	// (penanda approval per-attempt), lalu status approval di-set approved.
+	if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure fresh submission: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE exam_approvals SET status = 'approved' WHERE exam_id = $1 AND mac_address = $2`,
+		examID, mac); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+
+	after := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N10", "student_class": "9A",
+		"reset": false,
+	})
+	if after["status"] != "approved" {
+		t.Fatalf("setelah izin, poll harus approved, dapat %v", after)
+	}
+}
+
+// TestRepeatGateApprovedAttemptAllowsOnceThenNextRepeatQueues: approval
+// berlaku untuk SATU attempt. Baris attempt terbuka adalah penandanya; setelah
+// siswa submit, repeat berikutnya harus masuk antrean pending lagi.
+func TestRepeatGateApprovedAttemptAllowsOnceThenNextRepeatQueues(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+	ctx := context.Background()
+
+	mac := "AA:BB:CC:00:00:0C"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Andi', 'N12', '9A', 'approved')`, examID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
+		VALUES ($1, 'Andi', 'N12', '{"1":"A"}')`, examID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+	// Pengawas menyetujui repeat: buat baris attempt terbuka.
+	if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, examID, mac); err != nil {
+		t.Fatalf("ensure fresh submission: %v", err)
+	}
+
+	// Attempt repeat yang sedang berjalan boleh (baris terbuka ada).
+	during := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N12", "student_class": "9A",
+		"reset": false,
+	})
+	if during["status"] != "approved" {
+		t.Fatalf("attempt repeat yang sudah disetujui harus approved, dapat %v", during)
+	}
+
+	// Siswa menyelesaikan repeat: baris terbuka menjadi jawaban.
+	if _, err := pool.Exec(ctx,
+		`UPDATE submissions SET answers_json = '{"1":"B"}'
+		 WHERE exam_id = $1 AND mac_address = $2 AND answers_json IS NULL`,
+		examID, mac); err != nil {
+		t.Fatalf("submit repeat: %v", err)
+	}
+
+	// Repeat BERIKUTNYA harus pending: approval hanya untuk satu attempt.
+	next := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N12", "student_class": "9A",
+		"reset": false,
+	})
+	if next["status"] != "pending" {
+		t.Fatalf("repeat berikutnya harus pending, dapat %v", next)
+	}
+}
+
+// TestRepeatGateKeepsRejectedDecisionOnPoll: polling tidak boleh membatalkan
+// keputusan pengawas yang menolak permintaan mengulang.
+func TestRepeatGateKeepsRejectedDecisionOnPoll(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+	ctx := context.Background()
+
+	mac := "AA:BB:CC:00:00:0B"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Andi', 'N11', '9A', 'rejected')`, examID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, answers_json)
+		VALUES ($1, 'Andi', 'N11', '{"1":"A"}')`, examID); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	out := postRepeatGateway(t, srv, examID, token, map[string]interface{}{
+		"exam_id": examID, "mac_address": mac,
+		"student_name": "Andi", "exam_number": "N11", "student_class": "9A",
+		"reset": false,
+	})
+	if out["status"] != "rejected" {
+		t.Fatalf("keputusan rejected harus bertahan, dapat %v", out)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, mac).Scan(&status); err != nil {
+		t.Fatalf("read approval: %v", err)
+	}
+	if status != "rejected" {
+		t.Fatalf("baris approval harus tetap rejected, dapat %q", status)
 	}
 }
 

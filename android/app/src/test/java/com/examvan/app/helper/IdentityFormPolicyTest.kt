@@ -2,6 +2,7 @@ package com.examvan.app.helper
 
 import android.text.InputType
 import com.examvan.app.model.IdentityField
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -94,5 +95,52 @@ class IdentityFormPolicyTest {
         assertEquals(2, result.size)
         assertEquals("Nama Siswa", result[0].label) // yang pertama menang
         assertEquals("exam_number", result[1].key)
+    }
+
+    // ── Ekstraksi field legacy (submit + auto-resume) ────────────────────
+
+    @Test
+    fun extractLegacy_standardKeys() {
+        val json = JSONObject()
+            .put("student_name", "Budi")
+            .put("exam_number", "12")
+            .put("student_class", "XII-A")
+
+        val legacy = IdentityFormPolicy.extractLegacy(json)
+        assertEquals("Budi", legacy.name)
+        assertEquals("12", legacy.number)
+        assertEquals("XII-A", legacy.studentClass)
+    }
+
+    @Test
+    fun extractLegacy_customKeys() {
+        val json = JSONObject()
+            .put("nama_lengkap", "Siti")
+            .put("nis", "99")
+            .put("kelas", "XI-B")
+
+        val legacy = IdentityFormPolicy.extractLegacy(json)
+        assertEquals("Siti", legacy.name)
+        assertEquals("99", legacy.number)
+        assertEquals("XI-B", legacy.studentClass)
+    }
+
+    @Test
+    fun extractLegacy_fallbackFirstAndSecondKey() {
+        val json = JSONObject()
+            .put("foo", "Nama Pertama")
+            .put("bar", "Nomor Kedua")
+
+        val legacy = IdentityFormPolicy.extractLegacy(json)
+        assertEquals(setOf("Nama Pertama", "Nomor Kedua"), setOf(legacy.name, legacy.number))
+        assertEquals("", legacy.studentClass)
+    }
+
+    @Test
+    fun extractLegacy_emptyObject_returnsEmptyStrings() {
+        val legacy = IdentityFormPolicy.extractLegacy(JSONObject())
+        assertEquals("", legacy.name)
+        assertEquals("", legacy.number)
+        assertEquals("", legacy.studentClass)
     }
 }

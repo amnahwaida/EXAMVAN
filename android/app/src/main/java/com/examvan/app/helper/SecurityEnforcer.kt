@@ -113,6 +113,16 @@ class SecurityEnforcer(
     }
 
     /**
+     * Tandai sesi ini strict sejak konfigurasi exam, sebelum aktivasi pin.
+     * Mencegah jendela "strictMode=false" (mis. layar gesture-blocked atau
+     * aktivasi yang belum/gagal) diperlakukan sebagai mode medium sehingga
+     * focus-loss men-submit ujian strict secara diam-diam.
+     */
+    fun markStrictSession() {
+        strictMode = true
+    }
+
+    /**
      * Attempt to activate strict mode (lock task).
      * Returns true if successful, false otherwise.
      *
@@ -278,7 +288,16 @@ class SecurityEnforcer(
     /**
      * Handle window focus changes for system overlay detection.
      */
-    fun handleWindowFocusChanged(hasFocus: Boolean, autoSubmitCallback: () -> Unit) {
+    fun handleWindowFocusChanged(
+        hasFocus: Boolean,
+        strictSession: Boolean = strictMode,
+        autoSubmitCallback: () -> Unit
+    ) {
+        // `strict` = konfigurasi exam strict ATAU enforcer sudah strict.
+        // Jangan pakai strictMode saja: sebelum aktivasi pin berhasil (atau
+        // saat layar gesture-blocked) nilainya masih false dan focus-loss
+        // akan men-submit ujian strict seperti mode medium.
+        val strict = strictMode || strictSession
         if (hasFocus) {
             // Fix review ronde 3 #2: PEMBERSIHAN (cancel pending runnable,
             // reset popup count) kini SELALU berjalan — dulu seluruh branch
@@ -302,7 +321,7 @@ class SecurityEnforcer(
             // (stopLockTask), event fokus nyasar tidak boleh RE-PIN activity yang
             // sedang finishing — dialog "Pin ExamVan?" muncul setelah ujian
             // selesai dikumpulkan. Branch focus-lost sudah punya guard ini.
-            if (strictMode && !submittedOrExited && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
+            if (strict && !submittedOrExited && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                 Log.w(TAG, "Lock task inactive on focus gained — re-activating")
                 LockTaskManager.activate(activity) { success ->
                     if (!success) {
@@ -311,22 +330,22 @@ class SecurityEnforcer(
                     }
                 }
             }
-            if (strictMode) {
+            if (strict) {
                 enterImmersiveMode()
             }
             AuditLog.i(AuditLog.Events.FOCUS_RESTORED,
-                "strict=$strictMode isActive=${LockTaskManager.isActive(activity)}")
+                "strict=$strict isActive=${LockTaskManager.isActive(activity)}")
         } else {
             // Fix review low-mode #4: low non-strict tidak pernah memakai
             // runnable ini (tidak auto-submit, bukan strict) — jangan
             // jadwalkan kerja sia-sia.
-            if (!ExamModePolicy.shouldScheduleFocusLossWatch(strictMode, securityLevel)) return
+            if (!ExamModePolicy.shouldScheduleFocusLossWatch(strict, securityLevel)) return
 
             if (!isShowingAppDialog && isPdfReady && !submittedOrExited) {
                 if (activePopupCount > 0) return
 
                 AuditLog.w(AuditLog.Events.FOCUS_LOST_SUSPICIOUS,
-                    "strict=$strictMode activePopup=$activePopupCount")
+                    "strict=$strict activePopup=$activePopupCount")
 
                 focusLostRunnable?.let {
                     Handler(Looper.getMainLooper()).removeCallbacks(it)
@@ -354,7 +373,7 @@ class SecurityEnforcer(
                     // In strict mode: do NOT call autoSubmitCallback — it releases the pin and lets students out.
                     // Instead, just re-activate the lock task to keep the student trapped.
                     // The autoSubmitCallback is only for medium security mode.
-                    if (strictMode && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
+                    if (strict && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
                         Log.w(TAG, "Focus lost in strict mode for >500ms — re-activating lock task")
                         LockTaskManager.activate(activity) { success ->
                             if (!success) {
@@ -363,7 +382,7 @@ class SecurityEnforcer(
                             }
                         }
                         enterImmersiveMode()
-                    } else if (!strictMode && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
+                    } else if (!strict && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
                         Log.w(TAG, "Focus lost in medium mode for >500ms — auto-submitting")
                         autoSubmitCallback()
                     }
@@ -371,7 +390,7 @@ class SecurityEnforcer(
                     // Guard !submittedOrExited lagi: runnable ini bisa ditunda
                     // 500 ms — deadline auto-submit bisa menembak di sela-selanya
                     // dan sudah melepas pin; jangan re-pin pasca-submit.
-                    if (strictMode && !submittedOrExited && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
+                    if (strict && !submittedOrExited && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                         Log.w(TAG, "Focus lost + lock task inactive — kemungkinan system overlay/bypass")
                         LockTaskManager.activate(activity) { success ->
                             if (!success) {

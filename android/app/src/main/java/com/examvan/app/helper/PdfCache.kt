@@ -55,4 +55,37 @@ object PdfCache {
             ?: return 0
         return files.count { it.delete() }
     }
+
+    /**
+     * Bersihkan sisa file PDF dari sesi lama saat app start.
+     *
+     * - `exam_*.pdf` yang lebih tua dari [maxAgeMs] dihapus (sama dengan
+     *   batas [isCacheUsable]; file basi memang akan diunduh ulang).
+     * - `temp_exam_*.pdf` (hasil unduhan gagal/terputus) selalu dihapus:
+     *   dipanggil di background saat startup, sebelum ada unduhan baru.
+     *
+     * File yang tidak cocok pola dan file `exam_*.pdf` yang masih segar
+     * tidak disentuh. Return jumlah file yang terhapus.
+     */
+    fun pruneStale(
+        cacheDir: File,
+        nowMs: Long,
+        maxAgeMs: Long = MAX_AGE_MS
+    ): Int {
+        val files = cacheDir.listFiles { f ->
+            f.isFile && (
+                (f.name.startsWith("exam_") && f.name.endsWith(".pdf")) ||
+                    (f.name.startsWith("temp_exam_") && f.name.endsWith(".pdf"))
+                )
+        } ?: return 0
+
+        var deleted = 0
+        for (file in files) {
+            val isTemp = file.name.startsWith("temp_exam_")
+            val age = nowMs - file.lastModified()
+            val stale = isTemp || age > maxAgeMs
+            if (stale && file.delete()) deleted++
+        }
+        return deleted
+    }
 }

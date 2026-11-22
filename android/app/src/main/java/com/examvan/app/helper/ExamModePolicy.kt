@@ -25,6 +25,7 @@ internal object ExamModePolicy {
 
     const val LEVEL_LOW = "low"
     const val LEVEL_MEDIUM = "medium"
+    const val LEVEL_HIGH = "high"
     const val DEFAULT_LEVEL = LEVEL_MEDIUM
 
     /**
@@ -50,7 +51,21 @@ internal object ExamModePolicy {
      * penjadwalan adalah kerja sia-sia dan di-skip.
      */
     fun shouldScheduleFocusLossWatch(strictMode: Boolean, securityLevel: String): Boolean =
-        strictMode || shouldAutoSubmitOnFocusLoss(securityLevel, strictMode)
+        isStrict(securityLevel, strictMode) ||
+            shouldAutoSubmitOnFocusLoss(securityLevel, strictMode)
+
+    /**
+     * True bila sesi harus diperlakukan sebagai STRICT.
+     *
+     * `security_level = "high"` adalah kontrak UI webui untuk mode ketat
+     * (admin menyimpan strict_mode = 1 saat level high). Tetap dihitung
+     * strict walau flag `strict_mode` hilang/false — mis. respons server
+     * lama, baris exam lama dengan strict_mode = 0, atau prefs yang belum
+     * tersinkron. Tanpa ini level high jatuh ke perilaku MEDIUM dan
+     * meng-auto-submit siswa saat mereka mencoba keluar.
+     */
+    fun isStrict(securityLevel: String, strictMode: Boolean): Boolean =
+        strictMode || securityLevel == LEVEL_HIGH
 
     /**
      * True bila kehilangan fokus (>500 ms) harus memicu auto-submit.
@@ -58,7 +73,7 @@ internal object ExamModePolicy {
      * (auto-submit justru melepas pin dan membebaskan siswa).
      */
     fun shouldAutoSubmitOnFocusLoss(securityLevel: String, strictMode: Boolean): Boolean =
-        !strictMode && securityLevel != LEVEL_LOW
+        !isStrict(securityLevel, strictMode) && securityLevel != LEVEL_LOW
 
     /**
      * True bila event Home/Recents (onUserLeaveHint) harus memicu auto-submit.
@@ -160,7 +175,7 @@ internal object ExamModePolicy {
      * hanya membaca level sehingga kombinasi itu bocor.
      */
     fun shouldInterceptVolumeKeys(securityLevel: String, strictMode: Boolean): Boolean =
-        strictMode || securityLevel != LEVEL_LOW
+        isStrict(securityLevel, strictMode) || securityLevel != LEVEL_LOW
 
     /**
      * Keputusan untuk LONG-PRESS volume (fix temuan review low-mode ronde 3

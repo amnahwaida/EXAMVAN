@@ -62,6 +62,48 @@ class ExamModePolicyTest {
         )
     }
 
+    @Test
+    fun focusLoss_highLevelWithoutStrictFlag_neverAutoSubmits() {
+        // security_level="high" adalah kontrak mode ketat. Flag strict_mode
+        // bisa hilang/false pada respons server atau baris exam lama; level
+        // high tidak boleh jatuh ke perilaku MEDIUM dan meng-auto-submit.
+        assertFalse(
+            ExamModePolicy.shouldAutoSubmitOnFocusLoss(
+                securityLevel = ExamModePolicy.LEVEL_HIGH, strictMode = false
+            )
+        )
+        assertFalse(
+            ExamModePolicy.shouldAutoSubmitOnUserLeave(
+                securityLevel = ExamModePolicy.LEVEL_HIGH, strictMode = false
+            )
+        )
+    }
+
+    @Test
+    fun isStrict_highLevelIsStrictEvenWithoutFlag() {
+        assertTrue(
+            ExamModePolicy.isStrict(ExamModePolicy.LEVEL_HIGH, strictMode = false)
+        )
+        assertTrue(
+            ExamModePolicy.isStrict(ExamModePolicy.LEVEL_MEDIUM, strictMode = true)
+        )
+        assertFalse(
+            ExamModePolicy.isStrict(ExamModePolicy.LEVEL_MEDIUM, strictMode = false)
+        )
+        assertFalse(
+            ExamModePolicy.isStrict(ExamModePolicy.LEVEL_LOW, strictMode = false)
+        )
+    }
+
+    @Test
+    fun highLevel_schedulesFocusLossWatchForRepin() {
+        assertTrue(
+            ExamModePolicy.shouldScheduleFocusLossWatch(
+                strictMode = false, securityLevel = ExamModePolicy.LEVEL_HIGH
+            )
+        )
+    }
+
     // ── Intercept tombol volume (fix review low-mode ronde 3: strict-aware) ─
 
     @Test

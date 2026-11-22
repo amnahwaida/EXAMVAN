@@ -39,10 +39,11 @@ object ApiClient {
 
     /**
      * Synthetic error code for request-approval when the server answers
-     * HTTP 200 with success=false/status=repeat_required (the student already
-     * has a submission and no repeat grant). Kept distinct from real HTTP
-     * statuses so the waiting screen can stop polling and explain instead of
-     * treating it as a transient network error.
+     * HTTP 200 with success=false/status=repeat_required. Current servers no
+     * longer send this — a repeat request without a grant is queued as
+     * pending for the supervisor — but older servers still do, so the waiting
+     * screen keeps a distinct terminal state instead of treating it as a
+     * transient network error.
      */
     const val HTTP_REPEAT_REQUIRED = -2
 
@@ -93,6 +94,21 @@ object ApiClient {
     private val clientRef = AtomicReference<OkHttpClient>(defaultClient())
 
     private val client: OkHttpClient get() = clientRef.get()
+
+    /**
+     * Client untuk WebSocket. Memakai `newBuilder()` dari client HTTP agar
+     * dispatcher + connection pool BERBAGI (dulu WebSocketManager membuat
+     * OkHttpClient kedua: thread pool & pool koneksi ekstra di perangkat
+     * low-memory). Read timeout 0 karena socket hidup selama ujian.
+     */
+    internal fun newWebSocketClient(): OkHttpClient = client.newBuilder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    /** Client HTTP normal (timeout baca 30 detik) untuk pemanggil internal. */
+    internal fun httpClient(): OkHttpClient = client
 
     private var certificateFingerprint: String? = null
 
