@@ -97,26 +97,39 @@ func lockSchoolClaim(ctx context.Context, tx pgx.Tx, userID int) error {
 // themselves from the suspend cascade but never block a new operator. The
 // acting user (excludeID) is excluded, so the school's own operator renewing
 // a school package is never blocked.
-func schoolAlreadyHasOperator(ctx context.Context, q quotaQuerier, instansi string, excludeID int) (bool, error) {
-	instansi = strings.TrimSpace(instansi)
-	if instansi == "" || strings.EqualFold(instansi, "personal") {
+func schoolAlreadyHasOperator(ctx context.Context, q quotaQuerier, scope models.InstansiScope, excludeID int) (bool, error) {
+	scope.Name = strings.TrimSpace(scope.Name)
+	if scope.IsBucket() {
 		return false, nil
 	}
-	// System buckets ("owner" hosts the bootstrap superadmin) are never a
-	// school: no operator-guard is evaluated against them.
-	if isReservedInstansiName(instansi) {
-		return false, nil
+	// The canonical instansi_id decides when the destination carries one;
+	// callers that only have a free-text name (a brand-new school) keep the
+	// legacy name comparison, since there is no id to disambiguate a twin
+	// school. System buckets ("owner" hosts the bootstrap superadmin) are
+	// never a school: no operator-guard is evaluated against them.
+	var frag string
+	var args []interface{}
+	if scope.ID != nil {
+		frag = "instansi_id = $1"
+		args = []interface{}{*scope.ID}
+	} else {
+		if isReservedInstansiName(scope.Name) {
+			return false, nil
+		}
+		frag = "LOWER(instansi) = LOWER($1)"
+		args = []interface{}{scope.Name}
 	}
+	args = append(args, excludeID)
 	var has bool
 	err := q.QueryRow(ctx, `
 		SELECT EXISTS (
 		    SELECT 1 FROM admin_users
-		    WHERE LOWER(instansi) = LOWER($1) AND id <> $2
+		    WHERE `+frag+` AND id <> $`+fmt.Sprintf("%d", len(args))+`
 		      AND NOT operator_created
 		      -- Exact operator-role match: JSON-quoted token or legacy bare
 		      -- value — a plain substring ILIKE misses legacy non-JSON rows.
 		      AND (role = 'operator' OR role ILIKE '%"operator"%')
-		)`, instansi, excludeID).Scan(&has)
+		)`, args...).Scan(&has)
 	if err != nil {
 		return false, err
 	}
@@ -175,7 +188,7 @@ func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, scope model
 		FROM voucher_redemptions vr
 		JOIN admin_users u ON u.id = vr.user_id
 		WHERE vr.is_active AND `+pfrag+
-		  ` AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, pargs...).
+		` AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, pargs...).
 		Scan(&n, &maxExams, &maxPDF, &maxConcurrent, &maxStorage)
 	if err != nil {
 		log.Printf("load school pool quota failed: %v; treating as no school pool", err)
@@ -267,10 +280,10 @@ func familyExamBudget(ctx context.Context, q quotaQuerier, userID int) (maxExams
 // budget the operator's own uploads spend.
 type quotaGate struct {
 	maxExams, maxPDF, maxConcurrent, maxStorage int64
-	active                                     bool
-	pooled                                     bool // budget from an active school pool (vs family fallback)
-	familyRoot                                 int  // >0: family mode, count across the creator family
-	scope                                      models.InstansiScope
+	active                                      bool
+	pooled                                      bool // budget from an active school pool (vs family fallback)
+	familyRoot                                  int  // >0: family mode, count across the creator family
+	scope                                       models.InstansiScope
 }
 
 // examQuotaGate resolves the quota gate for userID: the own-scope school
@@ -435,16 +448,20 @@ func enforceBulkFamilyConcurrent(ctx context.Context, tx pgx.Tx, examIDs []int) 
 // schoolPackageLabel resolves the display label of the active school
 // package running an instansi: the mapped package name ("Paket …") with a
 // generic "Paket Sekolah" fallback when no snapshot row names it.
-func schoolPackageLabel(ctx context.Context, pool *pgxpool.Pool, instansi string) string {
+func schoolPackageLabel(ctx context.Context, pool *pgxpool.Pool, scope models.InstansiScope) string {
+	if scope.IsBucket() {
+		return "Paket Sekolah"
+	}
 	var schoolPkg string
+	frag, args := models.InstansiMatchSQL("u.", 1, scope)
 	if err := pool.QueryRow(ctx, `
 			SELECT COALESCE(vr.package, '')
 			FROM voucher_redemptions vr
 			JOIN admin_users u ON u.id = vr.user_id
-			WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
+			WHERE vr.is_active AND `+frag+`
 			  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')
 			ORDER BY vr.redeemed_at DESC, vr.id DESC
-			LIMIT 1`, instansi).Scan(&schoolPkg); err != nil || schoolPkg == "" {
+			LIMIT 1`, args...).Scan(&schoolPkg); err != nil || schoolPkg == "" {
 		return "Paket Sekolah"
 	}
 	return packageDisplayName(schoolPkg)
@@ -460,8 +477,8 @@ func effectiveSubQuota(ctx context.Context, pool *pgxpool.Pool, user models.Admi
 	if !user.OperatorCreated {
 		return "", 0, 0, 0, 0, false
 	}
-	if me, mp, mc, ms, _, pok := schoolPoolQuota(ctx, pool, user.ID); pok {
-		return schoolPackageLabel(ctx, pool, user.Instansi), me, mp, mc, ms, true
+	if me, mp, mc, ms, scope, pok := schoolPoolQuota(ctx, pool, user.ID); pok {
+		return schoolPackageLabel(ctx, pool, scope), me, mp, mc, ms, true
 	}
 	if g := examQuotaGate(ctx, pool, user.ID); g.active && g.familyRoot > 0 {
 		return "Paket Operator", g.maxExams, g.maxPDF, g.maxConcurrent, g.maxStorage, true

@@ -626,7 +626,8 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		var lockedUserID int
 		var lockedStatus string
 		var lockedInstansi string
-		err = dbTx.QueryRow(ctx, `SELECT id, status, COALESCE(instansi, '') FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus, &lockedInstansi)
+		var lockedInstansiID *int
+		err = dbTx.QueryRow(ctx, `SELECT id, status, COALESCE(instansi, ''), instansi_id FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus, &lockedInstansi, &lockedInstansiID)
 		if err != nil {
 			log.Printf("redeem fetch user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
@@ -682,7 +683,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		// renewing with a new code is excluded (lockedInstansi read under the
 		// same row lock); the shared "personal" bucket is never a school.
 		if containsRole(models.ParseRoles(snapshot.Role), models.RoleOperator) {
-			hasOp, opErr := schoolAlreadyHasOperator(ctx, dbTx, lockedInstansi, userID)
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, dbTx, models.InstansiScope{ID: lockedInstansiID, Name: lockedInstansi}, userID)
 			if opErr != nil {
 				log.Printf("redeem one-operator-per-school check error: %v", opErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memproses klaim voucher")
@@ -958,7 +959,8 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		var lockedUserID int
 		var lockedStatus string
 		var lockedInstansi string
-		if err := dbTx.QueryRow(ctx, `SELECT id, status, COALESCE(instansi, '') FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus, &lockedInstansi); err != nil {
+		var lockedInstansiID *int
+		if err := dbTx.QueryRow(ctx, `SELECT id, status, COALESCE(instansi, ''), instansi_id FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus, &lockedInstansi, &lockedInstansiID); err != nil {
 			log.Printf("activate lock user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
 			return
@@ -1007,7 +1009,7 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		// ANOTHER operator would create a second operator, so it is rejected
 		// before anything is paused/applied.
 		if containsRole(models.ParseRoles(r.Role), models.RoleOperator) {
-			hasOp, opErr := schoolAlreadyHasOperator(ctx, dbTx, lockedInstansi, userID)
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, dbTx, models.InstansiScope{ID: lockedInstansiID, Name: lockedInstansi}, userID)
 			if opErr != nil {
 				log.Printf("activate one-operator-per-school check error: %v", opErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memproses aktivasi paket")

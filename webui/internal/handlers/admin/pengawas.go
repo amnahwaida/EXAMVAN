@@ -401,7 +401,7 @@ func PengawasExams() gin.HandlerFunc {
 		if len(accessibleIDs) > 0 {
 			if err := pool.QueryRow(ctx,
 				`WITH latest AS (
-					SELECT DISTINCT ON (exam_id, mac_address) exam_id, answers_json
+					SELECT DISTINCT ON (exam_id, mac_address) exam_id, mac_address, answers_json
 					FROM submissions
 					WHERE exam_id = ANY($1)
 					ORDER BY exam_id, mac_address, created_at DESC, id DESC

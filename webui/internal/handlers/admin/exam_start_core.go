@@ -74,7 +74,11 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 						return http.StatusInternalServerError, "Gagal memulai ujian"
 					}
 					running, err := gate.countRunning(ctx, tx, examID)
-					if err == nil && running >= int(poolMaxConcurrent) {
+					if err != nil {
+						log.Printf("start count school pool error: %v", err)
+						return http.StatusInternalServerError, "Gagal memulai ujian"
+					}
+					if running >= int(poolMaxConcurrent) {
 						_ = tx.Rollback(ctx)
 						return http.StatusForbidden,
 							fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent)
@@ -96,7 +100,11 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 					} else {
 						running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
 					}
-					if rerr == nil && running >= locked {
+					if rerr != nil {
+						log.Printf("start count owner exams error: %v", rerr)
+						return http.StatusInternalServerError, "Gagal memulai ujian"
+					}
+					if running >= locked {
 						_ = tx.Rollback(ctx)
 						return http.StatusForbidden,
 							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked)
@@ -125,6 +133,9 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 				}
 				started = true
 			}
+		} else {
+			log.Printf("start owner lookup error: %v", err)
+			return http.StatusInternalServerError, "Gagal memulai ujian"
 		}
 	}
 

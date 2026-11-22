@@ -871,6 +871,8 @@ var allowedUserColumns = map[string]bool{
 	"password_hash":        true,
 	"status":               true,
 	"instansi":             true,
+	"instansi_id":          true,
+	"instansi_code":        true,
 	"role":                 true,
 	"base_role":            true,
 	"package_role":         true,
@@ -1290,18 +1292,26 @@ func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, 
 	// Lock target user row
 	var target AdminUser
 	err = tx.QueryRow(ctx,
-		`SELECT id, username, instansi, role FROM admin_users WHERE id = $1 FOR UPDATE`,
+		`SELECT id, username, instansi, instansi_id, role FROM admin_users WHERE id = $1 FOR UPDATE`,
 		userID,
-	).Scan(&target.ID, &target.Username, &target.Instansi, &target.Role)
+	).Scan(&target.ID, &target.Username, &target.Instansi, &target.InstansiID, &target.Role)
 	if err != nil {
 		return nil, fmt.Errorf("delete user: lookup target: %w", err)
 	}
 
 	var cascadedIDs []int
-	if target.HasRole(RoleOperator) && target.Instansi != "" {
+	// A shared bucket ("personal"/"owner") is never a tenant: deleting an
+	// operator there must only remove that operator, never every account that
+	// happens to carry the same bucket label. Real schools use the canonical
+	// id-first scope (with the legacy id-less name fallback) so a twin school
+	// sharing the name is not dragged into the cascade.
+	scope := InstansiScope{ID: target.InstansiID, Name: target.Instansi}
+	if target.HasRole(RoleOperator) && !scope.IsBucket() {
+		frag, args := InstansiMatchSQL("", 1, scope)
+		args = append(args, userID)
 		rows, err := tx.Query(ctx,
-			`SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND id != $2 FOR UPDATE`,
-			target.Instansi, userID)
+			`SELECT id FROM admin_users WHERE `+frag+` AND id != $`+fmt.Sprintf("%d", len(args))+` FOR UPDATE`,
+			args...)
 		if err != nil {
 			return nil, fmt.Errorf("delete user: query instansi users: %w", err)
 		}

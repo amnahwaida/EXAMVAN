@@ -252,7 +252,12 @@ func UploadExam() gin.HandlerFunc {
 			// check inside the transaction below is the hard gate).
 			if poolActive && poolMaxStorage > 0 {
 				current, err := gate.sumStorage(ctx, pool)
-				if err == nil && current+int64(len(fileData)) > poolMaxStorage {
+				if err != nil {
+					log.Printf("create exam: school storage lookup error: %v", err)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memproses file")
+					return
+				}
+				if current+int64(len(fileData)) > poolMaxStorage {
 					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
 					errorResponse(c, http.StatusForbidden,
 						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
@@ -301,7 +306,12 @@ func UploadExam() gin.HandlerFunc {
 					} else {
 						err = pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
 					}
-					if err == nil && currentStorageBytes+int64(len(fileData)) > user.MaxStorageSize {
+					if err != nil {
+						log.Printf("create exam: account storage lookup error: %v", err)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memproses file")
+						return
+					}
+					if currentStorageBytes+int64(len(fileData)) > user.MaxStorageSize {
 						limitMB := roundTo(float64(user.MaxStorageSize)/(1024*1024), 1)
 						errorResponse(c, http.StatusForbidden,
 							fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
@@ -665,7 +675,12 @@ func ToggleExam() gin.HandlerFunc {
 		toggled := false
 		if !isSuperAdmin(c) {
 			exam, err := models.GetExamByID(ctx, pool, examID)
-			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
+			if err != nil {
+				log.Printf("toggle exam lookup error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+				return
+			}
+			if exam.Status == "inactive" && exam.ExamStartedAt != nil {
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 				if err == nil {
 					gate := examQuotaGate(ctx, pool, exam.CreatedBy)
@@ -698,7 +713,12 @@ func ToggleExam() gin.HandlerFunc {
 								return
 							}
 							running, err := gate.countRunning(ctx, tx, examID)
-							if err == nil && running >= int(poolMaxConcurrent) {
+							if err != nil {
+								log.Printf("toggle count school pool error: %v", err)
+								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+								return
+							}
+							if running >= int(poolMaxConcurrent) {
 								_ = tx.Rollback(ctx)
 								errorResponse(c, http.StatusForbidden,
 									fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
@@ -722,7 +742,12 @@ func ToggleExam() gin.HandlerFunc {
 							} else {
 								running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
 							}
-							if rerr == nil && running >= locked {
+							if rerr != nil {
+								log.Printf("toggle count owner exams error: %v", rerr)
+								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+								return
+							}
+							if running >= locked {
 								_ = tx.Rollback(ctx)
 								errorResponse(c, http.StatusForbidden,
 									fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked))
@@ -742,6 +767,10 @@ func ToggleExam() gin.HandlerFunc {
 						}
 						toggled = true
 					}
+				} else {
+					log.Printf("toggle owner lookup error: %v", err)
+					errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+					return
 				}
 			}
 		}
@@ -994,7 +1023,12 @@ func EditExam() gin.HandlerFunc {
 				}
 				if poolActive && poolMaxStorage > 0 {
 					poolUsed, err := gate.sumStorage(ctx, pool)
-					if err == nil && poolUsed-int64(exam.SizeBytes)+int64(len(fileData)) > poolMaxStorage {
+					if err != nil {
+						log.Printf("edit exam: school storage lookup error: %v", err)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memproses file")
+						return
+					}
+					if poolUsed-int64(exam.SizeBytes)+int64(len(fileData)) > poolMaxStorage {
 						limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
 						errorResponse(c, http.StatusForbidden,
 							fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
@@ -1002,6 +1036,11 @@ func EditExam() gin.HandlerFunc {
 					}
 				}
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+				if err != nil {
+					log.Printf("edit exam: owner lookup error: %v", err)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memproses file")
+					return
+				}
 				// The owner's per-account PDF/storage columns bind unless the
 				// school pool is the owner's quota (schoolPoolCovers) or the
 				// caller is an operator whose school pool IS active. With no
@@ -1009,7 +1048,7 @@ func EditExam() gin.HandlerFunc {
 				// without a redemption — the operator's own columns bind too,
 				// closing the fail-open gap where an unclaimed-school operator
 				// could replace PDFs beyond any quota.
-				if err == nil && (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) {
+				if (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) {
 					// School-pool sub-accounts: when the pool is active it is the
 					// account's quota (schoolPoolCovers) — the per-account PDF/
 					// storage columns must not gate below it.
@@ -1033,7 +1072,12 @@ func EditExam() gin.HandlerFunc {
 							err = pool.QueryRow(ctx,
 								`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
 						}
-						if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > accountMaxStorage {
+						if err != nil {
+							log.Printf("edit exam: owner storage lookup error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memproses file")
+							return
+						}
+						if used-int64(exam.SizeBytes)+int64(len(fileData)) > accountMaxStorage {
 							limitMB := roundTo(float64(accountMaxStorage)/(1024*1024), 1)
 							errorResponse(c, http.StatusForbidden,
 								fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
@@ -1142,8 +1186,14 @@ func EditExam() gin.HandlerFunc {
 						uerr = tx.QueryRow(ctx,
 							`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
 					}
-					if uerr == nil &&
-						used-currentSize+exam.SizeBytes > accountMaxStorage {
+					if uerr != nil {
+						log.Printf("edit exam: account storage lookup error: %v", uerr)
+						_ = tx.Rollback(ctx)
+						cleanupR2Orphan(c, ctx, filename)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+						return
+					}
+					if used-currentSize+exam.SizeBytes > accountMaxStorage {
 						_ = tx.Rollback(ctx)
 						cleanupR2Orphan(c, ctx, filename)
 						limitMB := roundTo(float64(accountMaxStorage)/(1024*1024), 1)
@@ -1156,7 +1206,14 @@ func EditExam() gin.HandlerFunc {
 
 			if poolActive && poolMaxStorage > 0 {
 				poolUsed, err := gate.sumStorage(ctx, tx)
-				if err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
+				if err != nil {
+					log.Printf("edit exam: school storage lookup error: %v", err)
+					_ = tx.Rollback(ctx)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+					return
+				}
+				if poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
 					_ = tx.Rollback(ctx)
 					cleanupR2Orphan(c, ctx, filename)
 					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
@@ -1751,27 +1808,30 @@ func SaveQuestions() gin.HandlerFunc {
 				// as pengawas, granting that user supervision access (approvals,
 				// submissions) to an exam outside their tenant.
 				var creatorInstansi string
+				var creatorInstansiID *int
 				if err := pool.QueryRow(ctx,
-					`SELECT COALESCE(u.instansi, '') FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE e.id = $1`,
-					examID).Scan(&creatorInstansi); err != nil {
+					`SELECT COALESCE(u.instansi, ''), u.instansi_id FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE e.id = $1`,
+					examID).Scan(&creatorInstansi, &creatorInstansiID); err != nil {
 					log.Printf("save pengawas: exam creator lookup error: %v", err)
 					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan konfigurasi soal")
 					return
 				}
-				if creatorInstansi == "" || strings.EqualFold(creatorInstansi, "personal") {
+				creatorScope := models.InstansiScope{ID: creatorInstansiID, Name: creatorInstansi}
+				if creatorScope.IsBucket() {
 					errorResponse(c, http.StatusBadRequest, "Pengawas hanya dapat ditugaskan untuk ujian di instansi sekolah")
 					return
 				}
 				for _, pid := range body.PengawasIDs {
 					var ti, tr, ts string
+					var tiID *int
 					err := pool.QueryRow(ctx,
-						`SELECT COALESCE(instansi, ''), role, status FROM admin_users WHERE id = $1`,
-						pid).Scan(&ti, &tr, &ts)
+						`SELECT COALESCE(instansi, ''), instansi_id, role, status FROM admin_users WHERE id = $1`,
+						pid).Scan(&ti, &tiID, &tr, &ts)
 					if err != nil {
 						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
 						return
 					}
-					if !strings.EqualFold(ti, creatorInstansi) {
+					if !operatorScopeMatches(ti, tiID, creatorScope) {
 						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
 						return
 					}

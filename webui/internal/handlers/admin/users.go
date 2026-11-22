@@ -251,11 +251,13 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 		if maxUsers <= 0 {
 			return 0, 0, nil
 		}
-		_ = q.QueryRow(ctx,
+		if err := q.QueryRow(ctx,
 			`SELECT COUNT(*) FROM admin_users
 			 WHERE LOWER(instansi) = LOWER($1) AND id <> $2
 			   AND (created_by = $2 OR (created_by IS NULL AND operator_created))`,
-			instansi, userID).Scan(&used)
+			instansi, userID).Scan(&used); err != nil {
+			return 0, 0, fmt.Errorf("load operator account quota (personal used): %w", err)
+		}
 		return maxUsers, used, nil
 	}
 
@@ -273,13 +275,14 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 	// active redemption (legacy school / imported operators) the acting
 	// operator's package_settings row is the fallback, as before.
 	var activeOps int64
+	frag, args := models.InstansiMatchSQL("u.", 1, scope)
 	err = q.QueryRow(ctx, `
 		SELECT COALESCE(MAX(vr.max_users) FILTER (WHERE vr.is_active), 0),
 		       COUNT(*) FILTER (WHERE vr.is_active)
 		FROM voucher_redemptions vr
 		JOIN admin_users u ON u.id = vr.user_id
-		WHERE LOWER(u.instansi) = LOWER($1)
-		  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, instansi).
+		WHERE `+frag+`
+		  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, args...).
 		Scan(&maxUsers, &activeOps)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -296,9 +299,13 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 	if maxUsers <= 0 {
 		return 0, 0, nil
 	}
-	_ = q.QueryRow(ctx,
-		`SELECT COUNT(*) FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND id <> $2`,
-		instansi, userID).Scan(&used)
+	frag, args = models.InstansiMatchSQL("u.", 1, scope)
+	args = append(args, userID)
+	if err := q.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users u WHERE `+frag+` AND u.id <> $`+fmt.Sprintf("%d", len(args)),
+		args...).Scan(&used); err != nil {
+		return 0, 0, fmt.Errorf("load operator account quota (school used): %w", err)
+	}
 	return maxUsers, used, nil
 }
 
@@ -767,6 +774,14 @@ func CreateUser() gin.HandlerFunc {
 		// expiry = operator's expiry" rule for operators with a concrete expiry.
 		inheritUnlimited := false
 		instansi := strings.TrimSpace(body.Instansi)
+		// Reserved system buckets (currently "owner", the bootstrap
+		// superadmin's home) are never a valid school for a newly created
+		// account. The operator path ignores the body value and inherits the
+		// operator's own instansi, so only the SuperAdmin path needs the check.
+		if !isOp && isReservedInstansiName(instansi) {
+			errorResponse(c, http.StatusBadRequest, "Nama instansi tidak dapat digunakan (nama sistem terlarang)")
+			return
+		}
 		var opInstansiID *int
 		var opInstansiCode *string
 
@@ -950,7 +965,7 @@ func CreateUser() gin.HandlerFunc {
 				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 				return
 			}
-			hasOp, opErr := schoolAlreadyHasOperator(ctx, tx, instansi, userID)
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, tx, models.InstansiScope{Name: instansi}, userID)
 			if opErr != nil {
 				log.Printf("create user: one-operator-per-school check error: %v", opErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
@@ -1369,42 +1384,54 @@ func EditUser() gin.HandlerFunc {
 					return
 				}
 
-				// Cascade instansi: if the target is an operator and their
-				// instansi changed, update all users in the same instansi too.
+				// A SuperAdmin instansi edit is a MOVE to the destination
+				// school, not just a label rename: the canonical instansi_id and
+				// instansi_code move with the account (and, for an operator, with
+				// every member of the source school). The destination is resolved
+				// by name to an existing unique school, or created when absent;
+				// duplicate names are ambiguous and rejected instead of guessing.
+				destIsBucket := models.InstansiScope{Name: instansi}.IsBucket()
 				if targetUser.IsOperator() && !sameInstansi(targetUser.Instansi, instansi) {
-					// One-operator-per-school policy: moving an operator into a
-					// school that ALREADY has an operator would create a second
-					// operator — the same violation the redeem/activate/create/
-					// edit-role/claim paths reject. The check runs against the
-					// DESTINATION instansi with the acting target excluded, so a
-					// school rename (destination is fresh/empty) stays allowed.
-					// Serialized per destination school via the school-claim
-					// advisory lock (the check and the UPDATE below share one
-					// transaction via opRoleTx) — without it, two concurrent
-					// moves into the same empty school would both read the
-					// pre-move snapshot and land two operators. Mutually
-					// exclusive with the role-grant serialization below (this
-					// branch requires the target to ALREADY hold the operator
-					// role), so opRoleTx is opened at most once per request. The
-					// shared "personal" bucket is never a school: nothing to
-					// check, and no serialization needed.
-					if instansi != "" && !strings.EqualFold(instansi, "personal") {
-						var bErr error
-						opRoleTx, bErr = pool.Begin(ctx)
-						if bErr != nil {
-							log.Printf("begin operator-move tx error: %v", bErr)
-							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
-							return
-						}
-						defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
+					var bErr error
+					opRoleTx, bErr = pool.Begin(ctx)
+					if bErr != nil {
+						log.Printf("begin operator-move tx error: %v", bErr)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+						return
+					}
+					defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
 
+					var destID *int
+					var destCode *string
+					if !destIsBucket {
+						// Serialize on the destination name so two concurrent
+						// moves into the same empty school cannot both pass the
+						// one-operator guard.
 						if _, aErr := opRoleTx.Exec(ctx,
 							`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, instansi); aErr != nil {
 							log.Printf("edit user: lock school-claim for move (%q): %v", instansi, aErr)
 							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 							return
 						}
-						hasOp, opErr := schoolAlreadyHasOperator(ctx, opRoleTx, instansi, targetID)
+						id, code, rErr := resolveInstansiDestination(ctx, opRoleTx, instansi)
+						if errors.Is(rErr, errAmbiguousInstansi) {
+							errorResponse(c, http.StatusBadRequest,
+								"Nama instansi tujuan ambigu (lebih dari satu sekolah memakai nama tersebut). Gunakan nama yang unik.")
+							return
+						}
+						if rErr != nil {
+							log.Printf("edit user: resolve destination instansi %q error: %v", instansi, rErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						destID, destCode = &id, &code
+						hasOp, opErr := schoolAlreadyHasOperator(ctx, opRoleTx, models.InstansiScope{ID: destID, Name: instansi}, targetID)
+						if opErr == nil && !hasOp {
+							// Legacy id-less accounts with the same destination name
+							// are not represented by the instansi row; check them by
+							// name too so a move cannot land beside their operator.
+							hasOp, opErr = schoolAlreadyHasOperator(ctx, opRoleTx, models.InstansiScope{Name: instansi}, targetID)
+						}
 						if opErr != nil {
 							log.Printf("edit user: move operator one-operator-per-school check error: %v", opErr)
 							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
@@ -1416,21 +1443,84 @@ func EditUser() gin.HandlerFunc {
 							return
 						}
 					}
-					// Rename the instansi label for every tenant member: matched
-					// by canonical instansi_id first (all linked members move
-					// together regardless of name), with the legacy name fallback
-					// for id-less rows. The instansi_id/instansi_code stay as-is —
-					// the school's identity is not changed by a label edit.
-					mfrag, margs := models.InstansiMatchSQL("", 1, models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi})
-					margs = append(margs, instansi, targetID)
-					_, err := pool.Exec(ctx,
-						`UPDATE admin_users SET instansi = $`+fmt.Sprintf("%d", len(margs)-1)+
-							` WHERE `+mfrag+` AND id != $`+fmt.Sprintf("%d", len(margs)),
-						margs...)
-					if err != nil {
-						log.Printf("cascade instansi update error: %v", err)
-						// Non-fatal — operator's own instansi is still updated
+
+					var destIDVal interface{}
+					var destCodeVal interface{}
+					if destID != nil {
+						destIDVal = *destID
 					}
+					if destCode != nil {
+						destCodeVal = *destCode
+					}
+
+					targetScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
+					if !targetScope.IsBucket() {
+						mfrag, margs := models.InstansiMatchSQL("", 1, targetScope)
+						instansiPH := fmt.Sprintf("$%d", len(margs)+1)
+						idPH := fmt.Sprintf("$%d", len(margs)+2)
+						codePH := fmt.Sprintf("$%d", len(margs)+3)
+						targetPH := fmt.Sprintf("$%d", len(margs)+4)
+						margs = append(margs, instansi, destIDVal, destCodeVal, targetID)
+						if _, err := opRoleTx.Exec(ctx,
+							`UPDATE admin_users SET instansi = `+instansiPH+`, instansi_id = `+idPH+`, instansi_code = `+codePH+
+								` WHERE `+mfrag+` AND id != `+targetPH,
+							margs...); err != nil {
+							log.Printf("cascade instansi move error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+					} else {
+						// A personal-bucket operator's sub-accounts are attributed
+						// by created_by, not by instansi_id; move them with the
+						// operator so the new school's quota/identity stays whole.
+						if _, err := opRoleTx.Exec(ctx, `
+							UPDATE admin_users
+							SET instansi = $1, instansi_id = $2, instansi_code = $3
+							WHERE created_by = $4 AND LOWER(instansi) = 'personal' AND id <> $4`,
+							instansi, destIDVal, destCodeVal, targetID); err != nil {
+							log.Printf("cascade personal sub-account move error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+					}
+
+					updates["instansi_id"] = destIDVal
+					updates["instansi_code"] = destCodeVal
+				} else if !targetUser.IsOperator() && !sameInstansi(targetUser.Instansi, instansi) {
+					var destIDVal interface{}
+					var destCodeVal interface{}
+					if !destIsBucket {
+						if opRoleTx == nil {
+							var bErr error
+							opRoleTx, bErr = pool.Begin(ctx)
+							if bErr != nil {
+								log.Printf("begin instansi-move tx error: %v", bErr)
+								errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+								return
+							}
+							defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
+						}
+						if _, aErr := opRoleTx.Exec(ctx,
+							`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, instansi); aErr != nil {
+							log.Printf("edit user: lock school-claim for move (%q): %v", instansi, aErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						id, code, rErr := resolveInstansiDestination(ctx, opRoleTx, instansi)
+						if errors.Is(rErr, errAmbiguousInstansi) {
+							errorResponse(c, http.StatusBadRequest,
+								"Nama instansi tujuan ambigu (lebih dari satu sekolah memakai nama tersebut). Gunakan nama yang unik.")
+							return
+						}
+						if rErr != nil {
+							log.Printf("edit user: resolve destination instansi %q error: %v", instansi, rErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						destIDVal, destCodeVal = id, code
+					}
+					updates["instansi_id"] = destIDVal
+					updates["instansi_code"] = destCodeVal
 				}
 
 				updates["instansi"] = instansi
@@ -1440,13 +1530,23 @@ func EditUser() gin.HandlerFunc {
 		if !isSuperAdminTarget && body.Status != nil {
 			status := *body.Status
 			switch status {
-			case models.UserStatusActive, models.UserStatusSuspended, models.UserStatusPendingOTP:
+			case models.UserStatusActive, models.UserStatusSuspended:
 				updates["status"] = status
 				if status == models.UserStatusSuspended {
 					// Record when the suspension starts so reactivation can
 					// freeze the account clock for the suspension period.
 					updates["suspended_at"] = time.Now().UTC()
 				}
+			case models.UserStatusPendingOTP:
+				// pending_otp is an internal registration/verification state,
+				// not a status an operator may force onto a sub-account (the
+				// account would be locked out waiting for an OTP that was never
+				// sent). SuperAdmin may still set it.
+				if isOp {
+					errorResponse(c, http.StatusBadRequest, "Status pending OTP tidak dapat diatur oleh Operator")
+					return
+				}
+				updates["status"] = status
 			}
 		}
 
@@ -1479,22 +1579,28 @@ func EditUser() gin.HandlerFunc {
 					// a single request move a guru into an occupied school AND
 					// grant the operator role past the policy.
 					checkInstansi := targetUser.Instansi
+					checkScope := models.InstansiScope{ID: targetUser.InstansiID, Name: checkInstansi}
 					if !isOp && body.Instansi != nil {
 						if ni := strings.TrimSpace(*body.Instansi); ni != "" {
 							checkInstansi = ni
+							// A name in the request addresses a destination
+							// school, not the target's current id.
+							checkScope = models.InstansiScope{Name: ni}
 						}
 					}
 					// The shared "personal" bucket is never a school: nothing to
 					// check, and no serialization needed.
 					if checkInstansi != "" && !strings.EqualFold(checkInstansi, "personal") {
-						var bErr error
-						opRoleTx, bErr = pool.Begin(ctx)
-						if bErr != nil {
-							log.Printf("begin operator-role grant tx error: %v", bErr)
-							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
-							return
+						if opRoleTx == nil {
+							var bErr error
+							opRoleTx, bErr = pool.Begin(ctx)
+							if bErr != nil {
+								log.Printf("begin operator-role grant tx error: %v", bErr)
+								errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+								return
+							}
+							defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
 						}
-						defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
 
 						if _, aErr := opRoleTx.Exec(ctx,
 							`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, checkInstansi); aErr != nil {
@@ -1502,7 +1608,7 @@ func EditUser() gin.HandlerFunc {
 							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 							return
 						}
-						hasOp, opErr := schoolAlreadyHasOperator(ctx, opRoleTx, checkInstansi, targetID)
+						hasOp, opErr := schoolAlreadyHasOperator(ctx, opRoleTx, checkScope, targetID)
 						if opErr != nil {
 							log.Printf("edit user: one-operator-per-school check error: %v", opErr)
 							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
@@ -1577,57 +1683,70 @@ func EditUser() gin.HandlerFunc {
 		// cleared to unlimited) so the final success message surfaces it.
 		var cascadeMsg string
 
-		// Cascade: if operator's expiry changed, sync to all users in same instansi
+		// Cascade: if operator's expiry changed, sync to all users in same
+		// instansi. A shared bucket ("personal"/"owner") is not a tenant, so a
+		// personal operator's expiry edit must not rewrite every personal
+		// account's expiry.
 		if targetUser.IsOperator() && body.ExpiresAt != nil {
-			expVal := strings.TrimSpace(*body.ExpiresAt)
-			if expVal != "" {
-				if !strings.Contains(expVal, " ") {
-					expVal += " 23:59:59"
-				}
-				// Same guards as the unlimited branch below (and the other
-				// expiry-alignment paths): sub-accounts that run their own
-				// active package (NOT EXISTS), hold an operator role themselves,
-				// or are already unlimited (NULL) keep their own state — only
-				// accounts that follow the operator get the new expiry.
-				if _, err := pool.Exec(ctx, `
-					UPDATE admin_users
-					SET expires_at = $1::timestamp
-					WHERE LOWER(instansi) = LOWER($2) AND id <> $3
-					  AND expires_at IS NOT NULL
-					  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')
-					  AND NOT EXISTS (
-					      SELECT 1 FROM voucher_redemptions vr
-					      WHERE vr.user_id = admin_users.id AND vr.is_active
-					  )`, expVal, targetUser.Instansi, targetID); err != nil {
-					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
-				} // Align the instansi users' active packages with the new expiry too
-				// (their expires_at was just rewritten above, so the shared helper
-				// reads the authoritative per-account expiry).
-				if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}, targetID); err != nil {
-					log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
-				}
-			} else {
-				// Operator cleared to unlimited (expires_at = "" → NULL): the
-				// school's sub-accounts follow the operator's unlimited state —
-				// mirror of the CreateUser inheritUnlimited rule, applied to
-				// already-created accounts. Guards are consistent with the other
-				// expiry-alignment paths: sub-accounts that run their own active
-				// package (NOT EXISTS), hold an operator role themselves, or are
-				// already unlimited (NULL) keep their own state untouched.
-				tag, err := pool.Exec(ctx, `
-					UPDATE admin_users
-					SET expires_at = NULL
-					WHERE LOWER(instansi) = LOWER($1) AND id <> $2
-					  AND expires_at IS NOT NULL
-					  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')
-					  AND NOT EXISTS (
-					      SELECT 1 FROM voucher_redemptions vr
-					      WHERE vr.user_id = admin_users.id AND vr.is_active
-					  )`, targetUser.Instansi, targetID)
-				if err != nil {
-					log.Printf("cascade unlimited for instansi %s error: %v", targetUser.Instansi, err)
-				} else if n := tag.RowsAffected(); n > 0 {
-					cascadeMsg = fmt.Sprintf(". %d akun di instansi %s ikut menjadi unlimited (masa aktif dihapus).", n, targetUser.Instansi)
+			expScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
+			if !expScope.IsBucket() {
+				expVal := strings.TrimSpace(*body.ExpiresAt)
+				if expVal != "" {
+					if !strings.Contains(expVal, " ") {
+						expVal += " 23:59:59"
+					}
+					// Same guards as the unlimited branch below (and the other
+					// expiry-alignment paths): sub-accounts that run their own
+					// active package (NOT EXISTS), hold an operator role themselves,
+					// or are already unlimited (NULL) keep their own state — only
+					// accounts that follow the operator get the new expiry.
+					frag, args := models.InstansiMatchSQL("", 1, expScope)
+					expPlaceholder := fmt.Sprintf("$%d", len(args)+1)
+					uidPlaceholder := fmt.Sprintf("$%d", len(args)+2)
+					args = append(args, expVal, targetID)
+					if _, err := pool.Exec(ctx, `
+						UPDATE admin_users
+						SET expires_at = `+expPlaceholder+`::timestamp
+						WHERE `+frag+` AND id <> `+uidPlaceholder+`
+						  AND expires_at IS NOT NULL
+						  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')
+						  AND NOT EXISTS (
+						      SELECT 1 FROM voucher_redemptions vr
+						      WHERE vr.user_id = admin_users.id AND vr.is_active
+						  )`, args...); err != nil {
+						log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
+					} // Align the instansi users' active packages with the new expiry too
+					// (their expires_at was just rewritten above, so the shared helper
+					// reads the authoritative per-account expiry).
+					if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, expScope, targetID); err != nil {
+						log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
+					}
+				} else {
+					// Operator cleared to unlimited (expires_at = "" → NULL): the
+					// school's sub-accounts follow the operator's unlimited state —
+					// mirror of the CreateUser inheritUnlimited rule, applied to
+					// already-created accounts. Guards are consistent with the other
+					// expiry-alignment paths: sub-accounts that run their own active
+					// package (NOT EXISTS), hold an operator role themselves, or are
+					// already unlimited (NULL) keep their own state untouched.
+					frag, args := models.InstansiMatchSQL("", 1, expScope)
+					uidPlaceholder := fmt.Sprintf("$%d", len(args)+1)
+					args = append(args, targetID)
+					tag, err := pool.Exec(ctx, `
+						UPDATE admin_users
+						SET expires_at = NULL
+						WHERE `+frag+` AND id <> `+uidPlaceholder+`
+						  AND expires_at IS NOT NULL
+						  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')
+						  AND NOT EXISTS (
+						      SELECT 1 FROM voucher_redemptions vr
+						      WHERE vr.user_id = admin_users.id AND vr.is_active
+						  )`, args...)
+					if err != nil {
+						log.Printf("cascade unlimited for instansi %s error: %v", targetUser.Instansi, err)
+					} else if n := tag.RowsAffected(); n > 0 {
+						cascadeMsg = fmt.Sprintf(". %d akun di instansi %s ikut menjadi unlimited (masa aktif dihapus).", n, targetUser.Instansi)
+					}
 				}
 			}
 		}
@@ -1807,13 +1926,18 @@ func ToggleUserStatus() gin.HandlerFunc {
 		if targetUser.IsOperator() {
 			opInstansi := targetUser.Instansi
 			opScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
-			if opInstansi != "" {
+			// A shared bucket ("personal"/"owner") is not a tenant: cascading
+			// over it would suspend or reactivate every unrelated account that
+			// carries the same bucket label.
+			if !opScope.IsBucket() {
 				if newStatus == models.UserStatusActive {
 					// Restore all cascade-suspended users
 					var count int
+					rfrag, rargs := models.InstansiMatchSQL("", 1, opScope)
+					rargs = append(rargs, targetID)
 					pool.QueryRow(ctx,
-						`SELECT COUNT(*) FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND suspended_by_cascade = TRUE AND id != $2`,
-						opInstansi, targetID).Scan(&count)
+						`SELECT COUNT(*) FROM admin_users WHERE `+rfrag+` AND suspended_by_cascade = TRUE AND id != $`+fmt.Sprintf("%d", len(rargs)),
+						rargs...).Scan(&count)
 					if count > 0 {
 						// Freeze the restored accounts' clocks for the suspension
 						// period (expires_at extended by the suspension duration) and
@@ -1843,16 +1967,20 @@ func ToggleUserStatus() gin.HandlerFunc {
 					var opExpiresAt *time.Time
 					_ = pool.QueryRow(ctx, `SELECT expires_at FROM admin_users WHERE id = $1`, targetID).Scan(&opExpiresAt)
 					if opExpiresAt != nil && opExpiresAt.After(time.Now().UTC()) {
+						frag, args := models.InstansiMatchSQL("u.", 1, opScope)
+						expPlaceholder := fmt.Sprintf("$%d", len(args)+1)
+						uidPlaceholder := fmt.Sprintf("$%d", len(args)+2)
+						args = append(args, *opExpiresAt, targetID)
 						tag, err := pool.Exec(ctx, `
 							UPDATE admin_users u
-							SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
-							WHERE LOWER(u.instansi) = LOWER($1) AND u.id <> $3
+							SET expires_at = GREATEST(COALESCE(u.expires_at, `+expPlaceholder+`::timestamptz), `+expPlaceholder+`::timestamptz)
+							WHERE `+frag+` AND u.id <> `+uidPlaceholder+`
 							  AND u.expires_at IS NOT NULL -- unlimited (NULL) subs keep their admin-set unlimited state
 							  AND NOT (u.role = 'operator' OR u.role ILIKE '%"operator"%')
 							  AND NOT EXISTS (
 							      SELECT 1 FROM voucher_redemptions vr
 							      WHERE vr.user_id = u.id AND vr.is_active
-							  )`, opInstansi, *opExpiresAt, targetID)
+							  )`, args...)
 						if err != nil {
 							log.Printf("cascade expiry for instansi %s error: %v", opInstansi, err)
 						} else if n := tag.RowsAffected(); n > 0 {
@@ -1868,13 +1996,16 @@ func ToggleUserStatus() gin.HandlerFunc {
 				} else if newStatus == models.UserStatusSuspended {
 					// Suspend active users with cascade flag
 					var count int
+					sfrag, sargs := models.InstansiMatchSQL("", 1, opScope)
+					sargs = append(sargs, targetID)
+					uidPlaceholder := fmt.Sprintf("$%d", len(sargs))
 					pool.QueryRow(ctx,
-						`SELECT COUNT(*) FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND status = 'active' AND id != $2`,
-						opInstansi, targetID).Scan(&count)
+						`SELECT COUNT(*) FROM admin_users WHERE `+sfrag+` AND status = 'active' AND id != `+uidPlaceholder,
+						sargs...).Scan(&count)
 					if count > 0 {
 						if _, err := pool.Exec(ctx,
-							`UPDATE admin_users SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now() WHERE LOWER(instansi) = LOWER($1) AND status = 'active' AND id != $2`,
-							opInstansi, targetID); err != nil {
+							`UPDATE admin_users SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now() WHERE `+sfrag+` AND status = 'active' AND id != `+uidPlaceholder,
+							sargs...); err != nil {
 							log.Printf("cascade suspend for instansi %s error: %v", opInstansi, err)
 						} else {
 							msg += fmt.Sprintf(". %d user di instansi %s juga dinonaktifkan.", count, opInstansi)
@@ -2238,10 +2369,12 @@ func DeleteUser() gin.HandlerFunc {
 		// delete.
 		auditQuery := `SELECT id, name FROM exams WHERE created_by = $1`
 		auditArgs := []interface{}{targetID}
-		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
+		targetScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
+		if targetUser.HasRole(models.RoleOperator) && !targetScope.IsBucket() {
+			frag, fargs := models.InstansiMatchSQL("u.", 2, targetScope)
 			auditQuery = `SELECT id, name FROM exams
-			              WHERE created_by = $1 OR created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($2) AND id != $1)`
-			auditArgs = append(auditArgs, targetUser.Instansi)
+			              WHERE created_by = $1 OR created_by IN (SELECT u.id FROM admin_users u WHERE ` + frag + ` AND u.id != $1)`
+			auditArgs = append(auditArgs, fargs...)
 		}
 		if auditRows, err := pool.Query(ctx, auditQuery, auditArgs...); err == nil {
 			for auditRows.Next() {
@@ -2274,11 +2407,12 @@ func DeleteUser() gin.HandlerFunc {
 		userAuditQuery := `SELECT id, username, COALESCE(role, ''), COALESCE(name, '') FROM admin_users WHERE id = $1`
 		userAuditArgs := []interface{}{targetID}
 		cascadeAudit := false
-		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
-			userAuditQuery = `SELECT id, username, COALESCE(role, ''), COALESCE(name, '')
-			                  FROM admin_users
-			                  WHERE id = $1 OR (LOWER(instansi) = LOWER($2) AND id != $1)`
-			userAuditArgs = append(userAuditArgs, targetUser.Instansi)
+		if targetUser.HasRole(models.RoleOperator) && !targetScope.IsBucket() {
+			frag, fargs := models.InstansiMatchSQL("u.", 2, targetScope)
+			userAuditQuery = `SELECT u.id, u.username, COALESCE(u.role, ''), COALESCE(u.name, '')
+			                  FROM admin_users u
+			                  WHERE u.id = $1 OR (` + frag + ` AND u.id != $1)`
+			userAuditArgs = append(userAuditArgs, fargs...)
 			cascadeAudit = true
 		}
 		if auditUsers, err := pool.Query(ctx, userAuditQuery, userAuditArgs...); err == nil {
@@ -2348,6 +2482,70 @@ func DeleteUser() gin.HandlerFunc {
 // 8. POST /admin/api/instansi/update — Update Operator Instansi (management
 // level: SuperAdmin & Operator, enforced at route registration)
 // ---------------------------------------------------------------------------
+
+// errAmbiguousInstansi is returned when a destination name matches more than
+// one instansi row. The schema allows duplicate names (two schools may share
+// a name), so a name-only request cannot safely choose one; the caller must
+// reject instead of guessing.
+var errAmbiguousInstansi = errors.New("instansi name is ambiguous")
+
+// instansiQuerier is the small surface resolveInstansiDestination needs from
+// either a pool or a transaction.
+type instansiQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
+}
+
+// resolveInstansiDestination maps a destination name to its canonical
+// instansi_id/code. It joins an existing row when the name is unique, creates
+// a fresh school when none exists, and rejects a duplicate name as ambiguous.
+// The id — not the mutable name — is the tenant boundary after this call.
+func resolveInstansiDestination(ctx context.Context, q instansiQuerier, name string) (int, string, error) {
+	name = strings.TrimSpace(name)
+	var count int
+	if err := q.QueryRow(ctx,
+		`SELECT COUNT(*) FROM instansi WHERE LOWER(BTRIM(name)) = LOWER($1)`, name).Scan(&count); err != nil {
+		return 0, "", err
+	}
+	if count > 1 {
+		return 0, "", errAmbiguousInstansi
+	}
+	if count == 1 {
+		var id int
+		var code string
+		if err := q.QueryRow(ctx, `
+			SELECT id, COALESCE(code, '')
+			FROM instansi
+			WHERE LOWER(BTRIM(name)) = LOWER($1)
+			ORDER BY id
+			LIMIT 1`, name).Scan(&id, &code); err != nil {
+			return 0, "", err
+		}
+		if strings.TrimSpace(code) == "" {
+			code = generateInstansiCode()
+			if _, err := q.Exec(ctx, `UPDATE instansi SET code = $1 WHERE id = $2`, code, id); err != nil {
+				return 0, "", err
+			}
+		}
+		return id, code, nil
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		code := generateInstansiCode()
+		var id int
+		var storedCode string
+		err := q.QueryRow(ctx, `
+			INSERT INTO instansi (name, code)
+			VALUES ($1, $2)
+			RETURNING id, code`, name, code).Scan(&id, &storedCode)
+		if err == nil {
+			return id, storedCode, nil
+		}
+		lastErr = err
+	}
+	return 0, "", lastErr
+}
 
 func generateInstansiCode() string {
 	b := make([]byte, 4)
@@ -2425,7 +2623,7 @@ func UpdateInstansi() gin.HandlerFunc {
 		// user's own school rename is excluded via userID, and gurus joining
 		// a school are never affected.
 		if user.IsOperator() {
-			hasOp, opErr := schoolAlreadyHasOperator(ctx, tx, newInstansi, userID)
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, tx, models.InstansiScope{ID: user.InstansiID, Name: newInstansi}, userID)
 			if opErr != nil {
 				log.Printf("update instansi: one-operator-per-school check error: %v", opErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
@@ -2459,10 +2657,14 @@ func UpdateInstansi() gin.HandlerFunc {
 				RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
 			if err != nil {
 				codeCandidate = generateInstansiCode()
-				_ = tx.QueryRow(ctx, `
+				if retryErr := tx.QueryRow(ctx, `
 					INSERT INTO instansi (name, code)
 					VALUES ($1, $2)
-					RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
+					RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode); retryErr != nil {
+					log.Printf("failed to insert instansi %q after code retry: %v", newInstansi, retryErr)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
+					return
+				}
 			}
 
 			_, err = tx.Exec(ctx, `
