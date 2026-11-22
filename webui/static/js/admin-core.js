@@ -1015,13 +1015,21 @@ document.addEventListener('keydown', function (e) {
         syncState();
     }
 
+    // A persistent overlay (e.g. the mandatory school-name onboarding) must
+    // not be dismissed by Escape or a backdrop click. It can only be closed by
+    // the page's own success path (reload after saving), so users cannot skip
+    // the required step and later wonder why their school features are unset.
+    function isPersistentOverlay(el) {
+        return !!(el && el.hasAttribute && el.hasAttribute('data-modal-persistent'));
+    }
+
     // Force-close fallback: dispatch a click on the backdrop first so any
     // page-specific close routine (or showConfirm's promise resolution) runs;
     // only if the overlay is still open afterwards, hide it directly. Id-less
     // overlays are left alone at that point — promise-based dialogs manage
     // their own lifecycle and must not be removed out from under their caller.
     function forceClose(overlay) {
-        if (!isOpen(overlay)) return;
+        if (!isOpen(overlay) || isPersistentOverlay(overlay)) return;
         overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         if (isOpen(overlay)) {
             if (overlay.classList.contains('show')) overlay.classList.remove('show');
@@ -1034,6 +1042,7 @@ document.addEventListener('keydown', function (e) {
     document.addEventListener('click', function (e) {
         const el = e.target;
         if (!el.classList || !(el.classList.contains('modal-overlay') || el.classList.contains('modal-backdrop'))) return;
+        if (isPersistentOverlay(el)) return;
         setTimeout(() => {
             if (isOpen(el)) {
                 if (el.classList.contains('show')) el.classList.remove('show');
@@ -1052,6 +1061,7 @@ document.addEventListener('keydown', function (e) {
             // An open dropdown takes priority: let its own Escape handler
             // close it without also dismissing the modal underneath.
             if (document.querySelector('.exam-action-dropdown-content.show, .topbar-dropdown-content.show')) return;
+            if (isPersistentOverlay(top)) return;
             forceClose(top);
             return;
         }

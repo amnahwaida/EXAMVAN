@@ -48,7 +48,9 @@ function doRedeemVoucher() {
         if (res.success) {
             showToast(res.message, 'success');
             document.getElementById('voucherCodeInput').value = '';
-            setTimeout(function() { location.reload(); }, 1500);
+            // Give the longer onboarding-aware message enough time to be read
+            // before the reload renders the mandatory instansi modal.
+            setTimeout(function() { location.reload(); }, res.needs_instansi ? 3000 : 1500);
         } else {
             showToast(res.message || 'Gagal mengklaim voucher', 'error');
         }
@@ -184,7 +186,7 @@ function activatePackage(redemptionId, el) {
     .then(function(res) {
         if (res.success) {
             showToast(res.message, 'success');
-            setTimeout(function() { location.reload(); }, 1200);
+            setTimeout(function() { location.reload(); }, res.needs_instansi ? 3000 : 1200);
         } else {
             if (el) el.disabled = false;
             showToast(res.message || 'Gagal mengaktifkan paket', 'error');

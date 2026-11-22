@@ -202,6 +202,36 @@ test('R29/static: overlay onboarding tanpa stopPropagation & tanpa jalur dismiss
         'onboarding wajib tidak punya dismiss backdrop');
 });
 
+test('R29/static: onboarding modal wajib ditandai persistent dan Modal Manager menolak Escape/backdrop', () => {
+    const html = read(NAV);
+    const overlay = html.match(/<div[^>]*id="instansiOnboardingModal"[^>]*>/);
+    assert.ok(overlay, '#instansiOnboardingModal ada');
+    assert.match(overlay[0], /data-modal-persistent="true"/,
+        'modal onboarding wajib membawa data-modal-persistent');
+    assert.match(overlay[0], /role="dialog"/, 'modal onboarding wajib role="dialog"');
+    assert.match(overlay[0], /aria-modal="true"/, 'modal onboarding wajib aria-modal="true"');
+    assert.match(html, /Langkah ini wajib dan tidak dapat ditutup/,
+        'copy modal harus menjelaskan bahwa langkah ini tidak bisa ditutup');
+
+    const core = read('static/js/admin-core.js');
+    assert.match(core, /function isPersistentOverlay\(el\)/,
+        'Modal Manager harus punya deteksi overlay persistent');
+    assert.match(core, /if \(!isOpen\(overlay\) \|\| isPersistentOverlay\(overlay\)\) return;/,
+        'forceClose harus menolak overlay persistent');
+    assert.match(core, /if \(isPersistentOverlay\(el\)\) return;/,
+        'klik backdrop tidak boleh menutup overlay persistent');
+    assert.match(core, /if \(isPersistentOverlay\(top\)\) return;/,
+        'Escape tidak boleh menutup overlay persistent');
+});
+
+test('R29/static: toast redeem/activate memberi waktu baca lebih saat needs_instansi', () => {
+    const billing = read('static/js/settings-billing.js');
+    assert.match(billing, /res\.needs_instansi \? 3000 : 1500/,
+        'toast redeem wajib lebih lama saat onboarding instansi');
+    assert.match(billing, /res\.needs_instansi \? 3000 : 1200/,
+        'toast activate wajib lebih lama saat onboarding instansi');
+});
+
 test('R29/vm: handler open-change-password-modal memanggil fungsi global openChangePasswordModal', () => {
     const html = read(NAV);
     const m = html.match(/\(function\s*\(\)\s*\{[\s\S]*?Actions\.register\(\s*'open-change-password-modal'[\s\S]*?\}\)\(\);/);

@@ -223,12 +223,11 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 	if pool != nil {
 		userID := getCurrentUserID(c)
 		if userID > 0 {
-			var pkg, inst string
-			err := pool.QueryRow(c.Request.Context(), `SELECT COALESCE(package, 'free'), COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&pkg, &inst)
+			var pkg, inst, role string
+			err := pool.QueryRow(c.Request.Context(), `SELECT COALESCE(package, 'free'), COALESCE(instansi, ''), COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&pkg, &inst, &role)
 			if err == nil {
 				data["admin_package"] = pkg
 				data["admin_instansi"] = inst
-				instTrim := strings.TrimSpace(inst)
 				// The mandatory-instansi onboarding modal is for SCHOOL
 				// OPERATORS only: a school package whose instansi is still the
 				// unset "personal" sentinel. Requiring the operator role keeps
@@ -236,12 +235,10 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 				// submit endpoint (POST /admin/api/instansi/update) is
 				// AdminManagementRequired, so a plain guru holding a
 				// SuperAdmin-assigned "sekolah_*" package label would see a
-				// modal that always 403s. isSuperAdmin reads the bool context
-				// key AuthRequired sets from the session (more robust than
-				// comparing the normalized role string).
-				if isOperator(c) && !isSuperAdmin(c) &&
-					strings.HasPrefix(strings.ToLower(pkg), "sekolah") &&
-					(instTrim == "" || strings.ToLower(instTrim) == "personal" || instTrim == "Belum Ditetapkan") {
+				// modal that always 403s. Read the DB role (not just the
+				// session flag) so a package just granted by redeem/activate
+				// cannot miss the modal for one stale-session request.
+				if !isSuperAdmin(c) && needsInstansiOnboarding(pkg, role, inst) {
 					data["needs_instansi"] = true
 				}
 			}
@@ -257,6 +254,23 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 	c.Header("Pragma", "no-cache")
 
 	c.HTML(http.StatusOK, pageTemplate, data)
+}
+
+// needsInstansiOnboarding reports whether an account just activated a school
+// package but still carries the shared "personal" sentinel as its instansi.
+// This is the single source of truth for both the mandatory onboarding modal
+// (renderAdminPage) and the redeem/activate success message, so the two can
+// never disagree. Custom/non-"sekolah" operator packages are deliberately
+// excluded: they may be personal-bucket operators by design.
+func needsInstansiOnboarding(packageName, role, instansi string) bool {
+	if !models.HasRole(role, models.RoleOperator) {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(packageName)), "sekolah") {
+		return false
+	}
+	inst := strings.TrimSpace(instansi)
+	return inst == "" || strings.EqualFold(inst, "personal") || inst == "Belum Ditetapkan"
 }
 
 // ---------------------------------------------------------------------------

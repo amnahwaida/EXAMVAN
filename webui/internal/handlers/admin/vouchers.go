@@ -764,6 +764,19 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 
 		expiryStr := now.Add(time.Duration(snapshot.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
 
+		// The mandatory-instansi modal is server-rendered on the next page load;
+		// this message makes the same requirement visible in the success toast so
+		// a user who navigates away before the reload still sees it.
+		roleForOnboarding := updatedRole
+		if roleForOnboarding == "" {
+			roleForOnboarding = snapshot.Role
+		}
+		needsInstansi := needsInstansiOnboarding(snapshot.Package, roleForOnboarding, lockedInstansi)
+		message := fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket %s kini aktif sampai %s; paket lain otomatis dijeda.", v.Code, strings.ToUpper(snapshot.Package), expiryStr)
+		if needsInstansi {
+			message += " Sebelum menggunakan fitur sekolah, atur nama instansi/sekolah Anda terlebih dahulu."
+		}
+
 		// Append-only audit trail: WHO claimed WHICH voucher, with the
 		// resulting package and expiry snapshotted (the same denormalized
 		// style as the other audit rows, so the trail stays readable without
@@ -776,10 +789,11 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":    true,
-			"message":    fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket %s kini aktif sampai %s; paket lain otomatis dijeda.", v.Code, strings.ToUpper(snapshot.Package), expiryStr),
-			"package":    snapshot.Package,
-			"expires_at": expiryStr,
+			"success":        true,
+			"message":        message,
+			"package":        snapshot.Package,
+			"expires_at":     expiryStr,
+			"needs_instansi": needsInstansi,
 		})
 	}
 }
@@ -1075,6 +1089,18 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		}
 		expiryStr := now.Add(time.Duration(r.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
 
+		// Mirror of the redeem response: surface the mandatory instansi step in
+		// the toast, not only in the modal rendered after the reload.
+		roleForOnboarding := updatedRole
+		if roleForOnboarding == "" {
+			roleForOnboarding = r.Role
+		}
+		needsInstansi := needsInstansiOnboarding(pkgLabel, roleForOnboarding, lockedInstansi)
+		message := fmt.Sprintf("Paket %s kini aktif dan melanjutkan sisa masanya sampai %s; paket lain otomatis dijeda.", strings.ToUpper(r.Package), expiryStr)
+		if needsInstansi {
+			message += " Sebelum menggunakan fitur sekolah, atur nama instansi/sekolah Anda terlebih dahulu."
+		}
+
 		// Append-only audit trail: WHO activated WHICH package, with the new
 		// account expiry snapshotted. Written after commit; best-effort.
 		// examID = 0 → NULL (no exam involved).
@@ -1085,10 +1111,11 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":    true,
-			"message":    fmt.Sprintf("Paket %s kini aktif dan melanjutkan sisa masanya sampai %s; paket lain otomatis dijeda.", strings.ToUpper(r.Package), expiryStr),
-			"package":    r.Package,
-			"expires_at": expiryStr,
+			"success":        true,
+			"message":        message,
+			"package":        r.Package,
+			"expires_at":     expiryStr,
+			"needs_instansi": needsInstansi,
 		})
 	}
 }

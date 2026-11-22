@@ -123,19 +123,20 @@
 {{/* R29: stopPropagation overlay/kartu dihapus — tidak ada listener global
      yang menutup modal ini (wajib diisi), dan klik-luar dropdown milik core
      aman terhadap bubble. Tanpa dismiss backdrop sesemestinya. */}}
-<div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:var(--z-onboarding); background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);">
+<div id="instansiOnboardingModal" class="modal-overlay" data-modal-persistent="true" role="dialog" aria-modal="true" aria-labelledby="instansiOnboardingTitle" aria-describedby="instansiOnboardingDesc" style="display:flex; z-index:var(--z-onboarding); background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);">
     <div class="modal-card" style="max-width: 480px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(168, 85, 247, 0.35);" >
         <div class="modal-header" style="border-bottom: 1px solid rgba(var(--rgb-white),0.1); padding-bottom: 14px; margin-bottom: 16px;">
-            <h3 style="margin:0; font-size:1.15rem; color:rgb(var(--rgb-white)); display:flex; align-items:center; gap:10px;">
+            <h3 id="instansiOnboardingTitle" style="margin:0; font-size:1.15rem; color:rgb(var(--rgb-white)); display:flex; align-items:center; gap:10px;">
                 <svg class="icon-svg" style="width:24px;height:24px;color:#c084fc;"><use href="#hi-building-library"/></svg>
                 Wajib Atur Nama Instansi / Sekolah
             </h3>
         </div>
         <div class="modal-body">
             <div style="background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); padding:14px 16px; border-radius:10px; margin-bottom:20px;">
-                <p style="margin:0; color:#e9d5ff; font-size:0.88rem; line-height:1.5;">
+                <p id="instansiOnboardingDesc" style="margin:0; color:#e9d5ff; font-size:0.88rem; line-height:1.5;">
                     <strong>Selamat!</strong> Akun Anda telah mengaktifkan <strong>Paket Sekolah</strong>. 
                     Sebelum menggunakan fitur aplikasi, silakan atur nama resmi Sekolah/Instansi Anda terlebih dahulu.
+                    <strong>Langkah ini wajib dan tidak dapat ditutup</strong> sampai nama sekolah disimpan.
                 </p>
             </div>
             <form id="formMandatoryInstansi">
