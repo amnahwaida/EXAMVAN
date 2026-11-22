@@ -771,10 +771,10 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		if roleForOnboarding == "" {
 			roleForOnboarding = snapshot.Role
 		}
-		needsInstansi := needsInstansiOnboarding(snapshot.Package, roleForOnboarding, lockedInstansi)
+		needsInstansi := needsInstansiOnboarding(roleForOnboarding, lockedInstansi)
 		message := fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket %s kini aktif sampai %s; paket lain otomatis dijeda.", v.Code, strings.ToUpper(snapshot.Package), expiryStr)
 		if needsInstansi {
-			message += " Sebelum menggunakan fitur sekolah, atur nama instansi/sekolah Anda terlebih dahulu."
+			message += " Sebelum menggunakan fitur, atur nama instansi/sekolah Anda terlebih dahulu."
 		}
 
 		// Append-only audit trail: WHO claimed WHICH voucher, with the
@@ -1095,10 +1095,10 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		if roleForOnboarding == "" {
 			roleForOnboarding = r.Role
 		}
-		needsInstansi := needsInstansiOnboarding(pkgLabel, roleForOnboarding, lockedInstansi)
+		needsInstansi := needsInstansiOnboarding(roleForOnboarding, lockedInstansi)
 		message := fmt.Sprintf("Paket %s kini aktif dan melanjutkan sisa masanya sampai %s; paket lain otomatis dijeda.", strings.ToUpper(r.Package), expiryStr)
 		if needsInstansi {
-			message += " Sebelum menggunakan fitur sekolah, atur nama instansi/sekolah Anda terlebih dahulu."
+			message += " Sebelum menggunakan fitur, atur nama instansi/sekolah Anda terlebih dahulu."
 		}
 
 		// Append-only audit trail: WHO activated WHICH package, with the new

@@ -664,17 +664,17 @@ func TestDashboardOperatorFeaturesForRawRoleJSON(t *testing.T) {
 	}
 }
 
-// TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator locks in the
-// onboarding modal in nav.html (shared by every admin page): it must appear
-// ONLY for a school-package ("sekolah…") account whose instansi is still the
-// unset "personal" sentinel — i.e. a school operator who redeemed its voucher
-// but has not claimed a school name yet (helpers.go needs_instansi). It must
-// NOT appear for an operator that already set its school name, for the
-// SuperAdmin, or for a plain guru. This also pins the nav partial receiving
-// the flag: every page passes needs_instansi into the nav dict, so the modal
-// actually renders (previously the flag was computed server-side but never
-// forwarded to the partial, silently dropping the modal).
-func TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator(t *testing.T) {
+// TestMandatoryInstansiModalOnlyForUnclaimedOperator locks in the onboarding
+// modal in nav.html (shared by every admin page): it must appear ONLY for an
+// operator whose instansi is still the unset "personal" sentinel — i.e. an
+// operator who redeemed its voucher (school OR custom package) but has not
+// claimed a school name yet (helpers.go needs_instansi). It must NOT appear
+// for an operator that already set its school name, for the SuperAdmin, or for
+// a plain guru. This also pins the nav partial receiving the flag: every page
+// passes needs_instansi into the nav dict, so the modal actually renders
+// (previously the flag was computed server-side but never forwarded to the
+// partial, silently dropping the modal).
+func TestMandatoryInstansiModalOnlyForUnclaimedOperator(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "admin")
 	ctx := context.Background()
 
@@ -701,6 +701,18 @@ func TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("create claimed operator: %v", err)
+	}
+	customOp, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_custom", Name: "IT Inst Custom",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "personal", // custom operator package, instansi not yet set
+		Role:         models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Package:      "custom-operator",
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("create custom operator: %v", err)
 	}
 	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
 		Username: "it_inst_su2", Name: "IT Inst SU2",
@@ -740,6 +752,7 @@ func TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator(t *testing.T) {
 	}{
 		{"unclaimed school operator", unclaimed.ID, true},
 		{"claimed school operator", claimed.ID, false},
+		{"unclaimed custom operator", customOp.ID, true},
 		{"superadmin", su.ID, false},
 		{"plain guru", guru.ID, false},
 	}

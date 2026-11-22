@@ -212,6 +212,8 @@ test('R29/static: onboarding modal wajib ditandai persistent dan Modal Manager m
     assert.match(overlay[0], /aria-modal="true"/, 'modal onboarding wajib aria-modal="true"');
     assert.match(html, /Langkah ini wajib dan tidak dapat ditutup/,
         'copy modal harus menjelaskan bahwa langkah ini tidak bisa ditutup');
+    assert.match(html, /paket dengan akses operator/,
+        'copy modal harus generik agar berlaku juga untuk paket operator custom');
 
     const core = read('static/js/admin-core.js');
     assert.match(core, /function isPersistentOverlay\(el\)/,

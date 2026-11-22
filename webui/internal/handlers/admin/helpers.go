@@ -228,17 +228,23 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 			if err == nil {
 				data["admin_package"] = pkg
 				data["admin_instansi"] = inst
-				// The mandatory-instansi onboarding modal is for SCHOOL
-				// OPERATORS only: a school package whose instansi is still the
-				// unset "personal" sentinel. Requiring the operator role keeps
-				// the modal off accounts that could not act on it anyway — the
-				// submit endpoint (POST /admin/api/instansi/update) is
-				// AdminManagementRequired, so a plain guru holding a
-				// SuperAdmin-assigned "sekolah_*" package label would see a
-				// modal that always 403s. Read the DB role (not just the
-				// session flag) so a package just granted by redeem/activate
-				// cannot miss the modal for one stale-session request.
-				if !isSuperAdmin(c) && needsInstansiOnboarding(pkg, role, inst) {
+				// The mandatory-instansi onboarding modal is for OPERATORS
+				// whose instansi is still the unset "personal" sentinel,
+				// regardless of package (school or custom operator). Requiring
+				// the operator role keeps the modal off accounts that could not
+				// act on it anyway — the submit endpoint
+				// (POST /admin/api/instansi/update) is AdminManagementRequired,
+				// so a plain guru holding a SuperAdmin-assigned package label
+				// would see a modal that always 403s. Read the DB role (not
+				// just the session flag) so a package just granted by
+				// redeem/activate cannot miss the modal for one stale-session
+				// request. Feature-locked accounts are excluded: they can only
+				// reach the billing tab, while the instansi update endpoint is
+				// feature-gated — showing the modal there would deadlock them
+				// until renewal. Once renewed, the modal appears normally.
+				locked, _ := c.Get(middleware.ContextKeyLocked)
+				featureLocked, _ := locked.(bool)
+				if shouldShowInstansiOnboarding(isSuperAdmin(c), featureLocked, role, inst) {
 					data["needs_instansi"] = true
 				}
 			}
@@ -256,21 +262,30 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 	c.HTML(http.StatusOK, pageTemplate, data)
 }
 
-// needsInstansiOnboarding reports whether an account just activated a school
-// package but still carries the shared "personal" sentinel as its instansi.
-// This is the single source of truth for both the mandatory onboarding modal
-// (renderAdminPage) and the redeem/activate success message, so the two can
-// never disagree. Custom/non-"sekolah" operator packages are deliberately
-// excluded: they may be personal-bucket operators by design.
-func needsInstansiOnboarding(packageName, role, instansi string) bool {
+// needsInstansiOnboarding reports whether an operator still carries the shared
+// "personal" sentinel as its instansi. This is the single source of truth for
+// both the mandatory onboarding modal (renderAdminPage) and the
+// redeem/activate success message, so the two can never disagree. The package
+// name is deliberately irrelevant: a custom operator package needs a real
+// instansi exactly like a school package does.
+func needsInstansiOnboarding(role, instansi string) bool {
 	if !models.HasRole(role, models.RoleOperator) {
-		return false
-	}
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(packageName)), "sekolah") {
 		return false
 	}
 	inst := strings.TrimSpace(instansi)
 	return inst == "" || strings.EqualFold(inst, "personal") || inst == "Belum Ditetapkan"
+}
+
+// shouldShowInstansiOnboarding adds the page-level exclusions to the core
+// predicate: SuperAdmin never needs onboarding, and a feature-locked account
+// must not see the mandatory modal because the instansi update endpoint is
+// feature-gated. Such an account can only reach the billing tab; after a
+// successful renewal it becomes unlocked and the modal appears on reload.
+func shouldShowInstansiOnboarding(isSuper, featureLocked bool, role, instansi string) bool {
+	if isSuper || featureLocked {
+		return false
+	}
+	return needsInstansiOnboarding(role, instansi)
 }
 
 // ---------------------------------------------------------------------------

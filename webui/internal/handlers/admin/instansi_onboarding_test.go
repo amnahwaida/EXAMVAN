@@ -7,32 +7,44 @@ import (
 )
 
 // TestNeedsInstansiOnboarding pins the single predicate shared by the
-// server-rendered modal and the redeem/activate success toast. Only a real
-// school package held by an operator with the unset school sentinel needs
-// onboarding; custom operator packages may intentionally be personal.
+// server-rendered modal and the redeem/activate success toast. Any operator
+// holding the unset school sentinel needs onboarding, regardless of package
+// (school or custom operator).
 func TestNeedsInstansiOnboarding(t *testing.T) {
 	operator := models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator})
 	cases := []struct {
 		name     string
-		pkg      string
 		role     string
 		instansi string
 		want     bool
 	}{
-		{"school package, operator, personal", "sekolah_kecil", operator, "personal", true},
-		{"school package, operator, empty", "sekolah_menengah", operator, "", true},
-		{"school package, operator, placeholder", "sekolah_besar", operator, "Belum Ditetapkan", true},
-		{"school package, operator, Personal casing", "sekolah_unggulan", operator, "Personal", true},
-		{"school package, operator, named school", "sekolah_kecil", operator, "SMA Negeri 1", false},
-		{"school package, guru only", "sekolah_kecil", models.SerializeRoles([]string{models.RoleGuru}), "personal", false},
-		{"non-school package, operator", "custom-operator", operator, "personal", false},
-		{"guru package, operator", "guru", operator, "personal", false},
+		{"operator, personal", operator, "personal", true},
+		{"operator, empty", operator, "", true},
+		{"operator, placeholder", operator, "Belum Ditetapkan", true},
+		{"operator, Personal casing", operator, "Personal", true},
+		{"operator, named school", operator, "SMA Negeri 1", false},
+		{"guru only", models.SerializeRoles([]string{models.RoleGuru}), "personal", false},
+		{"superadmin only", models.SerializeRoles([]string{models.RoleSuperAdmin}), "personal", false},
+		{"empty role", "", "personal", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := needsInstansiOnboarding(tc.pkg, tc.role, tc.instansi); got != tc.want {
-				t.Errorf("needsInstansiOnboarding(%q, %q, %q) = %v, want %v", tc.pkg, tc.role, tc.instansi, got, tc.want)
+			if got := needsInstansiOnboarding(tc.role, tc.instansi); got != tc.want {
+				t.Errorf("needsInstansiOnboarding(%q, %q) = %v, want %v", tc.role, tc.instansi, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestShouldShowInstansiOnboardingHonorsPageExclusions(t *testing.T) {
+	operator := models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator})
+	if !shouldShowInstansiOnboarding(false, false, operator, "personal") {
+		t.Error("unlocked non-super operator with personal instansi must see onboarding")
+	}
+	if shouldShowInstansiOnboarding(true, false, operator, "personal") {
+		t.Error("SuperAdmin must never see onboarding")
+	}
+	if shouldShowInstansiOnboarding(false, true, operator, "personal") {
+		t.Error("feature-locked account must not see onboarding (update endpoint is gated)")
 	}
 }
