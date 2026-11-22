@@ -60,15 +60,16 @@ test('L43: kurung tutup liar sisa refactor dihapus dari pengawas_detail.html', (
 // L44 — alasan disabled terlihat + aria-describedby
 // ---------------------------------------------------------------------------
 
-test('L44: tombol kontrol disabled merujuk penjelas yang selalu dirender', () => {
+test('L44: tombol kontrol disabled merujuk penjelas saat kontrol terkunci', () => {
     // Kedua tombol (start/stop) memakai aria-describedby, bukan title hover-only:
     assert.equal((DETAIL.match(/disabled aria-describedby="pd-control-reason"/g) || []).length, 2,
         'start & stop sama-sama memakai aria-describedby');
     assert.doesNotMatch(DETAIL, /disabled title="Hanya pembuat/,
         'alasan tidak lagi hanya dikomunikasikan via title');
-    // Elemen penjelas dirender tanpa syarat (di luar {{if}}):
-    assert.match(DETAIL, /<span id="pd-control-reason"[^>]*>[^<]*Hanya pembuat\/guru[^<]*<\/span>/,
-        'span alasan selalu ada di DOM');
+    // Elemen penjelas hanya relevan saat kontrol memang terkunci; pengguna
+    // yang berwenang tidak perlu membaca alasan tombol yang aktif.
+    assert.match(DETAIL, /\{\{if not \.can_control_settings\}\}\s*<span id="pd-control-reason"[^>]*>[^<]*Hanya pembuat\/guru[^<]*<\/span>/,
+        'span alasan dirender di dalam guard kontrol terkunci');
 });
 
 // ---------------------------------------------------------------------------

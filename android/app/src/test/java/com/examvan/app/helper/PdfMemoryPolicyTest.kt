@@ -41,4 +41,19 @@ class PdfMemoryPolicyTest {
         assertEquals(1536, PdfMemoryPolicy.maxWidth(useLowRamProfile = false))
         assertEquals(2304, PdfMemoryPolicy.maxHeight(useLowRamProfile = false))
     }
+
+    @Test
+    fun trimUiHidden_releasesPdf_beforeBackgroundLru() {
+        // TRIM_MEMORY_UI_HIDDEN = 20; TRIM_MEMORY_BACKGROUND = 40.
+        assertTrue(PdfMemoryPolicy.shouldReleaseForTrim(20))
+        assertTrue(PdfMemoryPolicy.shouldReleaseForTrim(40))
+        assertTrue(PdfMemoryPolicy.shouldReleaseForTrim(80))
+    }
+
+    @Test
+    fun trimRunningLow_doesNotReleaseVisiblePdf() {
+        // Viewer masih terlihat; tidak ada onResume untuk reopen.
+        assertFalse(PdfMemoryPolicy.shouldReleaseForTrim(10))
+        assertFalse(PdfMemoryPolicy.shouldReleaseForTrim(15))
+    }
 }

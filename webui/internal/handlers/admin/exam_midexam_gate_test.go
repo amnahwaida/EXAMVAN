@@ -208,7 +208,7 @@ func TestSaveQuestionsWhileRunningFreezesQuestionsButAppliesSchedule(t *testing.
 			"options": []interface{}{"MANIPULATED", "A", "B"},
 		}},
 		"security_level": "medium",
-		"start_time":     "",
+		"start_time":     "2030-01-01 09:00",
 		"end_time":       "2030-01-02 15:04",
 	})
 	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", runningID), body, "application/json")
@@ -268,7 +268,7 @@ func TestSaveQuestionsScheduleChangeBroadcastsWhileRunning(t *testing.T) {
 	body, _ := json.Marshal(map[string]interface{}{
 		"questions":      nil,
 		"security_level": "medium",
-		"start_time":     "",
+		"start_time":     "2030-01-01 09:00",
 		"end_time":       newEnd,
 	})
 	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", runningID), body, "application/json")
@@ -392,7 +392,7 @@ func TestSaveQuestionsScheduleOnlyWhileRunningDoesNotRecalculate(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"questions":  nil,
-		"start_time": "",
+		"start_time": "2030-06-01 09:00",
 		"end_time":   "2030-06-01 10:00",
 	})
 	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", runningID), body, "application/json")
@@ -401,6 +401,64 @@ func TestSaveQuestionsScheduleOnlyWhileRunningDoesNotRecalculate(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("recalculasi dipanggil %d kali saat ujian berjalan — wajib 0", calls)
+	}
+}
+
+// TestSaveQuestionsRequiresSchedule pins the mandatory schedule at the save
+// boundary: clearing start_time or end_time must be rejected so an exam can
+// never end up without the automatic-start time or the hard deadline.
+func TestSaveQuestionsRequiresSchedule(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		start     string
+		end       string
+		wantError string
+	}{
+		{name: "missing start", start: "", end: "2030-01-02 15:04", wantError: "mulai wajib diisi"},
+		{name: "missing end", start: "2030-01-01 09:00", end: "", wantError: "selesai wajib diisi"},
+		{name: "end before start", start: "2030-01-02 15:04", end: "2030-01-01 09:00", wantError: "harus setelah jadwal mulai"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := setupMidExamGatePool(t)
+			superID, _, stoppedID := setupMidExamGateFixture(t, pool, "midgate-req-sched")
+			srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
+			defer srv.Close()
+			client := loginMidGate(t, srv, superID)
+
+			body, _ := json.Marshal(map[string]interface{}{
+				"questions":  nil,
+				"start_time": tc.start,
+				"end_time":   tc.end,
+			})
+			resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", stoppedID), body, "application/json")
+			defer resp.Body.Close()
+			raw, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), tc.wantError) {
+				t.Fatalf("save invalid schedule: status=%d body=%s, want 400 %q", resp.StatusCode, raw, tc.wantError)
+			}
+		})
+	}
+}
+
+// TestSaveQuestionsRejectsInvalidTolerance pins the editable tolerance range.
+func TestSaveQuestionsRejectsInvalidTolerance(t *testing.T) {
+	pool := setupMidExamGatePool(t)
+	superID, _, stoppedID := setupMidExamGateFixture(t, pool, "midgate-req-tol")
+	srv := httptest.NewServer(newMidExamGateRouter(pool, t.TempDir(), nil))
+	defer srv.Close()
+	client := loginMidGate(t, srv, superID)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"questions":                  nil,
+		"start_time":                 "2030-01-01 09:00",
+		"end_time":                   "2030-01-02 15:04",
+		"schedule_tolerance_minutes": 1441,
+	})
+	resp := midGatePost(client, srv, fmt.Sprintf("/admin/api/exams/%d/questions", stoppedID), body, "application/json")
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "Toleransi waktu") {
+		t.Fatalf("save invalid tolerance: status=%d body=%s, want 400 tolerance", resp.StatusCode, raw)
 	}
 }
 

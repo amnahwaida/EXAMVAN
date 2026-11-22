@@ -32,4 +32,20 @@ object PdfMemoryPolicy {
 
     fun maxHeight(useLowRamProfile: Boolean): Int =
         if (useLowRamProfile) LOW_RAM_MAX_HEIGHT else NORMAL_MAX_HEIGHT
+
+    /**
+     * Nilai `ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN` (20). Disalin sebagai
+     * konstanta agar policy tetap murni/JVM-testable. Ambang ini dipakai
+     * untuk melepas PDF di SEMUA perangkat saat UI sudah tidak terlihat —
+     * bukan hanya `TRIM_MEMORY_BACKGROUND` (40).
+     */
+    const val TRIM_UI_HIDDEN = 20
+
+    /**
+     * Lepas renderer/bitmap PDF saat sistem mengirim trim level UI-hidden
+     * atau lebih berat. Level `RUNNING_LOW`/`RUNNING_CRITICAL` sengaja TIDAK
+     * memicu pelepasan: viewer masih terlihat dan tidak ada event resume
+     * untuk membukanya kembali, sehingga layar soal akan kosong.
+     */
+    fun shouldReleaseForTrim(level: Int): Boolean = level >= TRIM_UI_HIDDEN
 }

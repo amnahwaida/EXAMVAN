@@ -25,7 +25,6 @@ class AnswerSheetBuilder(
     private val binding: ActivityExamViewerBinding,
     context: Context
 ) {
-    private var renderedCount: Int = 0
     private var items: List<AnswerSheetItem> = emptyList()
 
     // Warna dinamis berdasarkan exam panel_color — dibaca adapter saat bind.
@@ -70,7 +69,6 @@ class AnswerSheetBuilder(
      */
     fun build(questions: List<Map<String, Any>>): Int {
         items = AnswerSheetPlanner.plan(questions)
-        renderedCount = items.size
 
         // Fix review RecyclerView ronde 2 #1: selalu kirim daftar ke adapter —
         // termasuk saat KOSONG, agar view basi dari build sebelumnya
@@ -83,7 +81,7 @@ class AnswerSheetBuilder(
         }
 
         applyDynamicTextColors()
-        return renderedCount
+        return items.size
     }
 
     /**
@@ -94,9 +92,6 @@ class AnswerSheetBuilder(
     fun restoreFromSaved(savedAnswers: Map<String, Any>) {
         adapter.refresh()
     }
-
-    /** Jumlah soal yang berhasil dirender pada build terakhir (nomor valid). */
-    fun getQuestionCount(): Int = renderedCount
 
     private fun hideAnswerOverlay() {
         binding.answerSheetToggle.visibility = View.GONE

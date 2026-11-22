@@ -1,39 +1,26 @@
 <resources>
     <string name="app_name">Examvan</string>
-    <string name="server_config_title">Konfigurasi Server</string>
     <string name="hint_server_url">https://examvan.my.id</string>
     <string name="label_server_url">URL Server</string>
     <string name="label_token">Token Ujian</string>
     <string name="hint_token">ABC12345</string>
     <string name="cb_remember_url">Ingat URL Server ini untuk selanjutnya</string>
-    <string name="btn_connect">Simpan &amp; Lanjut</string>
     <string name="btn_start_exam">Mulai Ujian</string>
-    <string name="exam_list_title">Daftar Ujian</string>
-    <string name="empty_exams">Tidak ada ujian tersedia</string>
     <string name="btn_retry">Coba Lagi</string>
-    <string name="loading">Memuat...</string>
-    <string name="download_progress">Mengunduh: %1$d%%</string>
-    <string name="page_indicator">Halaman %1$d / %2$d</string>
     <string name="btn_prev">Sebelumnya</string>
     <string name="btn_next">Selanjutnya</string>
-    <string name="error_network">Gagal terhubung ke server. Periksa jaringan Anda.</string>
-    <string name="error_invalid_url">Format URL tidak valid. Gunakan format https://domain</string>
     <string name="https_required_error">Koneksi HTTP (cleartext) tidak didukung. Gunakan HTTPS.</string>
     <string name="error_invalid_token">Token tidak boleh kosong</string>
     <string name="error_token_not_found">Token tidak valid atau ujian sudah berakhir</string>
     <string name="error_download">Gagal mengunduh file ujian</string>
-    <string name="error_pdf">Gagal membuka file PDF</string>
-    <string name="menu_change_server">Ganti Server</string>
 
     <string name="btn_cancel">Batal</string>
-    <string name="toast_auto_submit_success">Ujian dihentikan. Jawaban Anda telah dikumpulkan secara otomatis.</string>
     <string name="toast_auto_submit_failed">Ujian dihentikan. Gagal mengirim jawaban: %1$s</string>
     <string name="autosubmit_status_active">Kumpul Otomatis: AKTIF (Jangan keluar aplikasi!)</string>
     <string name="autosubmit_status_inactive">Kumpul Otomatis: NONAKTIF</string>
     <string name="strict_mode_active">MODE STRICT: DILARANG KELUAR! Submit untuk membuka kunci.</string>
     <string name="strict_mode_cannot_exit">Mode Strict: Anda tidak bisa keluar sebelum mengumpulkan jawaban!</string>
     <string name="strict_mode_cannot_exit_title">Mode Strict Aktif</string>
-    <string name="strict_mode_cannot_exit_msg">Mode Strict sedang aktif. Anda TIDAK BISA keluar dari aplikasi sebelum berhasil mengumpulkan jawaban ujian.\n\nSilakan tekan tombol "Kumpulkan Jawaban" setelah selesai mengerjakan.</string>
 
     <!-- Identity dialog -->
     <string name="identity_dialog_title">Identitas Siswa</string>
@@ -44,19 +31,12 @@
     <string name="token_length_error">Token harus terdiri dari 8 karakter</string>
     <string name="connection_error_format">Tidak dapat terhubung ke server: %1$s</string>
     <string name="answer_submit_error">Terjadi kesalahan saat mengirim jawaban.</string>
-    <string name="error_pdf_render">Gagal merender PDF</string>
 
     <!-- ExamViewer -->
     <string name="exam_invalid_id">ID ujian tidak valid</string>
     <string name="default_exam_name">Ujian</string>
     <string name="answer_sheet_open">Buka Lembar Jawaban</string>
     <string name="answer_sheet_close">Tutup Lembar Jawaban</string>
-    <string name="question_label">Soal %1$d</string>
-    <string name="question_label_truefalse">Soal %1$d (Benar/Salah)</string>
-    <string name="question_label_multiple">Soal %1$d (Pilih beberapa)</string>
-    <string name="question_label_matching">Soal %1$d (Menjodohkan)</string>
-    <string name="question_label_shortanswer">Soal %1$d (Isian Singkat)</string>
-    <string name="spinner_default">-- Pilih --</string>
     <string name="submit_answers_title">Kumpulkan Jawaban</string>
     <string name="submit_answers_confirm_partial">Anda baru menjawab %1$d dari %2$d soal.\nYakin ingin mengumpulkan sekarang?</string>
     <string name="submit_answers_confirm_all">Anda sudah menjawab semua %1$d soal.\nKumpulkan jawaban?</string>
@@ -86,8 +66,6 @@
     <string name="submit_failed_message_strict">%1$s\n\nMode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar.</string>
     <string name="dialog_ok">OK</string>
     <string name="download_failed_format">Gagal memulai unduhan: %1$s</string>
-    <string name="page_indicator_format">%1$d / %2$d</string>
-    <string name="auto_submit_success_title">Jawaban Terkirim Otomatis</string>
     <string name="auto_submit_failed_title">Gagal Mengirim Jawaban Otomatis</string>
     <string name="recovery_pending_message">Jawaban Anda belum terkirim!\n\nPengumpulan otomatis gagal karena masalah jaringan. Jawaban Anda masih tersimpan di perangkat ini. Tekan \"Kirim Lagi\" untuk mengirim ulang.</string>
     <string name="recovery_retry_submit">Kirim Lagi</string>
@@ -96,12 +74,6 @@
     <string name="notification_retry_action">Kirim Lagi</string>
     <string name="notification_channel_name">Pengiriman Jawaban Ujian</string>
     <string name="notification_channel_desc">Notifikasi saat jawaban ujian dikirim otomatis</string>
-
-    <!-- Gesture navigation warning -->
-    <string name="gesture_warning_title">Nonaktifkan Gesture Navigasi</string>
-    <string name="gesture_warning_message">Mode STRICT membutuhkan 3-Button Navigation agar aman.\n\nLangkah:\n1. Buka Settings → Sistem → Gestur Navigasi\n2. Pilih "3 tombol navigasi"\n3. Kembali ke ujian\n\nJika tidak bisa, tekan "Abaikan" — proteksi tetap berjalan terbatas.</string>
-    <string name="gesture_warning_ok">Buka Settings</string>
-    <string name="gesture_warning_skip">Abaikan, Saya Tahu</string>
 
     <!-- Accessibility service warning (fix review: dulu hanya log, siswa tidak pernah diberi tahu) -->
     <string name="accessibility_warning_title">Layanan Aksesibilitas Aktif</string>
@@ -174,5 +146,4 @@
     <string name="cd_pdf_page">Halaman PDF ujian</string>
     <string name="cd_page_previous">Halaman sebelumnya</string>
     <string name="cd_page_next">Halaman berikutnya</string>
-    <string name="cd_exam_document">Dokumen ujian</string>
 </resources>

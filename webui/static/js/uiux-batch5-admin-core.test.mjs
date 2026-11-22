@@ -386,6 +386,16 @@ test('S27 (perilaku): klik ganda saveQuestionsConfig saat in-flight diabaikan (t
     secLevel.value = 'medium';
     env.doc.body.appendChild(secLevel);
 
+    // jadwal wajib diisi sejak validasi pre-save: sediakan nilai valid agar
+    // test tetap menguji guard klik-ganda, bukan berhenti di validasi jadwal.
+    [['examStartDate', '2026-11-22'], ['examStartTime', '08:00'],
+     ['examEndDate', '2026-11-22'], ['examEndTime', '09:00']].forEach(([id, val]) => {
+        const el = env.makeNode('input');
+        el.id = id;
+        el.value = val;
+        env.doc.body.appendChild(el);
+    });
+
     let calls = 0;
     let resolveApi;
     env.sandbox.apiFetch = () => {

@@ -2,7 +2,6 @@ package com.examvan.app
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,9 +17,6 @@ class ExamViewerViewModel(application: Application) : AndroidViewModel(applicati
     // Student answers as StateFlow — survives configuration changes (rotation)
     private val _studentAnswers = MutableStateFlow<Map<String, Any>>(emptyMap())
     val studentAnswers: StateFlow<Map<String, Any>> = _studentAnswers.asStateFlow()
-
-    private val _isSubmitting = MutableStateFlow(false)
-    val isSubmitting: StateFlow<Boolean> = _isSubmitting.asStateFlow()
 
     private val _submittedOrExited = MutableStateFlow(false)
     val submittedOrExited: StateFlow<Boolean> = _submittedOrExited.asStateFlow()
@@ -42,10 +38,6 @@ class ExamViewerViewModel(application: Application) : AndroidViewModel(applicati
         val current = _studentAnswers.value.toMutableMap()
         current.remove(key)
         _studentAnswers.value = current
-    }
-
-    fun setSubmitting(submitting: Boolean) {
-        _isSubmitting.value = submitting
     }
 
     fun setSubmittedOrExited(value: Boolean) {

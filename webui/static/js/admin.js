@@ -503,6 +503,12 @@ function openQuestionsModal(examId, examName) {
                 }
                 parseSchedule(res.start_time, startDateInput, startInput);
                 parseSchedule(res.end_time, endDateInput, endInput);
+                const toleranceInput = document.getElementById('examScheduleTolerance');
+                if (toleranceInput) {
+                    toleranceInput.value = (res.schedule_tolerance_minutes !== undefined && res.schedule_tolerance_minutes !== null)
+                        ? res.schedule_tolerance_minutes
+                        : 5;
+                }
                 // Gate mid-exam: banner peringatan saat ujian berjalan —
                 // kunci/bobot akan dibekukan server meski tombol Simpan hijau.
                 const runningBanner = document.getElementById('examRunningBanner');
@@ -1827,14 +1833,6 @@ function exportXMLQuestions() {
     showToast(`Berhasil mengekspor ${questions.length} soal ke XML!`, "success");
 }
 
-function clearSchedule() {
-    markQuestionsConfigDirty(); // S2: set nilai programatik tidak memicu event input/change
-    ['examStartDate','examStartTime','examEndDate','examEndTime'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.value = '';
-    });
-}
-
 // Validasi pre-save: kunci kosong dan kunci di luar daftar pilihan ditangkap
 // di sisi klien agar guru langsung diarahkan ke kartu yang bermasalah —
 // server hanya membalas toast generik yang tidak menunjuk lokasi soalnya.
@@ -1919,13 +1917,45 @@ function saveQuestionsConfig() {
     }
     const startTime = buildSchedule('examStartDate', 'examStartTime');
     const endTime = buildSchedule('examEndDate', 'examEndTime');
+    const startDateEl = document.getElementById('examStartDate');
+    const startTimeEl = document.getElementById('examStartTime');
+    const endDateEl = document.getElementById('examEndDate');
+    const endTimeEl = document.getElementById('examEndTime');
+    if (!startDateEl || !startDateEl.value || !startTimeEl || !startTimeEl.value) {
+        const focusEl = (!startDateEl || !startDateEl.value) ? startDateEl : startTimeEl;
+        if (focusEl && focusEl.focus) focusEl.focus();
+        showToast('Tanggal dan jam mulai wajib diisi', 'error');
+        restoreBtn();
+        return;
+    }
+    if (!endDateEl || !endDateEl.value || !endTimeEl || !endTimeEl.value) {
+        const focusEl = (!endDateEl || !endDateEl.value) ? endDateEl : endTimeEl;
+        if (focusEl && focusEl.focus) focusEl.focus();
+        showToast('Tanggal dan jam selesai wajib diisi', 'error');
+        restoreBtn();
+        return;
+    }
+    if (endTime <= startTime) {
+        if (endDateEl.focus) endDateEl.focus();
+        showToast('Jadwal selesai harus setelah jadwal mulai', 'error');
+        restoreBtn();
+        return;
+    }
+    const toleranceEl = document.getElementById('examScheduleTolerance');
+    const toleranceMinutes = toleranceEl && toleranceEl.value !== '' ? parseInt(toleranceEl.value, 10) : 5;
+    if (isNaN(toleranceMinutes) || toleranceMinutes < 0 || toleranceMinutes > 1440) {
+        if (toleranceEl && toleranceEl.focus) toleranceEl.focus();
+        showToast('Toleransi waktu harus antara 0 dan 1440 menit', 'error');
+        restoreBtn();
+        return;
+    }
     const pengawasIds = getPengawasIdsFromEditor();
     const congratsMessage = document.getElementById('examCongratsMessage') ? document.getElementById('examCongratsMessage').value.trim() : '';
 
     apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields, panel_color: panelColor, start_time: startTime, end_time: endTime, pengawas_ids: pengawasIds, congrats_message: congratsMessage })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields, panel_color: panelColor, start_time: startTime, end_time: endTime, schedule_tolerance_minutes: toleranceMinutes, pengawas_ids: pengawasIds, congrats_message: congratsMessage })
     })
         .then(r => r.json())
         .then(res => {
@@ -4835,7 +4865,6 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
 
     // Modal konfigurasi soal & kontrolnya
     Actions.register('panel-color-set', function (el) { setPanelColor(el.getAttribute('data-color')); });
-    Actions.register('schedule-clear', function () { clearSchedule(); });
     Actions.register('identity-field-add', function () { addIdentityField(); });
     // T15/R29: hapus baris field identitas via data-action (pengganti onclick
     // inline pada string HTML addIdentityFieldRow) + tandai konfigurasi kotor.

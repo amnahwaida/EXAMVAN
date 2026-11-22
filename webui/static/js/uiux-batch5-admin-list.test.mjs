@@ -76,7 +76,7 @@ test('S24: teks "Ditombstone" hilang dari ketiga halaman, label "Nonaktif Otomat
     assert.match(pengawas, /status-badge status-tombstoned[^\n]*>Nonaktif Otomatis<\/span>'/, 'string JS badge pengawas.html harus "Nonaktif Otomatis"');
 
     const detail = read(DETAIL);
-    assert.match(detail, /status-badge status-tombstoned[^>]*>Nonaktif Otomatis<\/span>/, 'badge pengawas_detail.html harus "Nonaktif Otomatis"');
+    assert.match(detail, /pd-status-pill[^>]*>[\s\S]*?Nonaktif Otomatis\s*<\/span>/, 'pill pengawas_detail.html harus "Nonaktif Otomatis"');
 });
 
 // ---------------------------------------------------------------------------

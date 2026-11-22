@@ -1,6 +1,5 @@
 package com.examvan.app.api
 
-import com.examvan.app.model.ExamListResponse
 import com.examvan.app.model.HealthResponse
 import com.google.gson.Gson
 import okhttp3.*
@@ -255,46 +254,6 @@ object ApiClient {
             )
             .build()
         clientRef.compareAndSet(oldClient, newClient)
-    }
-
-    /**
-     * Fetch list of active exams.
-     * onError receives (statusCode, message); statusCode is 0 for network
-     * failures so callers can distinguish HTTP 426 (app update required).
-     */
-    fun getExams(
-        onSuccess: (ExamListResponse) -> Unit,
-        onError: (statusCode: Int, message: String) -> Unit
-    ) {
-        val request = Request.Builder()
-            .url("$baseUrl/api/exams")
-            .get()
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                onError(0, e.message ?: "Koneksi gagal")
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        // Parse JSON error body (e.g. 426 "Versi aplikasi Anda ...")
-                        // so the message is shown instead of a generic "Server error: <code>".
-                        val msg = parseErrorBody(it)
-                        onError(it.code, msg)
-                        return
-                    }
-                    try {
-                        val body = it.body?.string() ?: ""
-                        val result = gson.fromJson(body, ExamListResponse::class.java)
-                        onSuccess(result)
-                    } catch (e: Exception) {
-                        onError(it.code, "Response tidak valid")
-                    }
-                }
-            }
-        })
     }
 
     /** Extract a human-readable message from a JSON error body (message|error keys). */

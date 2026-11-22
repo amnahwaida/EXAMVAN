@@ -22,6 +22,7 @@ import com.examvan.app.AuditLog
 import com.examvan.app.CongratulationsActivity
 import com.examvan.app.ExamViewerActivity
 import com.examvan.app.R
+import com.examvan.app.SubmissionKeepAliveService
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import kotlinx.coroutines.Dispatchers
@@ -568,6 +569,12 @@ class SubmissionManager(
         // ronde 3 #4) — fire-and-forget, tidak mengubah alur submit.
         try { onAutoSubmitAccessLog?.invoke() } catch (_: Throwable) { }
 
+        // Jaga proses tetap hidup selama submit background. Activity akan
+        // segera finish; tanpa foreground service OEM low-memory bisa
+        // membunuh proses sebelum jawaban durable. Best-effort: kegagalan
+        // start (mis. batasan Android 12) tidak mengubah alur.
+        SubmissionKeepAliveService.start(context)
+
         // 1. Immediately persist submitted/exited state in SharedPreferences
         onSubmitSuccess?.invoke()
 
@@ -578,40 +585,44 @@ class SubmissionManager(
 
         // 3. Perform network submission in the background using GlobalScope
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
-            // Jawaban efektif: utamakan memori (ViewModel), FALLBACK ke prefs
-            // saat memori kosong. Kasus nyata: deadline sudah lewat saat
-            // re-entry (proses mati) → watchdog menembak SEBELUM jawaban
-            // dipulihkan ke ViewModel — tanpa fallback ini submit kosong akan
-            // menimpa jawaban asli dalam window grace server (end_time + 5 menit)
-            // dan clearSavedAnswers menghapus jawaban tersimpan. Memori tidak
-            // kosong → dipakai apa adanya (siswa mungkin baru saja mengubah
-            // jawaban setelah auto-save terakhir).
-            val memoryAnswers = getAnswers?.invoke()
-            val answersOverride = if (memoryAnswers.isNullOrEmpty()) {
-                restoreAnswersFromPrefs()
-            } else {
-                null
+            try {
+                // Jawaban efektif: utamakan memori (ViewModel), FALLBACK ke prefs
+                // saat memori kosong. Kasus nyata: deadline sudah lewat saat
+                // re-entry (proses mati) → watchdog menembak SEBELUM jawaban
+                // dipulihkan ke ViewModel — tanpa fallback ini submit kosong akan
+                // menimpa jawaban asli dalam window grace server (end_time + 5 menit)
+                // dan clearSavedAnswers menghapus jawaban tersimpan. Memori tidak
+                // kosong → dipakai apa adanya (siswa mungkin baru saja mengubah
+                // jawaban setelah auto-save terakhir).
+                val memoryAnswers = getAnswers?.invoke()
+                val answersOverride = if (memoryAnswers.isNullOrEmpty()) {
+                    restoreAnswersFromPrefs()
+                } else {
+                    null
+                }
+                val result = submitWithRetry(answersOverride)
+
+                // Only clear saved answers if submission was successful.
+                // If failed, keep answers in SharedPreferences so they can be
+                // recovered or retried later (e.g. via the recovery screen on
+                // re-entry — lihat hasPendingAnswers / resubmitPendingAnswers).
+                if (result.success) {
+                    clearSavedAnswers()
+                } else {
+                    Log.w(TAG, "Auto-submit failed after retries, keeping saved answers for recovery: ${result.message}")
+                }
+
+                val notifPayload = SubmissionNotificationPolicy.getNotificationContent(
+                    type = SubmissionNotificationPolicy.SubmissionType.AUTO,
+                    isSuccess = result.success,
+                    examName = examName,
+                    serverMessage = result.message
+                )
+
+                showAutoSubmitNotification(notifPayload.title, notifPayload.message, isSuccess = result.success)
+            } finally {
+                SubmissionKeepAliveService.stop(context)
             }
-            val result = submitWithRetry(answersOverride)
-
-            // Only clear saved answers if submission was successful.
-            // If failed, keep answers in SharedPreferences so they can be
-            // recovered or retried later (e.g. via the recovery screen on
-            // re-entry — lihat hasPendingAnswers / resubmitPendingAnswers).
-            if (result.success) {
-                clearSavedAnswers()
-            } else {
-                Log.w(TAG, "Auto-submit failed after retries, keeping saved answers for recovery: ${result.message}")
-            }
-
-            val notifPayload = SubmissionNotificationPolicy.getNotificationContent(
-                type = SubmissionNotificationPolicy.SubmissionType.AUTO,
-                isSuccess = result.success,
-                examName = examName,
-                serverMessage = result.message
-            )
-
-            showAutoSubmitNotification(notifPayload.title, notifPayload.message, isSuccess = result.success)
         }
     }
 

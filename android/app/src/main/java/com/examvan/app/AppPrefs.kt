@@ -369,9 +369,6 @@ object AppPrefs {
     /** Convenience: true when the exam prefs run on the plain fallback. */
     fun isExamFallbackInUse(): Boolean = isFallbackInUse(PREFS_EXAM)
 
-    /** Convenience: true when the device prefs run on the plain fallback. */
-    fun isDeviceFallbackInUse(): Boolean = isFallbackInUse(PREFS_DEVICE)
-
     private fun fallback(context: Context, prefsName: String, cause: Exception): SharedPreferences {
         Log.w("AppPrefs", "EncryptedSharedPreferences unavailable for $prefsName: ${cause.javaClass.simpleName} — using plain fallback")
         fallbacked.add(prefsName)

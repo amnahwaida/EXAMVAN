@@ -24,7 +24,11 @@
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-chevron-left"/></svg>
     <span>Kembali</span>
    </a>
-   {{if .exam.ExamStartedAt}}
+   {{if .exam.TombstonedAt}}
+   <span class="pd-status-pill pd-status-idle" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis ({{formatExamTime .exam.TombstonedAt}} WIB)">
+    <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-stop"/></svg> Nonaktif Otomatis
+   </span>
+   {{else if .exam.ExamStartedAt}}
     {{if eq .exam.Status "active"}}
    <span class="pd-status-pill pd-status-live">
     <span class="pd-pulse"></span> Sedang Diawasi
@@ -65,21 +69,6 @@
      <span class="pd-info-value pd-token-hidden">Tersembunyi &mdash; mulai pengawasan dahulu</span>
      {{end}}
      <div class="pd-token-countdown" id="pdTokenCountdown"></div>
-    </div>
-   </div>
-   <div class="pd-info-item">
-    <svg class="icon-svg pd-info-icon" style="color:var(--color-accent-emerald);"><use href="#hi-check"/></svg>
-    <div>
-     <span class="pd-info-label">Status</span>
-     <span class="pd-info-value">
-      {{if eq .exam.Status "active"}}
-      <span class="status-badge status-active" style="font-size:0.72rem;">Aktif</span>
-      {{else if .exam.TombstonedAt}}
-      <span class="status-badge status-tombstoned" style="font-size:0.72rem;" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis ({{formatExamTime .exam.TombstonedAt}} WIB)">Nonaktif Otomatis</span>
-      {{else}}
-      <span class="status-badge status-inactive" style="font-size:0.72rem;">Nonaktif</span>
-      {{end}}
-     </span>
     </div>
    </div>
    {{if and .exam.StartTime .exam.EndTime}}
@@ -125,7 +114,9 @@
      Mulai Pengawasan
     </button>
     {{end}}
+    {{if not .can_control_settings}}
     <span id="pd-control-reason" style="display:block;font-size:12px;color:var(--color-text-muted);margin-top:6px;">Hanya pembuat/guru yang dapat menghentikan atau memulai pengawasan.</span>
+    {{end}}
    </div>
   </div>
  </section>
@@ -1714,7 +1705,13 @@ function loadApprovals() {
                 // queue read — show a calm "closed" state instead of spamming
                 // an error toast from the 5s poll.
                 var gateMsg = (res && res.message) || '';
-                if (gateMsg.indexOf('Ujian tidak aktif') === 0 || gateMsg.indexOf('Waktu ujian telah berakhir') === 0) {
+                if (gateMsg.indexOf('Ujian tidak aktif') === 0) {
+                    if (typeof setExamLivenessFromApproval === 'function') setExamLivenessFromApproval(false, false);
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>', 'Antrean izin ditutup — ujian tidak aktif atau telah berakhir.');
+                    return;
+                }
+                if (gateMsg.indexOf('Waktu ujian telah berakhir') === 0) {
+                    if (typeof setExamLivenessFromApproval === 'function') setExamLivenessFromApproval(true, true);
                     renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>', 'Antrean izin ditutup — ujian tidak aktif atau telah berakhir.');
                     return;
                 }
@@ -1728,6 +1725,9 @@ function loadApprovals() {
                 renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat antrean. Coba lagi.</td></tr>', 'Gagal memuat antrean izin perangkat.');
                 return;
             }
+            // Antrean bisa dibaca lagi berarti ujian hidup kembali (mis. sesi
+            // baru dimulai); pulihkan kontrol yang sebelumnya dimatikan.
+            if (typeof setExamLivenessFromApproval === 'function') setExamLivenessFromApproval(true, false);
             if (!res.data || res.data.length === 0) {
                 announceQueueCount(0);
                 if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
@@ -1968,7 +1968,7 @@ function markUpdated() {
     // seluruh kolom.
     var d = new Date();
     var pad = function(n) { return (n < 10 ? '0' : '') + n; };
-    el.textContent = 'Diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    el.textContent = 'Tabel diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
 }
 
 // S85 (ronde 8): umumkan perubahan jumlah antrean izin lewat #queueLiveRegion
@@ -2347,7 +2347,7 @@ function loadDetail(page, silent) {
                     : '';
                 var attCount = s.attempt_count > 1
                     ? '<span class="status-badge-sm tone-neutral" style="padding:2px 8px;font-size:0.7rem;" title="' + escapeHtml(String(s.attempt_count)) + '× percobaan (izin mengulang)">' + escapeHtml(String(s.attempt_count)) + 'x</span>'
-                    : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
+                    : '';
 
                 // Presence diturunkan dari heartbeat (is_online) yang dikirim server —
                 // tanpa kolom ini, seluruh infrastruktur heartbeat tidak terlihat
@@ -2399,7 +2399,6 @@ function loadDetail(page, silent) {
                     '<td data-label="Terakhir Seen" data-last-seen="1" class="pd-cell-mono">' + lastSeen + '</td>' +
                     '<td data-label="Upaya" class="pd-col-attempts">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div class="pd-row-actions">' +
-                        '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
                         repeatBtn + rejectBtn +
                     '</div></td>' +
                     '</tr>';
@@ -3059,6 +3058,20 @@ function applyExamLivenessToControls() {
     }
 }
 
+// Poller antrean izin berjalan tiap 5 detik dan tetap menerima penolakan
+// "ujian tidak aktif/berakhir" setelah pengawasan dihentikan. Tanpa ini,
+// tombol baris tetap hidup sampai supervisor menekan Muat Ulang. Hanya
+// render ulang tabel saat status benar-benar berubah, bukan tiap tick.
+function setExamLivenessFromApproval(active, ended) {
+    if (examLive === active && examEnded === ended) return;
+    examLive = active;
+    examEnded = ended;
+    applyExamLivenessToControls();
+    if (subsLastHtml !== null && typeof loadDetail === 'function') {
+        loadDetail(SUB_PAGE, true);
+    }
+}
+
 // Menerjemahkan token + jam rotasi dari payload mana pun yang keduanya
 // dibawa (muat ulang tabel sudah cukup — tidak perlu endpoint token
 // terpisah). Countdown selaras dengan JAM SERVER pada setiap tick, sehingga
@@ -3322,8 +3335,11 @@ loadAAStatus();
         // 20 detik sudah cukup untuk indikator Daring/Luring dan tidak
         // menyentuh tabel/riwayat yang berat.
         pollTimers.push(setInterval(function() { if (!document.hidden) refreshPresence(); }, 20000));
-        // Countdown token: tick DISPLAY 1 detik, tanpa I/O.
-        pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
+        // Countdown token: tick DISPLAY 1 detik, tanpa I/O. Mode statis tidak
+        // punya countdown, jadi jangan pasang timer yang selalu no-op.
+        if (typeof TOKEN_MODE === 'undefined' || TOKEN_MODE !== 'static') {
+            pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
+        }
     }
 
     document.addEventListener('visibilitychange', function() {

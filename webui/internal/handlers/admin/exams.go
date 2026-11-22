@@ -1495,37 +1495,39 @@ func GetQuestions() gin.HandlerFunc {
 				}
 			}
 			c.JSON(http.StatusOK, gin.H{
-				"success":            true,
-				"questions":          questions,
-				"exam_running":       examIsRunning(&exam),
-				"security_level":     securityLevel,
-				"strict_mode":        exam.IsStrict(),
-				"identity_fields":    identityFields,
-				"panel_color":        panelColor,
-				"start_time":         startTime,
-				"end_time":           endTime,
-				"congrats_message":   exam.CongratsMessage,
-				"token":              exam.Token,
-				"public_results":     exam.PublicResults,
-				"show_answers":       exam.ShowAnswers,
-				"assigned_pengawas":  assignedPengawas,
-				"available_pengawas": availablePengawas,
+				"success":                    true,
+				"questions":                  questions,
+				"exam_running":               examIsRunning(&exam),
+				"security_level":             securityLevel,
+				"strict_mode":                exam.IsStrict(),
+				"identity_fields":            identityFields,
+				"panel_color":                panelColor,
+				"start_time":                 startTime,
+				"end_time":                   endTime,
+				"schedule_tolerance_minutes": exam.ScheduleToleranceMinutes,
+				"congrats_message":           exam.CongratsMessage,
+				"token":                      exam.Token,
+				"public_results":             exam.PublicResults,
+				"show_answers":               exam.ShowAnswers,
+				"assigned_pengawas":          assignedPengawas,
+				"available_pengawas":         availablePengawas,
 			})
 		} else {
 			c.JSON(http.StatusOK, gin.H{
-				"success":          true,
-				"questions":        questions,
-				"exam_running":     examIsRunning(&exam),
-				"security_level":   securityLevel,
-				"strict_mode":      exam.IsStrict(),
-				"identity_fields":  identityFields,
-				"panel_color":      panelColor,
-				"start_time":       startTime,
-				"end_time":         endTime,
-				"congrats_message": exam.CongratsMessage,
-				"token":            exam.Token,
-				"public_results":   exam.PublicResults,
-				"show_answers":     exam.ShowAnswers,
+				"success":                    true,
+				"questions":                  questions,
+				"exam_running":               examIsRunning(&exam),
+				"security_level":             securityLevel,
+				"strict_mode":                exam.IsStrict(),
+				"identity_fields":            identityFields,
+				"panel_color":                panelColor,
+				"start_time":                 startTime,
+				"end_time":                   endTime,
+				"schedule_tolerance_minutes": exam.ScheduleToleranceMinutes,
+				"congrats_message":           exam.CongratsMessage,
+				"token":                      exam.Token,
+				"public_results":             exam.PublicResults,
+				"show_answers":               exam.ShowAnswers,
 			})
 		}
 	}
@@ -1567,14 +1569,18 @@ func SaveQuestions() gin.HandlerFunc {
 		wasRunning = examIsRunning(&gateExam)
 
 		var body struct {
-			Questions       []map[string]interface{} `json:"questions"`
-			SecurityLevel   string                   `json:"security_level"`
-			IdentityFields  []map[string]interface{} `json:"identity_fields"`
-			PanelColor      string                   `json:"panel_color"`
-			StartTime       string                   `json:"start_time"`
-			EndTime         string                   `json:"end_time"`
-			CongratsMessage string                   `json:"congrats_message"`
-			PengawasIDs     []int                    `json:"pengawas_ids"`
+			Questions      []map[string]interface{} `json:"questions"`
+			SecurityLevel  string                   `json:"security_level"`
+			IdentityFields []map[string]interface{} `json:"identity_fields"`
+			PanelColor     string                   `json:"panel_color"`
+			StartTime      string                   `json:"start_time"`
+			EndTime        string                   `json:"end_time"`
+			// ScheduleToleranceMinutes controls the auto-start lead and the
+			// auto-stop/submit grace after end_time. nil keeps the stored
+			// value (older clients).
+			ScheduleToleranceMinutes *int   `json:"schedule_tolerance_minutes"`
+			CongratsMessage          string `json:"congrats_message"`
+			PengawasIDs              []int  `json:"pengawas_ids"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -1649,6 +1655,7 @@ func SaveQuestions() gin.HandlerFunc {
 		endTime := body.EndTime
 		var startTimePtr *string
 		var endTimePtr *string
+		var startParsed, endParsed time.Time
 		if startTime != "" {
 			t, err := time.ParseInLocation("2006-01-02 15:04", startTime, jakartaLoc)
 			if err != nil {
@@ -1657,6 +1664,7 @@ func SaveQuestions() gin.HandlerFunc {
 				errorResponse(c, http.StatusBadRequest, "Format jadwal mulai tidak valid — gunakan format: YYYY-MM-DD HH:MM")
 				return
 			}
+			startParsed = t
 			utc := t.UTC().Format("2006-01-02T15:04:05Z")
 			startTimePtr = &utc
 		}
@@ -1666,8 +1674,31 @@ func SaveQuestions() gin.HandlerFunc {
 				errorResponse(c, http.StatusBadRequest, "Format jadwal selesai tidak valid — gunakan format: YYYY-MM-DD HH:MM")
 				return
 			}
+			endParsed = t
 			utc := t.UTC().Format("2006-01-02T15:04:05Z")
 			endTimePtr = &utc
+		}
+		if startTimePtr == nil {
+			errorResponse(c, http.StatusBadRequest, "Tanggal dan jam mulai wajib diisi")
+			return
+		}
+		if endTimePtr == nil {
+			errorResponse(c, http.StatusBadRequest, "Tanggal dan jam selesai wajib diisi")
+			return
+		}
+		if !endParsed.After(startParsed) {
+			errorResponse(c, http.StatusBadRequest, "Jadwal selesai harus setelah jadwal mulai")
+			return
+		}
+
+		toleranceMinutes := gateExam.ScheduleToleranceMinutes
+		if body.ScheduleToleranceMinutes != nil {
+			toleranceMinutes = *body.ScheduleToleranceMinutes
+		}
+		if toleranceMinutes < 0 || toleranceMinutes > models.MaxScheduleToleranceMinutes {
+			errorResponse(c, http.StatusBadRequest,
+				fmt.Sprintf("Toleransi waktu harus antara 0 dan %d menit", models.MaxScheduleToleranceMinutes))
+			return
 		}
 
 		// Custom congratulations message: free text (not HTML), trimmed; an
@@ -1680,7 +1711,7 @@ func SaveQuestions() gin.HandlerFunc {
 
 		if err := models.UpdateExamQuestions(ctx, pool, examID,
 			&questionsJSON, &securityLevel, &identityFieldsJSON,
-			&panelColor, startTimePtr, endTimePtr, congratsMessage, strictMode); err != nil {
+			&panelColor, startTimePtr, endTimePtr, congratsMessage, strictMode, toleranceMinutes); err != nil {
 			log.Printf("save questions error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan konfigurasi soal")
 			return
@@ -2534,121 +2565,9 @@ func StartExam() gin.HandlerFunc {
 			return
 		}
 
-		if exam.ExamStartedAt != nil {
-			errorResponse(c, http.StatusBadRequest, "Ujian sudah dimulai")
+		if status, msg := startExamCore(ctx, pool, &exam, isSuperAdmin(c)); status != http.StatusOK {
+			errorResponse(c, status, msg)
 			return
-		}
-
-		// Enforce the concurrent-exam quota: starting an exam is what makes it
-		// "running" for students, so this is the primary enforcement point. Two
-		// layers: the account's own max_concurrent_exams (sub-accounts only;
-		// the operator's own account bypasses its own limits, mirroring the
-		// upload bypass) and — when the school runs a package — the shared
-		// school pool, which counts EVERY running exam in the instansi, the
-		// operator's included.
-		//
-		// Atomic when any limit applies: the count + start run inside one
-		// transaction with the school pool's (or the owner's) rows locked
-		// FOR UPDATE, so two concurrent starts can never both count the same
-		// free slot (check-then-update race). Super admins bypass everything.
-		started := false
-		if !isSuperAdmin(c) {
-			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-			if err == nil {
-				gate := examQuotaGate(ctx, pool, exam.CreatedBy)
-				poolMaxConcurrent, poolActive := gate.maxConcurrent, gate.active
-				// School-pool sub-accounts: when the pool is active it is the
-				// account's ONLY concurrent quota (schoolPoolCovers), so the
-				// per-account max_concurrent_exams must not gate below it.
-				// Operators skip their own column only while the pool is
-				// ACTIVE; with no pool (personal bucket, legacy school) the
-				// operator's own column binds too.
-				perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
-				poolConcActive := poolActive && poolMaxConcurrent > 0
-
-				if perUserLimit || poolConcActive {
-					tx, err := pool.Begin(ctx)
-					if err != nil {
-						log.Printf("start begin tx error: %v", err)
-						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-						return
-					}
-					defer func() { _ = tx.Rollback(ctx) }()
-
-					if poolConcActive {
-						// Lock every account row the gate counts: concurrent
-						// starts by ANY account sharing the budget serialize on
-						// the shared budget.
-						if err := gate.lockRows(ctx, tx); err != nil {
-							log.Printf("start lock school pool error: %v", err)
-							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-							return
-						}
-						running, err := gate.countRunning(ctx, tx, examID)
-						if err == nil && running >= int(poolMaxConcurrent) {
-							_ = tx.Rollback(ctx)
-							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
-							return
-						}
-					}
-					if perUserLimit {
-						var locked int
-						var lockedRole string
-						if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams, COALESCE(role, '') FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked, &lockedRole); err != nil {
-							log.Printf("start lock owner error: %v", err)
-							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-							return
-						}
-						// An operator owner's own starts spend the family budget
-						// together with its sub-accounts.
-						var running int
-						var rerr error
-						if models.HasRole(lockedRole, models.RoleOperator) {
-							running, rerr = models.CountRunningExamsByFamily(ctx, tx, exam.CreatedBy, examID)
-						} else {
-							running, rerr = models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
-						}
-						if rerr == nil && running >= locked {
-							_ = tx.Rollback(ctx)
-							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked))
-							return
-						}
-					}
-
-					if err := models.StartExamTx(ctx, tx, examID); err != nil {
-						log.Printf("start exam tx error: %v", err)
-						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-						return
-					}
-					// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
-					// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
-					if err := models.UpdateExamActiveTokenTx(ctx, tx, examID, exam.Token); err != nil {
-						log.Printf("start exam: set active token to permanent error: %v", err)
-					}
-					if err := tx.Commit(ctx); err != nil {
-						log.Printf("start commit error: %v", err)
-						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-						return
-					}
-					started = true
-				}
-			}
-		}
-
-		if !started {
-			if err := models.StartExam(ctx, pool, examID); err != nil {
-				log.Printf("start exam error: %v", err)
-				errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-				return
-			}
-
-			// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
-			// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
-			if err := models.UpdateExamActiveToken(ctx, pool, examID, exam.Token); err != nil {
-				log.Printf("start exam: set active token to permanent error: %v", err)
-			}
 		}
 
 		successMessage(c, "Ujian berhasil dimulai")

@@ -389,13 +389,15 @@ func (w *Worker) processSubmission(ctx context.Context, job *SubmissionJob) (*fl
 	var questionsJSON *string
 	var endTime *time.Time
 	var examStatus string
+	var toleranceMinutes int
 	err := w.pool.QueryRow(ctx,
-		`SELECT questions_json, end_time, status FROM exams WHERE id = $1`, job.ExamID).Scan(&questionsJSON, &endTime, &examStatus)
+		`SELECT questions_json, end_time, status, schedule_tolerance_minutes FROM exams WHERE id = $1`, job.ExamID).
+		Scan(&questionsJSON, &endTime, &examStatus, &toleranceMinutes)
 	if err != nil {
 		return nil, fmt.Errorf("fetch exam: %w", err)
 	}
 	examActive := examStatus == "active"
-	windowClosed := endTime != nil && time.Now().UTC().After(endTime.Add(models.SubmissionGraceEnd))
+	windowClosed := models.ExamScheduleEndedAt(endTime, toleranceMinutes, time.Now().UTC())
 	if !examActive || windowClosed {
 		var approved bool
 		if err := w.pool.QueryRow(ctx,

@@ -477,7 +477,14 @@ test('R31 (perilaku): sukses simpan → toast, modal tertutup, stats disegarkan,
         document: {
             getElementById(id) {
                 if (id === 'btnSaveQuestionsConfig') return btn;
-                return null; // examSecurityLevel, panelColorHex, jadwal, dsb. opsional
+                // Jadwal wajib diisi sejak validasi pre-save; nilai valid agar
+                // alur sukses tetap teruji sampai modal tertutup.
+                const sched = {
+                    examStartDate: '2026-11-22', examStartTime: '08:00',
+                    examEndDate: '2026-11-22', examEndTime: '09:00'
+                };
+                if (Object.prototype.hasOwnProperty.call(sched, id)) return { value: sched[id] };
+                return null; // examSecurityLevel, panelColorHex, dsb. opsional
             },
             querySelectorAll() { return []; }
         },

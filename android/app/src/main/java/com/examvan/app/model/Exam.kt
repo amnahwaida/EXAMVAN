@@ -17,25 +17,13 @@ data class IdentityField(
 data class Exam(
     val id: Int,
     val name: String,
-    val status: String,
-    val size_mb: Double,
     val token: String? = null,
     val questions: List<Map<String, Any>>? = null,
     val security_level: String? = null,
     val strict_mode: Boolean? = null,
     val identity_fields: List<IdentityField>? = null,
     val panel_color: String? = null,
-    val start_time: String? = null,
-    val end_time: String? = null,
-    val created_at: String
-)
-
-/**
- * API response wrapper for exam list.
- */
-data class ExamListResponse(
-    val success: Boolean,
-    val data: List<Exam>
+    val end_time: String? = null
 )
 
 /**

@@ -279,16 +279,17 @@ func TestExamByTokenNotStarted(t *testing.T) {
 
 // TestExamScheduleEnded covers the end_time window logic: a nil end_time means
 // "no schedule limit" (manual start/stop governs), a past end_time (beyond the
-// five-minute grace) means ended, and a recent end_time inside the grace window
-// is still accepted for a borderline submit.
+// per-exam tolerance) means ended, and a recent end_time inside the tolerance
+// window is still accepted for a borderline submit.
 func TestExamScheduleEnded(t *testing.T) {
 	now := time.Date(2026, 8, 9, 10, 0, 0, 0, time.UTC)
 
 	cases := []struct {
-		name    string
-		end     *time.Time
-		now     time.Time
-		wantEnd bool
+		name      string
+		end       *time.Time
+		tolerance int
+		now       time.Time
+		wantEnd   bool
 	}{
 		{
 			name:    "nil end_time = no schedule limit",
@@ -303,28 +304,46 @@ func TestExamScheduleEnded(t *testing.T) {
 			wantEnd: false,
 		},
 		{
-			name:    "just-past end_time inside five-minute grace = still open",
-			end:     ptrTime(now.Add(-30 * time.Second)),
-			now:     now,
-			wantEnd: false,
+			name:      "just-past end_time inside five-minute tolerance = still open",
+			end:       ptrTime(now.Add(-30 * time.Second)),
+			tolerance: 5,
+			now:       now,
+			wantEnd:   false,
 		},
 		{
-			name:    "exactly at five-minute grace boundary = still open",
-			end:     ptrTime(now.Add(-5 * time.Minute)),
-			now:     now,
-			wantEnd: false,
+			name:      "exactly at five-minute tolerance boundary = still open",
+			end:       ptrTime(now.Add(-5 * time.Minute)),
+			tolerance: 5,
+			now:       now,
+			wantEnd:   false,
 		},
 		{
-			name:    "just past five-minute grace = ended",
-			end:     ptrTime(now.Add(-5*time.Minute - time.Second)),
-			now:     now,
-			wantEnd: true,
+			name:      "just past five-minute tolerance = ended",
+			end:       ptrTime(now.Add(-5*time.Minute - time.Second)),
+			tolerance: 5,
+			now:       now,
+			wantEnd:   true,
 		},
 		{
-			name:    "well-past end_time = ended",
-			end:     ptrTime(now.Add(-6 * time.Minute)),
-			now:     now,
-			wantEnd: true,
+			name:      "well-past end_time = ended",
+			end:       ptrTime(now.Add(-6 * time.Minute)),
+			tolerance: 5,
+			now:       now,
+			wantEnd:   true,
+		},
+		{
+			name:      "custom tolerance widens the window",
+			end:       ptrTime(now.Add(-10 * time.Minute)),
+			tolerance: 15,
+			now:       now,
+			wantEnd:   false,
+		},
+		{
+			name:      "zero tolerance closes at end_time",
+			end:       ptrTime(now.Add(-time.Second)),
+			tolerance: 0,
+			now:       now,
+			wantEnd:   true,
 		},
 		{
 			name:    "thousands past = ended",
@@ -336,9 +355,10 @@ func TestExamScheduleEnded(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			exam := &models.Exam{EndTime: tc.end}
+			exam := &models.Exam{EndTime: tc.end, ScheduleToleranceMinutes: tc.tolerance}
 			if got := models.ExamScheduleEnded(exam, tc.now); got != tc.wantEnd {
-				t.Errorf("ExamScheduleEnded(end=%v) = %v, want %v", tc.end, got, tc.wantEnd)
+				t.Errorf("ExamScheduleEnded(end=%v, tolerance=%d) = %v, want %v",
+					tc.end, tc.tolerance, got, tc.wantEnd)
 			}
 		})
 	}

@@ -250,6 +250,23 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT ''
 CREATE UNIQUE INDEX IF NOT EXISTS idx_exams_active_token ON exams(active_token)
 WHERE active_token <> '';
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
+-- Per-exam schedule tolerance (minutes): supervision auto-starts this many
+-- minutes BEFORE start_time and auto-stops this many minutes AFTER end_time.
+-- It also widens the server-side join/PDF/submit/access-log cutoff after
+-- end_time (the former fixed SubmissionGraceEnd). Editable from "Atur Soal".
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS schedule_tolerance_minutes INTEGER NOT NULL DEFAULT 5;
+-- schedule_started_at is a one-way "the schedule already fired" marker. It is
+-- set by every start (manual or automatic) and NOT cleared by stop, so the
+-- auto-start job never restarts an exam the teacher manually stopped. Editing
+-- start_time while the exam is not running resets it (re-arms the schedule).
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS schedule_started_at TIMESTAMPTZ;
+-- Backfill running exams: their schedule is already consumed.
+UPDATE exams SET schedule_started_at = exam_started_at
+WHERE exam_started_at IS NOT NULL AND schedule_started_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_exams_auto_start ON exams(start_time)
+WHERE exam_started_at IS NULL AND schedule_started_at IS NULL AND start_time IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_exams_auto_stop ON exams(end_time)
+WHERE status = 'active' AND exam_started_at IS NOT NULL AND end_time IS NOT NULL;
 -- Custom congratulations message shown on the Android page after a student
 -- submits (configurable from the "Atur Soal & Kunci Jawaban" modal). Free
 -- text, rendered plain on the client. Safe to re-run on every boot.

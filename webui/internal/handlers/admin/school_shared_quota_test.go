@@ -81,6 +81,7 @@ func newSchoolQuotaTestRouter(pool *pgxpool.Pool) (*gin.Engine, *stubR2) {
 type quotaTestClient struct {
 	srv    *httptest.Server
 	client *http.Client
+	pool   *pgxpool.Pool
 }
 
 func newQuotaTestClient(t *testing.T, pool *pgxpool.Pool) (*quotaTestClient, *stubR2) {
@@ -92,7 +93,19 @@ func newQuotaTestClient(t *testing.T, pool *pgxpool.Pool) (*quotaTestClient, *st
 	if err != nil {
 		t.Fatalf("cookie jar: %v", err)
 	}
-	return &quotaTestClient{srv: srv, client: &http.Client{Jar: jar}}, stub
+	return &quotaTestClient{srv: srv, client: &http.Client{Jar: jar}, pool: pool}, stub
+}
+
+// setExamSchedule gives the exam a valid start/end schedule. StartExam now
+// refuses to start an exam without both (the schedule is mandatory), so tests
+// that exercise the start path must set them first.
+func setExamSchedule(t *testing.T, pool *pgxpool.Pool, examID int) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET start_time = now() - interval '1 hour', end_time = now() + interval '1 hour'
+		 WHERE id = $1`, examID); err != nil {
+		t.Fatalf("set schedule for exam %d: %v", examID, err)
+	}
 }
 
 func (tc *quotaTestClient) login(t *testing.T, userID int) {
@@ -124,6 +137,7 @@ func (tc *quotaTestClient) upload(t *testing.T, name string, pdf []byte) (int, s
 // start posts to /admin/api/exams/:id/start as the currently-logged-in user.
 func (tc *quotaTestClient) start(t *testing.T, examID int) (int, apiResp) {
 	t.Helper()
+	setExamSchedule(t, tc.pool, examID)
 	return postForm(t, tc.client, tc.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/start", nil)
 }
 
@@ -185,12 +199,12 @@ func createSchoolQuotaUser(t *testing.T, pool *pgxpool.Pool, username, instansi 
 	u, err := models.CreateUser(context.Background(), pool, &models.AdminUser{
 		Username: username, Name: username, PasswordHash: "x",
 		Status: models.UserStatusActive, Instansi: instansi,
-		Role:              models.SerializeRoles(roles),
-		MaxExams:          maxExams,
-		MaxPDFSize:        1048576,
+		Role:               models.SerializeRoles(roles),
+		MaxExams:           maxExams,
+		MaxPDFSize:         1048576,
 		MaxConcurrentExams: 2,
-		MaxStorageSize:    50 * 1024 * 1024,
-		Package:           "free",
+		MaxStorageSize:     50 * 1024 * 1024,
+		Package:            "free",
 	})
 	if err != nil {
 		t.Fatalf("create user %s: %v", username, err)
@@ -706,7 +720,7 @@ func TestSchoolPoolEditPerAccountPDFLimitStillApplies(t *testing.T) {
 	sub, err := models.CreateUser(ctx, pool, &models.AdminUser{
 		Username: "sub-pool-edit2", Name: "sub-pool-edit2", PasswordHash: "x",
 		Status: models.UserStatusActive, Instansi: "SMK Pool Edit2",
-		Role: models.SerializeRoles([]string{models.RoleGuru}),
+		Role:     models.SerializeRoles([]string{models.RoleGuru}),
 		MaxExams: 10, MaxPDFSize: 100, MaxConcurrentExams: 2,
 		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
 	})
@@ -744,7 +758,7 @@ func TestSchoolPoolEditPerAccountStorageLimitStillApplies(t *testing.T) {
 	sub, err := models.CreateUser(ctx, pool, &models.AdminUser{
 		Username: "sub-pool-edit3", Name: "sub-pool-edit3", PasswordHash: "x",
 		Status: models.UserStatusActive, Instansi: "SMK Pool Edit3",
-		Role: models.SerializeRoles([]string{models.RoleGuru}),
+		Role:     models.SerializeRoles([]string{models.RoleGuru}),
 		MaxExams: 10, MaxPDFSize: 1024 * 1024, MaxConcurrentExams: 2,
 		MaxStorageSize: 300, Package: "free",
 	})
@@ -809,6 +823,7 @@ func TestSchoolPoolConcurrentStartRace(t *testing.T) {
 			`SELECT id FROM exams WHERE name = $1`, fmt.Sprintf("race-%d", i)).Scan(&examID); err != nil {
 			t.Fatalf("find race exam %d: %v", i, err)
 		}
+		setExamSchedule(t, pool, examID)
 		req, err := http.NewRequest(http.MethodPost,
 			tc.srv.URL+"/admin/api/exams/"+strconv.Itoa(examID)+"/start", nil)
 		if err != nil {
@@ -854,6 +869,61 @@ func TestSchoolPoolConcurrentStartRace(t *testing.T) {
 	}
 }
 
+// TestStartExamRequiresSchedule pins the mandatory schedule: an exam with no
+// start_time or no end_time must not be startable, because students would
+// otherwise have no automatic start and/or no enforced deadline.
+func TestStartExamRequiresSchedule(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		setupSQL  string
+		wantError string
+	}{
+		{
+			name:      "missing start_time",
+			setupSQL:  `UPDATE exams SET end_time = now() + interval '1 hour' WHERE id = $1`,
+			wantError: "mulai wajib diisi",
+		},
+		{
+			name:      "missing end_time",
+			setupSQL:  `UPDATE exams SET start_time = now() - interval '1 hour' WHERE id = $1`,
+			wantError: "selesai wajib diisi",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := setupVoucherITDB(t)
+			ctx := context.Background()
+
+			op := createSchoolQuotaUser(t, pool, "op-start-no-schedule", "SMK Start No Schedule", []string{models.RoleGuru, models.RoleOperator}, 10)
+			client, _ := newQuotaTestClient(t, pool)
+			client.login(t, op)
+			if status, body := client.upload(t, "start-no-schedule", schoolTestPDF(64)); status != http.StatusOK {
+				t.Fatalf("upload: status=%d body=%s", status, body)
+			}
+			var examID int
+			if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'start-no-schedule'`).Scan(&examID); err != nil {
+				t.Fatalf("find exam: %v", err)
+			}
+			if _, err := pool.Exec(ctx, tc.setupSQL, examID); err != nil {
+				t.Fatalf("setup schedule: %v", err)
+			}
+
+			// Bypass client.start, which sets both times automatically; this is
+			// the raw request that must be rejected.
+			status, resp := postForm(t, client.client, client.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/start", nil)
+			if status != http.StatusBadRequest || !strings.Contains(resp.Message, tc.wantError) {
+				t.Fatalf("start without %s: status=%d resp=%+v, want 400 %q", tc.name, status, resp, tc.wantError)
+			}
+			var started *time.Time
+			if err := pool.QueryRow(ctx, `SELECT exam_started_at FROM exams WHERE id = $1`, examID).Scan(&started); err != nil {
+				t.Fatalf("read exam_started_at: %v", err)
+			}
+			if started != nil {
+				t.Fatalf("exam must not start without %s, exam_started_at=%v", tc.name, started)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Operator without a school pool (personal bucket) — per-account quota binds
 // ---------------------------------------------------------------------------
@@ -875,7 +945,7 @@ func TestOperatorPersonalBucketQuotaBinds(t *testing.T) {
 	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
 		Username: "op-personal-quota", Name: "op-personal-quota", PasswordHash: "x",
 		Status: models.UserStatusActive, Instansi: "personal",
-		Role: models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Role:     models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
 		MaxExams: 2, MaxPDFSize: 1024 * 1024, MaxConcurrentExams: 1,
 		MaxStorageSize: 300, Package: "sekolah-test",
 	})
@@ -1269,7 +1339,7 @@ func TestSaveQuestionsPengawasCrossTenantRejected(t *testing.T) {
 	save := func(pids []int) (int, apiResp) {
 		t.Helper()
 		return postJSON(t, tc.client, tc.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/questions",
-			map[string]interface{}{"pengawas_ids": pids})
+			map[string]interface{}{"pengawas_ids": pids, "start_time": "2030-01-01 09:00", "end_time": "2030-01-02 15:04"})
 	}
 
 	// Cross-tenant pengawas → 400, roster untouched (only the auto-assigned

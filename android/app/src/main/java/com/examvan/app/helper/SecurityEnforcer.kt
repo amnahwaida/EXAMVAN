@@ -2,7 +2,6 @@ package com.examvan.app.helper
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -104,11 +103,8 @@ class SecurityEnforcer(
     // Callback for back button press (used in strict mode)
     var onBackBlocked: (() -> Unit)? = null
 
-    // Hidden API intent action for system navigation settings
     companion object {
         private const val TAG = "SecurityEnforcer"
-        private const val ACTION_SYSTEM_NAVIGATION_SETTINGS =
-            "android.settings.SYSTEM_NAVIGATION_SETTINGS"
         private const val BACK_PRESS_COOLDOWN_MS = 1200L
     }
 
@@ -477,15 +473,25 @@ class SecurityEnforcer(
 
         ExamScreenPanels.hideAllControls(binding)
 
-        binding.tvErrorMsg.text = "Navigasi Gesture Terdeteksi!\n\n" +
-                "Untuk keamanan ujian, Anda WAJIB mengaktifkan Navigasi 3 Tombol (3-Button Navigation) terlebih dahulu.\n\nSilakan ubah mode navigasi Anda."
+        binding.tvErrorMsg.text = if (strictMode) {
+            "Navigasi Gesture Terdeteksi!\n\n" +
+                "Untuk keamanan ujian, perangkat WAJIB memakai Navigasi 3 Tombol " +
+                "(3-Button Navigation).\n\nMinta pengawas mengubah mode navigasi " +
+                "perangkat, lalu tekan \"Periksa Lagi\"."
+        } else {
+            "Navigasi Gesture Terdeteksi!\n\n" +
+                "Untuk keamanan ujian, Anda WAJIB mengaktifkan Navigasi 3 Tombol " +
+                "(3-Button Navigation) terlebih dahulu.\n\nSilakan ubah mode navigasi Anda."
+        }
 
         val isGesture = isGestureNavigationEnabled()
         if (isGesture) {
-            binding.btnRetryDownload.text = "Buka Settings"
+            // TIDAK membuka Settings dari layar ini. Di strict mode itu jalur
+            // keluar ke aplikasi lain sebelum lock task aktif; di mode lain
+            // siswa bisa mengubah navigasi sebelum memulai ujian. Perubahan
+            // navigasi strict dilakukan pengawas, siswa hanya memeriksa ulang.
+            binding.btnRetryDownload.text = "Periksa Lagi"
             binding.btnRetryDownload.setOnClickListener {
-                val navIntent = buildNavigationSettingsIntent()
-                safeStartSettings(navIntent)
                 showGestureBlocked(retryCallback)
             }
         } else {
@@ -512,55 +518,20 @@ class SecurityEnforcer(
             Handler(Looper.getMainLooper()).postDelayed({
                 if (activity.isFinishing || activity.isDestroyed) return@postDelayed
 
-                val navIntent = buildNavigationSettingsIntent()
-                val canResolve = navIntent.resolveActivity(activity.packageManager) != null
-
-                val message = if (canResolve && Build.VERSION.SDK_INT >= 30) {
-                    "Gunakan 3-Button Navigation agar ujian aman"
-                } else {
-                    "Nonaktifkan gesture navigasi: Settings -> Sistem -> Gestur -> 3 tombol"
-                }
-
-                Snackbar.make(binding.root, message, Snackbar.LENGTH_INDEFINITE).apply {
-                    if (canResolve) {
-                        setAction("Buka Settings") {
-                            safeStartSettings(navIntent)
-                        }
-                    } else {
-                        setAction("Tutup", null)
-                    }
+                // Jangan tawarkan "Buka Settings" di strict mode: Snackbar ini
+                // muncul saat ujian sudah berjalan dan bisa menjadi jalur
+                // keluar ke aplikasi lain. Cukup ingatkan pengawas.
+                Snackbar.make(
+                    binding.root,
+                    "Minta pengawas mengaktifkan Navigasi 3 Tombol (3-Button Navigation)",
+                    Snackbar.LENGTH_INDEFINITE
+                ).apply {
+                    setAction("Tutup", null)
                     setDuration(10000)
                     show()
                 }
             }, 2000)
         } catch (_: Exception) { }
-    }
-
-    private fun buildNavigationSettingsIntent(): Intent {
-        val action = if (Build.VERSION.SDK_INT >= 30) {
-            ACTION_SYSTEM_NAVIGATION_SETTINGS
-        } else {
-            Settings.ACTION_SETTINGS
-        }
-        val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (intent.resolveActivity(activity.packageManager) != null) {
-            return intent
-        }
-        return Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-
-    private fun safeStartSettings(intent: Intent) {
-        try {
-            activity.startActivity(intent)
-        } catch (e1: Exception) {
-            try {
-                activity.startActivity(
-                    Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            } catch (e2: Exception) {
-                Log.w(TAG, "Gagal membuka Settings", e2)
-            }
-        }
     }
 
     /**
@@ -655,9 +626,6 @@ class SecurityEnforcer(
             }
         }
     }
-
-    /** Hasil scan terakhir (null = bersih / belum pernah discan). */
-    fun lastEnvironmentViolation(): String? = cachedEnvViolation
 
     /**
      * Scan lingkungan lengkap — BLOCKING, hanya boleh dipanggil dari

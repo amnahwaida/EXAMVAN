@@ -1,39 +1,26 @@
 <resources>
     <string name="app_name">Examvan</string>
-    <string name="server_config_title">Server Configuration</string>
     <string name="hint_server_url">https://examvan.my.id</string>
     <string name="label_server_url">Server URL</string>
     <string name="label_token">Exam Token</string>
     <string name="hint_token">ABC12345</string>
     <string name="cb_remember_url">Remember this Server URL for next time</string>
-    <string name="btn_connect">Save &amp; Continue</string>
     <string name="btn_start_exam">Start Exam</string>
-    <string name="exam_list_title">Exam List</string>
-    <string name="empty_exams">No exams available</string>
     <string name="btn_retry">Retry</string>
-    <string name="loading">Loading...</string>
-    <string name="download_progress">Downloading: %1$d%%</string>
-    <string name="page_indicator">Page %1$d / %2$d</string>
     <string name="btn_prev">Previous</string>
     <string name="btn_next">Next</string>
-    <string name="error_network">Failed to connect to server. Check your network.</string>
-    <string name="error_invalid_url">Invalid URL format. Use https://domain</string>
     <string name="https_required_error">HTTP (cleartext) connections are not supported. Use HTTPS.</string>
     <string name="error_invalid_token">Token cannot be empty</string>
     <string name="error_token_not_found">Invalid token or exam has ended</string>
     <string name="error_download">Failed to download exam file</string>
-    <string name="error_pdf">Failed to open PDF file</string>
-    <string name="menu_change_server">Change Server</string>
 
     <string name="btn_cancel">Cancel</string>
-    <string name="toast_auto_submit_success">Exam stopped. Your answers have been submitted automatically.</string>
     <string name="toast_auto_submit_failed">Exam stopped. Failed to submit answers: %1$s</string>
     <string name="autosubmit_status_active">Auto-Submit: ACTIVE (Do not leave the app!)</string>
     <string name="autosubmit_status_inactive">Auto-Submit: INACTIVE</string>
     <string name="strict_mode_active">STRICT MODE: CANNOT EXIT! Submit to unlock.</string>
     <string name="strict_mode_cannot_exit">Strict Mode: You cannot exit before submitting your answers!</string>
     <string name="strict_mode_cannot_exit_title">Strict Mode Active</string>
-    <string name="strict_mode_cannot_exit_msg">Strict Mode is active. You CANNOT leave the app before successfully submitting your exam answers.\n\nPlease press the "Submit Answers" button when you have finished.</string>
 
     <!-- Identity dialog -->
     <string name="identity_dialog_title">Student Identity</string>
@@ -44,19 +31,12 @@
     <string name="token_length_error">Token must be 8 characters</string>
     <string name="connection_error_format">Unable to connect to server: %1$s</string>
     <string name="answer_submit_error">An error occurred while submitting answers.</string>
-    <string name="error_pdf_render">Failed to render PDF</string>
 
     <!-- ExamViewer -->
     <string name="exam_invalid_id">Invalid exam ID</string>
     <string name="default_exam_name">Exam</string>
     <string name="answer_sheet_open">Open Answer Sheet</string>
     <string name="answer_sheet_close">Close Answer Sheet</string>
-    <string name="question_label">Question %1$d</string>
-    <string name="question_label_truefalse">Question %1$d (True/False)</string>
-    <string name="question_label_multiple">Question %1$d (Select Multiple)</string>
-    <string name="question_label_matching">Question %1$d (Matching)</string>
-    <string name="question_label_shortanswer">Question %1$d (Short Answer)</string>
-    <string name="spinner_default">-- Select --</string>
     <string name="submit_answers_title">Submit Answers</string>
     <string name="submit_answers_confirm_partial">You have answered %1$d of %2$d questions.\nSubmit now?</string>
     <string name="submit_answers_confirm_all">You have answered all %1$d questions.\nSubmit answers?</string>
@@ -86,8 +66,6 @@
     <string name="submit_failed_message_strict">%1$s\n\nStrict Mode active: You must successfully submit before exiting.</string>
     <string name="dialog_ok">OK</string>
     <string name="download_failed_format">Failed to start download: %1$s</string>
-    <string name="page_indicator_format">%1$d / %2$d</string>
-    <string name="auto_submit_success_title">Answers Submitted</string>
     <string name="auto_submit_failed_title">Failed to Submit Answers</string>
     <string name="recovery_pending_message">Your answers were not sent!\n\nAutomatic submission failed due to a network issue. Your answers are still saved on this device. Tap \"Send Again\" to resubmit.</string>
     <string name="recovery_retry_submit">Send Again</string>
@@ -96,12 +74,6 @@
     <string name="notification_retry_action">Send Again</string>
     <string name="notification_channel_name">Exam Answer Submission</string>
     <string name="notification_channel_desc">Notification when exam answers are submitted automatically</string>
-
-    <!-- Gesture navigation warning -->
-    <string name="gesture_warning_title">Disable Gesture Navigation</string>
-    <string name="gesture_warning_message">STRICT mode requires 3-Button Navigation for security.\n\nSteps:\n1. Open Settings → System → Gestures\n2. Select "3-button navigation"\n3. Return to the exam\n\nIf you cannot change it, select "Ignore" — protection will run with limitations.</string>
-    <string name="gesture_warning_ok">Open Settings</string>
-    <string name="gesture_warning_skip">Ignore, I Understand</string>
 
     <!-- Logout dialog -->
     <string name="logout_low_title">Exit Exam</string>
@@ -176,5 +148,4 @@
     <string name="cd_pdf_page">Exam PDF page</string>
     <string name="cd_page_previous">Previous page</string>
     <string name="cd_page_next">Next page</string>
-    <string name="cd_exam_document">Exam document</string>
 </resources>

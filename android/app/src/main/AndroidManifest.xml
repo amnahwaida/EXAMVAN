@@ -23,6 +23,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Umpan balik haptic peringatan kritis timer (fix lint MissingPermission) -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Menjaga proses tetap hidup selama auto-submit di background. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".ExamVanApp"
@@ -70,6 +73,12 @@
             android:name=".ResultsViewerActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+
+        <!-- Penjaga proses singkat selama auto-submit background. -->
+        <service
+            android:name=".SubmissionKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 </manifest>

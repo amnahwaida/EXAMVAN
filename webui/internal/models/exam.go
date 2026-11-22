@@ -44,6 +44,15 @@ type Exam struct {
 	TokenResetInterval *int       `json:"token_reset_interval,omitempty"`
 	TokenLastResetAt   *time.Time `json:"token_last_reset_at,omitempty"`
 	ExamStartedAt      *time.Time `json:"exam_started_at,omitempty"`
+	// ScheduleToleranceMinutes is how many minutes before start_time the
+	// supervision auto-starts and how many minutes after end_time it
+	// auto-stops (and the server gates still accept joins/submits).
+	ScheduleToleranceMinutes int `json:"schedule_tolerance_minutes"`
+	// ScheduleStartedAt is the one-way marker that the schedule has already
+	// fired. It is set on every start (manual or automatic) and kept on stop,
+	// so the auto-start job cannot restart an exam the teacher stopped.
+	// Editing start_time while the exam is not running resets it.
+	ScheduleStartedAt *time.Time `json:"schedule_started_at,omitempty"`
 	// AutoApprove is the per-exam server-side auto-approve flag: when true,
 	// RequestApproval approves every requesting device immediately instead of
 	// queueing it for a pengawas. Stored in the DB so it keeps working even
@@ -89,38 +98,70 @@ func (e Exam) GetTokenMode() string {
 	return *e.TokenMode
 }
 
-// SubmissionGraceEnd is how long after end_time a submission is still accepted.
-// The Android app auto-submits right at the deadline, and a borderline request
-// may arrive a few seconds late over a slow link — a five-minute grace window
-// keeps that legitimate submit from being dropped while still enforcing the
-// hard cutoff for anyone who tries to keep working well past the deadline.
-// Shared by the public join/submit gates and the admin approval endpoints so
-// they all enforce the exact same cutoff.
-const SubmissionGraceEnd = 5 * time.Minute
+// DefaultScheduleToleranceMinutes is the fallback per-exam tolerance. It keeps
+// the historical five-minute grace for exams created before the tolerance was
+// editable.
+const DefaultScheduleToleranceMinutes = 5
 
-// ExamScheduleEnded reports whether the exam's scheduled end_time has passed
-// (plus the submission grace window). A nil end_time means no schedule limit is
-// set — the exam is governed purely by manual start/stop — so this returns
-// false. When end_time IS set, joining/working/submitting after it is rejected
-// so the server-side deadline matches the countdown the Android app displays.
-func ExamScheduleEnded(exam *Exam, now time.Time) bool {
-	if exam == nil || exam.EndTime == nil {
+// MaxScheduleToleranceMinutes caps the editable tolerance (24 hours) so a
+// typo cannot push the schedule window absurdly far or overflow durations.
+const MaxScheduleToleranceMinutes = 1440
+
+// SubmissionGraceEnd is the default tolerance kept as a named constant for
+// callers/tests that predate the per-exam setting.
+const SubmissionGraceEnd = DefaultScheduleToleranceMinutes * time.Minute
+
+// ScheduleTolerance returns the exam's clamped schedule tolerance.
+func (e *Exam) ScheduleTolerance() time.Duration {
+	if e == nil {
+		return SubmissionGraceEnd
+	}
+	return scheduleToleranceDuration(e.ScheduleToleranceMinutes)
+}
+
+func scheduleToleranceDuration(minutes int) time.Duration {
+	if minutes < 0 {
+		minutes = 0
+	}
+	if minutes > MaxScheduleToleranceMinutes {
+		minutes = MaxScheduleToleranceMinutes
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
+// ExamScheduleEndedAt reports whether end_time + tolerance has passed. A nil
+// end_time means no schedule limit is set — the exam is governed purely by
+// manual start/stop — so this returns false.
+func ExamScheduleEndedAt(endTime *time.Time, toleranceMinutes int, now time.Time) bool {
+	if endTime == nil {
 		return false
 	}
-	return now.UTC().After(exam.EndTime.UTC().Add(SubmissionGraceEnd))
+	return now.UTC().After(endTime.UTC().Add(scheduleToleranceDuration(toleranceMinutes)))
+}
+
+// ExamScheduleEnded reports whether the exam's scheduled end_time has passed
+// (plus its per-exam tolerance). A nil end_time means no schedule limit is set
+// — the exam is governed purely by manual start/stop — so this returns false.
+// When end_time IS set, joining/working/submitting after it is rejected so the
+// server-side deadline matches the countdown the Android app displays.
+func ExamScheduleEnded(exam *Exam, now time.Time) bool {
+	if exam == nil {
+		return false
+	}
+	return ExamScheduleEndedAt(exam.EndTime, exam.ScheduleToleranceMinutes, now)
 }
 
 // DefaultExamColumns is the column list used in SELECT queries for the exams table.
 const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,
 created_by, created_at, identity_fields, panel_color,
-start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message, auto_approve, previous_active_token`
+start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message, auto_approve, previous_active_token, schedule_tolerance_minutes, schedule_started_at`
 
 // DefaultExamColumnsWithAlias for JOIN queries with e. prefix.
 const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.active_token, e.questions_json,
 e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
 e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message, e.auto_approve, e.previous_active_token`
+e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message, e.auto_approve, e.previous_active_token, e.schedule_tolerance_minutes, e.schedule_started_at`
 
 // scanExam scans a row into an Exam struct. The columns must match DefaultExamColumns order.
 func scanExam(row pgx.Row) (Exam, error) {
@@ -132,6 +173,7 @@ func scanExam(row pgx.Row) (Exam, error) {
 		&e.StartTime, &e.EndTime, &e.DelegatedTo,
 		&e.TokenMode, &e.TokenResetInterval, &e.TokenLastResetAt, &e.ExamStartedAt,
 		&e.TombstonedAt, &e.CongratsMessage, &e.AutoApprove, &e.PreviousActiveToken,
+		&e.ScheduleToleranceMinutes, &e.ScheduleStartedAt,
 	)
 	return e, err
 }
@@ -699,18 +741,26 @@ WHERE id = $4`, e.Name, e.FilePath, e.SizeBytes, id)
 }
 
 // UpdateExamQuestions updates the questions_json, security_level, strict_mode,
-// identity_fields, panel_color, start_time, end_time, and the custom
-// congrats_message for an exam.
+// identity_fields, panel_color, start_time, end_time, schedule tolerance, and
+// the custom congrats_message for an exam. Changing start_time while the exam
+// is not running re-arms the auto-start schedule by clearing the consumed
+// marker; editing only questions/tolerance keeps it consumed.
 func UpdateExamQuestions(ctx context.Context, pool *pgxpool.Pool, id int,
-	questionsJSON, securityLevel, identityFieldsJSON, panelColor, startTime, endTime, congratsMessage *string, strictMode int) error {
+	questionsJSON, securityLevel, identityFieldsJSON, panelColor, startTime, endTime, congratsMessage *string,
+	strictMode, scheduleToleranceMinutes int) error {
 	sql := `UPDATE exams SET
 questions_json = $1, security_level = $2, strict_mode = $3,
 identity_fields = $4, panel_color = $5, start_time = $6, end_time = $7,
-congrats_message = $8
-WHERE id = $9`
+congrats_message = $8, schedule_tolerance_minutes = $9,
+schedule_started_at = CASE
+    WHEN $6::timestamptz IS DISTINCT FROM start_time AND exam_started_at IS NULL THEN NULL
+    ELSE schedule_started_at
+END
+WHERE id = $10`
 	_, err := pool.Exec(ctx, sql,
 		questionsJSON, securityLevel, strictMode,
-		identityFieldsJSON, panelColor, startTime, endTime, congratsMessage, id)
+		identityFieldsJSON, panelColor, startTime, endTime, congratsMessage,
+		scheduleToleranceMinutes, id)
 	if err != nil {
 		return fmt.Errorf("update exam questions: %w", err)
 	}
@@ -759,7 +809,9 @@ func UpdateExamActiveTokenTx(ctx context.Context, tx pgx.Tx, id int, activeToken
 // StartExam marks an exam as started (sets exam_started_at) and optionally resets the active_token.
 // Starting is an activation, so any tombstone marker is cleared.
 func StartExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
-	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL WHERE id = $1`, id)
+	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP,
+		schedule_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL
+		WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("start exam: %w", err)
 	}
@@ -769,7 +821,9 @@ func StartExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
 // StartExamTx is StartExam inside an existing transaction, so the concurrent
 // quota check and the start stay atomic (no check-then-update race).
 func StartExamTx(ctx context.Context, tx pgx.Tx, id int) error {
-	_, err := tx.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL WHERE id = $1`, id)
+	_, err := tx.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP,
+		schedule_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL
+		WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("start exam tx: %w", err)
 	}
@@ -777,12 +831,67 @@ func StartExamTx(ctx context.Context, tx pgx.Tx, id int) error {
 }
 
 // StopExam marks an exam as inactive and clears the exam_started_at flag.
+// schedule_started_at is deliberately kept so the auto-start job does not
+// restart an exam the teacher stopped.
 func StopExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
 	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("stop exam: %w", err)
 	}
 	return nil
+}
+
+// ListExamsToAutoStart returns exams whose schedule window is open but that
+// have never been started. The window starts schedule_tolerance_minutes before
+// start_time. schedule_started_at IS NULL ensures a manual/automatic start
+// followed by a stop is never undone by the background job.
+func ListExamsToAutoStart(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]Exam, error) {
+	rows, err := pool.Query(ctx, `SELECT `+DefaultExamColumnsWithAlias+` FROM exams e
+		WHERE e.exam_started_at IS NULL
+		  AND e.schedule_started_at IS NULL
+		  AND e.start_time IS NOT NULL
+		  AND e.end_time IS NOT NULL
+		  AND e.tombstoned_at IS NULL
+		  AND $1 >= e.start_time - (e.schedule_tolerance_minutes * interval '1 minute')
+		  AND $1 < e.end_time + (e.schedule_tolerance_minutes * interval '1 minute')
+		ORDER BY e.start_time, e.id`, now.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("list exams to auto-start: %w", err)
+	}
+	defer rows.Close()
+	var out []Exam
+	for rows.Next() {
+		e, err := scanExamFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan auto-start exam: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ListExamsToAutoStop returns running exams whose end_time + tolerance has
+// passed.
+func ListExamsToAutoStop(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]Exam, error) {
+	rows, err := pool.Query(ctx, `SELECT `+DefaultExamColumnsWithAlias+` FROM exams e
+		WHERE e.status = 'active'
+		  AND e.exam_started_at IS NOT NULL
+		  AND e.end_time IS NOT NULL
+		  AND $1 >= e.end_time + (e.schedule_tolerance_minutes * interval '1 minute')
+		ORDER BY e.end_time, e.id`, now.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("list exams to auto-stop: %w", err)
+	}
+	defer rows.Close()
+	var out []Exam
+	for rows.Next() {
+		e, err := scanExamFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan auto-stop exam: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // UpdateExamTokenMode updates the token mode (static/dynamic) and reset interval.

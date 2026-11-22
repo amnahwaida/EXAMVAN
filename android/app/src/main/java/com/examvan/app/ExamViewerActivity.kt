@@ -1003,7 +1003,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             (!::submissionManager.isInitialized ||
                 (!submissionManager.submittedOrExited && !submissionManager.isSubmitting))
         ) {
-            pdfRendererHelper.releaseForBackground()
+            // Force di SEMUA perangkat: onStop berarti UI tidak terlihat lagi,
+            // jadi renderer + bitmap (~6-20 MB) tidak perlu menetap di LRU.
+            // PDF dibuka kembali dari cache pada onResume.
+            pdfRendererHelper.releaseForBackground(force = true)
         }
         if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
@@ -1032,14 +1035,37 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     /**
-     * Sinyal memori dari sistem: bila proses sudah masuk background LRU
-     * (TRIM_MEMORY_BACKGROUND ke atas), lepaskan PDF pada SEMUA perangkat —
-     * bukan hanya profil low-memory. Bitmap + renderer adalah konsumen
-     * terbesar; membuangnya membantu sistem mempertahankan proses ini hidup.
+     * Sinyal memori dari sistem: lepaskan PDF pada SEMUA perangkat begitu UI
+     * tersembunyi (TRIM_MEMORY_UI_HIDDEN ke atas), bukan hanya saat proses
+     * sudah masuk background LRU. Bitmap + renderer adalah konsumen terbesar;
+     * membuangnya lebih awal membantu perangkat low-memory mempertahankan
+     * proses ini hidup. PDF dibuka kembali dari cache pada onResume.
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND &&
+        if (com.examvan.app.helper.PdfMemoryPolicy.shouldReleaseForTrim(level) &&
+            ::pdfRendererHelper.isInitialized &&
+            !isFinishing && !isDestroyed &&
+            !viewModel.submittedOrExited.value &&
+            (!::submissionManager.isInitialized ||
+                (!submissionManager.submittedOrExited && !submissionManager.isSubmitting))
+        ) {
+            pdfRendererHelper.releaseForBackground(force = true)
+        }
+    }
+
+    /**
+     * Tekanan memori terakhir dari sistem. Jangan lepas PDF saat activity
+     * masih resumed — tidak ada event resume berikutnya untuk membukanya
+     * kembali, sehingga layar soal akan kosong. Saat paused/stopped, aman
+     * dilepas; onResume akan memanggil reopenIfNeeded().
+     */
+    override fun onLowMemory() {
+        super.onLowMemory()
+        val activityVisible = lifecycle.currentState.isAtLeast(
+            androidx.lifecycle.Lifecycle.State.RESUMED
+        )
+        if (!activityVisible &&
             ::pdfRendererHelper.isInitialized &&
             !isFinishing && !isDestroyed &&
             !viewModel.submittedOrExited.value &&

@@ -210,8 +210,6 @@ func PengawasExams() gin.HandlerFunc {
 		type examItem struct {
 			ID             int        `json:"id"`
 			Name           string     `json:"name"`
-			Token          string     `json:"token"`
-			ActiveToken    string     `json:"active_token"`
 			TokenMode      string     `json:"token_mode"`
 			Status         string     `json:"status"`
 			StartTime      string     `json:"start_time"`
@@ -278,8 +276,6 @@ func PengawasExams() gin.HandlerFunc {
 			item := examItem{
 				ID:            e.ID,
 				Name:          e.Name,
-				Token:         e.Token,
-				ActiveToken:   e.ActiveToken,
 				TokenMode:     tokenMode,
 				Status:        e.Status,
 				StartTime:     startStr,

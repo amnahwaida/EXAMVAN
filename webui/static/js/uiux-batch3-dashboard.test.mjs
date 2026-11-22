@@ -223,10 +223,30 @@ test('S2: dirty-tracking terpasang — listener input/change, reset di open & su
     assert.ok(mark, 'helper penanda kotor ada');
 
     // Perubahan programatik yang tidak memicu event input/change juga menandai.
-    for (const name of ['applyBulkWeight', 'insertQuestionAt', 'removeQuestionCard', 'addIdentityField', 'clearSchedule', 'setPanelColor']) {
+    for (const name of ['applyBulkWeight', 'insertQuestionAt', 'removeQuestionCard', 'addIdentityField', 'setPanelColor']) {
         const f = extractFunction(src, name);
         assert.ok(f && f.includes('markQuestionsConfigDirty'), `${name} harus menandai state kotor (perubahan programatik)`);
     }
+});
+
+test('Jadwal mulai/selesai wajib + toleransi — guard client, server, dan input edit soal', () => {
+    const src = adminJs();
+    const save = extractFunction(src, 'saveQuestionsConfig');
+    assert.ok(save, 'saveQuestionsConfig ada');
+    assert.match(save, /Tanggal dan jam mulai wajib diisi/, 'simpan harus menolak start_time kosong');
+    assert.match(save, /Tanggal dan jam selesai wajib diisi/, 'simpan harus menolak end_time kosong');
+    assert.match(save, /Toleransi waktu harus antara 0 dan 1440 menit/, 'toleransi harus divalidasi');
+    assert.match(save, /schedule_tolerance_minutes/, 'toleransi harus ikut dikirim');
+    assert.ok(!src.includes("'schedule-clear'") && !src.includes("'start-schedule-clear'"),
+        'aksi hapus jadwal tidak boleh tersisa');
+
+    const html = dashboardHtml();
+    assert.match(html, /id="examStartDate"[^>]*required/, 'input tanggal mulai wajib');
+    assert.match(html, /id="examStartTime"[^>]*required/, 'input jam mulai wajib');
+    assert.match(html, /id="examEndDate"[^>]*required/, 'input tanggal selesai wajib');
+    assert.match(html, /id="examEndTime"[^>]*required/, 'input jam selesai wajib');
+    assert.match(html, /id="examScheduleTolerance"[^>]*required/, 'input toleransi wajib');
+    assert.match(html, /id="examScheduleTolerance"[^>]*min="0"[^>]*max="1440"/, 'toleransi dibatasi 0-1440');
 });
 
 test('S2: tombol Batal/close lewat guard — showConfirm "Buang perubahan?" tanpa label default hapus', () => {

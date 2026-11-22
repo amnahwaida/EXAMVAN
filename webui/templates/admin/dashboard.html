@@ -826,37 +826,39 @@
 
 <!-- 3. Exam Schedule Config -->
 <div class="exam-schedule-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
-<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">
+<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-clock"/></svg>
 <div>
 <div style="font-weight:600;color:var(--color-text);font-size:0.9rem;">Jadwal Ujian</div>
-<div style="font-size:0.75rem;color:var(--color-text-muted);">Atur jam mulai dan selesai ujian.</div>
+<div style="font-size:0.75rem;color:var(--color-text-muted);">Tanggal dan jam mulai/selesai wajib diisi. Pengawasan dimulai otomatis sesuai toleransi.</div>
 </div>
 </div>
-<button type="button" class="btn-sm btn-delete" data-action="schedule-clear" style="font-size:11px;flex-shrink:0;">
-<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Hapus Jadwal
-</button>
 </div>
 <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;">
 <div style="display:flex;flex-direction:column;gap:2px;">
-<label for="examStartDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Mulai</label>
-<input type="date" id="examStartDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+<label for="examStartDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Mulai <span style="color:var(--color-danger);">*</span></label>
+<input type="date" id="examStartDate" required aria-required="true" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
 </div>
 <div style="display:flex;flex-direction:column;gap:2px;">
-<label for="examStartTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
-<input type="time" id="examStartTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+<label for="examStartTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam <span style="color:var(--color-danger);">*</span></label>
+<input type="time" id="examStartTime" required aria-required="true" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
 </div>
 <svg class="icon-svg" style="width:18px;height:18px;color:var(--color-text-muted);flex-shrink:0;" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
 <div style="display:flex;flex-direction:column;gap:2px;">
-<label for="examEndDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Selesai</label>
-<input type="date" id="examEndDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+<label for="examEndDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Selesai <span style="color:var(--color-danger);">*</span></label>
+<input type="date" id="examEndDate" required aria-required="true" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
 </div>
 <div style="display:flex;flex-direction:column;gap:2px;">
-<label for="examEndTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
-<input type="time" id="examEndTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+<label for="examEndTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam <span style="color:var(--color-danger);">*</span></label>
+<input type="time" id="examEndTime" required aria-required="true" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+</div>
+<div style="display:flex;flex-direction:column;gap:2px;">
+<label for="examScheduleTolerance" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Toleransi (menit) <span style="color:var(--color-danger);">*</span></label>
+<input type="number" id="examScheduleTolerance" min="0" max="1440" step="1" value="5" required aria-required="true" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
 </div>
 </div>
+<div style="font-size:0.7rem;color:var(--color-text-muted);margin-top:8px;">Pengawasan otomatis dimulai <strong>toleransi</strong> menit sebelum jam mulai dan berhenti <strong>toleransi</strong> menit setelah jam selesai.</div>
 </div>
 
 <!-- 4. Pengawas Config — hanya untuk operator/superadmin -->

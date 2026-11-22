@@ -363,6 +363,15 @@ func main() {
 	go hub.Run()
 	log.Println("WebSocket hub: started")
 
+	// -----------------------------------------------------------------------
+	// 10b. Automatic exam schedule: start supervision at start_time minus the
+	// per-exam tolerance, stop it at end_time plus the tolerance. Runs after
+	// the hub exists so auto-stop can broadcast exam_terminated.
+	// -----------------------------------------------------------------------
+	if pool != nil {
+		admin.StartExamScheduleJob(jobCtx, pool, hub)
+	}
+
 	// Inject hub into context for handlers.
 	r.Use(func(c *gin.Context) {
 		c.Set("ws_hub", hub)

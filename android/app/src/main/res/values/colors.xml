@@ -24,15 +24,9 @@
     <color name="warning">#F59E0B</color>
 
     <!-- Cards & Dividers -->
-    <color name="card_bg">#FFFFFF</color>
     <color name="divider">#E2E8F0</color>
 
-    <!-- Status indicators -->
-    <color name="status_active_bg">#ECFDF5</color>
-    <color name="status_inactive_bg">#FFFBEB</color>
-
     <!-- Input fields — light mode -->
-    <color name="input_background">#F1F5F9</color>
     <color name="input_border">#CBD5E1</color>
     <color name="input_fill">#F8FAFC</color>
 

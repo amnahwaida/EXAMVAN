@@ -386,8 +386,4 @@ object WebSocketManager {
         Log.d(TAG, "Disconnected")
     }
 
-    /**
-     * Check if WebSocket is currently connected.
-     */
-    fun isConnected(): Boolean = connected
 }

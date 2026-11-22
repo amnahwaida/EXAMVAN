@@ -198,8 +198,8 @@ test('S5: pengawas.html memakai initLiveSearch (debounce) tanpa onkeyup Enter-on
         /addEventListener\(\s*['"]keydown['"][\s\S]{0,200}Enter/,
         'fallback sederhana (keydown Enter) wajib ada bila helper belum tersedia'
     );
-    // Tombol "Cari" existing tetap dipertahankan.
-    assert.match(html, /toolbar-btn-search[^>]*>[^<]*<svg[\s\S]*?<\/svg> Cari<\/button>/, 'tombol Cari tetap ada');
+    // Tombol "Cari" dihapus: pencarian sudah berjalan live saat mengetik.
+    assert.doesNotMatch(html, /toolbar-btn-search/, 'tombol Cari tidak lagi dirender');
 });
 
 // Cross-check kontrak dengan agen paralel: admin-core.js AKAN mendefinisikan
