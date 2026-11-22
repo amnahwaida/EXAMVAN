@@ -1744,6 +1744,11 @@ function loadApprovals() {
                     renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>', 'Antrean izin ditutup — ujian tidak aktif atau telah berakhir.');
                     return;
                 }
+                if (gateMsg.indexOf('Ujian belum dimulai') === 0) {
+                    if (typeof setExamLivenessFromApproval === 'function') setExamLivenessFromApproval(false, false);
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin tersedia setelah pengawasan dimulai.</td></tr>', 'Antrean izin tersedia setelah pengawasan dimulai.');
+                    return;
+                }
                 // Gagal memuat antrean — jangan samarkan sebagai antrean kosong.
                 // R75: satu toast per episode gagal; tick 5 detik berikutnya
                 // cukup memperbarui notice tanpa menumpuk toast.

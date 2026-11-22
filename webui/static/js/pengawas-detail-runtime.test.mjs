@@ -389,6 +389,30 @@ test('approval poll disables row controls when the exam is stopped', async () =>
         'a 5s approval gate must update liveness without waiting for a manual table refresh');
 });
 
+test('approval poll explains a not-started exam without an error toast', async () => {
+    const { els } = await runScript({
+        js: toPlainJs(readDetail()),
+        payload: detailPayload({ exam_active: true, exam_started: false, exam_live: false, exam_schedule_ended: false }),
+        callAfter: ['loadDetail(1)', 'loadApprovals()'],
+        apiFetchImpl: (url, payload) => {
+            if (url.indexOf('/approvals') !== -1) {
+                return Promise.resolve({
+                    ok: false, status: 400,
+                    json: () => Promise.resolve({
+                        success: false,
+                        message: 'Ujian belum dimulai — antrean persetujuan belum tersedia',
+                    }),
+                });
+            }
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) });
+        },
+    });
+    assert.match(els.examLivenessNote.textContent, /belum dimulai/,
+        'the initial liveness note must explain why the queue is unavailable');
+    assert.match(els.approvalBody.textContent, /tersedia setelah pengawasan dimulai/,
+        'the 5s approval poll must render a calm closed state instead of an empty/error queue');
+});
+
 test('BUG-4: the 1s countdown tick never triggers a network request', async () => {
     // Once the page is live (BUG-1 fixed) a 1s tick that calls the token
     // endpoint becomes 1 req/sec FOREVER whenever the countdown is negative:

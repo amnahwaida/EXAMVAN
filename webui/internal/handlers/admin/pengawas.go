@@ -998,6 +998,10 @@ func GetPendingApprovals() gin.HandlerFunc {
 			errorResponse(c, http.StatusBadRequest, "Ujian tidak aktif")
 			return
 		}
+		if exam.ExamStartedAt == nil {
+			errorResponse(c, http.StatusBadRequest, "Ujian belum dimulai — antrean persetujuan belum tersedia")
+			return
+		}
 		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
 			errorResponse(c, http.StatusBadRequest, "Waktu ujian telah berakhir")
 			return
@@ -1128,6 +1132,14 @@ func SetApprovalStatus() gin.HandlerFunc {
 		// possibly a monitoring row) that nobody can act on.
 		if !exam.IsActive() {
 			errorResponse(c, http.StatusBadRequest, "Ujian tidak aktif — keputusan perangkat tidak dapat diubah")
+			return
+		}
+		// Approvals are only created after the exam starts (RequestApproval is
+		// reachable only once a student can join). A legacy/queued row on an
+		// active-but-not-started exam must not be decidable: the client disables
+		// these controls for the same reason, so the server is the backstop.
+		if exam.ExamStartedAt == nil {
+			errorResponse(c, http.StatusBadRequest, "Ujian belum dimulai — keputusan perangkat belum dapat dibuat")
 			return
 		}
 		// Same for an exam whose schedule has ended (end_time + grace) — the

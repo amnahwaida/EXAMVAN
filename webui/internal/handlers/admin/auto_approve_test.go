@@ -115,8 +115,10 @@ func createAutoApproveFixture(t *testing.T, pool *pgxpool.Pool) autoApproveFixtu
 	token := fmt.Sprintf("AA%06d", time.Now().UnixNano()%1000000)
 	var examID int
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by)
-		VALUES ('Ujian AA', 'aa.pdf', 1024, $1, $1, 'active', 'medium', $2)
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by,
+		                   exam_started_at, start_time, end_time)
+		VALUES ('Ujian AA', 'aa.pdf', 1024, $1, $1, 'active', 'medium', $2,
+		        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP - INTERVAL '1 hour', CURRENT_TIMESTAMP + INTERVAL '2 hours')
 		RETURNING id`, token, guruID).Scan(&examID); err != nil {
 		t.Fatalf("insert exam: %v", err)
 	}
@@ -1156,6 +1158,66 @@ func TestGetPendingApprovalsEndedExamRejected(t *testing.T) {
 	}
 }
 
+// An active exam that has never started has no meaningful queue either: the
+// client hides these controls before start, so the server must not serve or
+// decide a legacy/queued row in that window.
+func TestGetPendingApprovalsNotStartedExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET exam_started_at = NULL WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("clear started_at: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals", fx.ExamID), nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("GET status=%d out=%v, want 400 for not-started exam", code, out)
+	}
+}
+
+func TestSetApprovalStatusNotStartedExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	ctx := context.Background()
+	mac := "AA:00:00:00:00:0A"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Belum Mulai', '01', 'XII A', 'pending')`, fx.ExamID, mac); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE exams SET exam_started_at = NULL WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("clear started_at: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac),
+		map[string]interface{}{"status": "approved"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST status=%d out=%v, want 400 for not-started exam", code, out)
+	}
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		fx.ExamID, mac).Scan(&status); err != nil {
+		t.Fatalf("read approval: %v", err)
+	}
+	if status != "pending" {
+		t.Fatalf("approval status = %q after rejected decision, want pending", status)
+	}
+}
+
 // Reads stay available for review: the auto-approve flag (and its audit hint)
 // can still be fetched after the exam stops — only writes/decisions are gated.
 func TestGetAutoApproveReadableOnInactiveExam(t *testing.T) {
@@ -1337,8 +1399,8 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 	if totalSubmitted != 2 {
 		t.Errorf("stats.total_submitted = %v, want 2", totalSubmitted)
 	}
-	if activeExams != 0 {
-		t.Errorf("stats.active_exams = %v, want 0 — active exams that never started are not running", activeExams)
+	if activeExams != 1 {
+		t.Errorf("stats.active_exams = %v, want 1 — only the started fixture exam is running; the seven active-but-not-started extras must not count", activeExams)
 	}
 
 	// The per-exam row counts must use the same per-device dedup as the
