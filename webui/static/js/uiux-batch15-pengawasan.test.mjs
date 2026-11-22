@@ -612,7 +612,7 @@ test('R114 (dua arah): sprite pengawas_detail.html — simbol lokal semua terpak
 });
 
 // ===========================================================================
-// R115 — Link "Pantau" tidak memicu aksi toggle kartu role="button"
+// R115 — "Pantau" bukan elemen interaktif bersarang di kartu role="button"
 // ===========================================================================
 
 test('R115 (statik): kartu monitor membawa aria-label eksplisit', () => {
@@ -620,10 +620,15 @@ test('R115 (statik): kartu monitor membawa aria-label eksplisit', () => {
     assert.ok(card, 'markup kartu monitor eksis');
     assert.match(card[0], /aria-label="/, 'kartu wajib aria-label eksplisit (bukan teks gabungan ambigu)');
     assert.match(card[0], /role="button"/, 'role button dipertahankan (mitigasi minimal)');
+    assert.match(PENGAWAS, /<span class="student-list-toggle"[^>]*>[\s\S]*?Pantau<\/span>/,
+        '"Pantau" kini span visual, bukan anchor bersarang di role="button"');
+    assert.doesNotMatch(PENGAWAS, /<a[^>]*student-list-toggle/,
+        'tidak ada lagi elemen interaktif bersarang di kartu role="button"');
 });
 
-test('R115 (vm): klik link Pantau di-stop di fase capture — aksi kartu tidak terpicu', () => {
-    // (a) handler delegasi open-pengawas-detail mundur bila klik dari <a>.
+test('R115 (vm): klik kartu (termasuk span Pantau) menavigasi lewat delegasi', () => {
+    // (a) handler delegasi open-pengawas-detail tetap mundur bila klik dari <a>
+    // (kompatibilitas markup lama).
     const regIdx = PENGAWAS.indexOf("Actions.register('open-pengawas-detail'");
     assert.ok(regIdx !== -1, 'handler open-pengawas-detail terdaftar');
     const fnStart = PENGAWAS.indexOf('function', regIdx);
@@ -640,10 +645,13 @@ test('R115 (vm): klik link Pantau di-stop di fase capture — aksi kartu tidak t
     sb.openPengawasDetailFn(cardEl, { target: anchor });
     assert.equal(sb.window.location, '', 'klik dari anchor TIDAK menavigasi via aksi kartu');
 
-    // (b) listener capture menghentikan propagasi sebelum delegasi dokumen.
-    const capMatch = PENGAWAS.match(/addEventListener\('click',\s*function\s*\([^)]*\)\s*\{[\s\S]*?student-list-toggle[\s\S]*?\},\s*true\)/);
-    assert.ok(capMatch, 'listener capture untuk link Pantau eksis (flag capture true)');
-    assert.match(capMatch[0], /stopPropagation/, 'propagasi dihentikan agar delegasi kartu tidak jalan');
+    // (b) klik pada span Pantau diteruskan ke handler kartu dan menavigasi
+    // sekali; tidak ada anchor bersarang yang bisa memicu navigasi ganda.
+    sb.window.location = '';
+    const span = { tagName: 'span', parentNode: cardEl };
+    sb.openPengawasDetailFn(cardEl, { target: span });
+    assert.equal(sb.window.location, '/admin/pengawas/9',
+        'klik span Pantau menavigasi lewat aksi kartu');
 });
 
 // ===========================================================================

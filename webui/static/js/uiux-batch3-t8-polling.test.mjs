@@ -63,6 +63,7 @@ function item(mac, opts) {
         student_class: opts.kelas || 'X-A',
         identity_data: opts.identity || { nis: '1234' },
         created_at: opts.at || '2026-08-23T07:00:00Z',
+        is_repeat: !!opts.repeat,
         status: 'pending'
     };
 }
@@ -91,6 +92,8 @@ test('T8/serialize: perubahan field yang ditampilkan mengubah serialisasi', () =
     assert.notEqual(MOD.serializeApprovals(a), MOD.serializeApprovals([item('AA:01', { name: 'Nama lain' })]));
     assert.notEqual(MOD.serializeApprovals(a), MOD.serializeApprovals([item('AA:01', { at: '2026-08-23T07:05:00Z' })]));
     assert.notEqual(MOD.serializeApprovals(a), MOD.serializeApprovals([item('AA:02')]), 'mac berbeda = isi berbeda');
+    assert.notEqual(MOD.serializeApprovals(a), MOD.serializeApprovals([item('AA:01', { repeat: true })]),
+        'is_repeat mengubah sub-label "Menunggu izin mengulang" sehingga wajib merender ulang');
 });
 
 test('T8/serialize: urutan list berpengaruh — nomor urut ("No") bagian dari tampilan', () => {

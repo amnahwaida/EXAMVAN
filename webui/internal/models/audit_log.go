@@ -135,6 +135,31 @@ func LatestExamAuditLog(ctx context.Context, pool *pgxpool.Pool, examID int) (*A
 	return &l, nil
 }
 
+// LatestExamAuditLogByActions returns the newest audit row for an exam whose
+// action is in the supplied set. The auto-approve hint must not present an
+// approval decision (or exam creation) as "the last time auto-approve was
+// toggled", so callers pass the auto-approve actions explicitly.
+func LatestExamAuditLogByActions(ctx context.Context, pool *pgxpool.Pool, examID int, actions []string) (*AdminAuditLog, error) {
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	row := pool.QueryRow(ctx, `
+		SELECT id, user_id, username, action, exam_id, detail, created_at
+		FROM admin_audit_logs
+		WHERE exam_id = $1 AND action = ANY($2)
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1`, examID, actions)
+
+	var l AdminAuditLog
+	if err := row.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.ExamID, &l.Detail, &l.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("latest exam audit log by actions: %w", err)
+	}
+	return &l, nil
+}
+
 // ListExamAuditLogs returns the full append-only admin audit trail for an
 // exam, newest first — the complete history behind the single "last changed"
 // hint so the monitoring page can render a full accountability panel.

@@ -15,14 +15,18 @@
 
     // Sidik jari SATU item approval atas field yang benar-benar dirender ke
     // baris tabel (lihat buildApprovalRowHTML di pengawas_detail.html):
-    // mac_address (ID perangkat + tombol aksi), student_name, created_at.
-    // Perubahan field lain (identity_data, exam_number, student_class, status)
-    // tidak mengubah tampilan sehingga dianggap identik.
+    // mac_address (ID perangkat + tombol aksi), student_name, created_at,
+    // dan is_repeat (sub-label "Menunggu izin mengulang"). Perubahan field
+    // lain (identity_data, exam_number, student_class, status) tidak mengubah
+    // tampilan sehingga dianggap identik. is_repeat must be here: without it a
+    // poll that flips only the repeat flag was skipped and the row kept the
+    // stale "Menunggu izin" label.
     function approvalFingerprint(a) {
         return [
             a && a.mac_address ? String(a.mac_address) : '',
             a && a.student_name ? String(a.student_name) : '',
-            a && a.created_at ? String(a.created_at) : ''
+            a && a.created_at ? String(a.created_at) : '',
+            a && a.is_repeat ? '1' : '0'
         ].join('|');
     }
 

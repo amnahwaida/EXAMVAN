@@ -2,7 +2,8 @@
   EXAMVAN Pengawas Detail — Self-Contained
   Template variables:
     .exam, .admin_user, .admin_role, .active_page, .version, .csrf_token,
-    .creator_name, .delegated_name, .pengawas_list
+    .creator_name, .delegated_name, .pengawas_list,
+    .exam_started, .exam_live, .exam_schedule_ended
 */}}
 <!DOCTYPE html>
 <html lang="id">
@@ -16,6 +17,10 @@
      halaman admin) — duplikat per-halaman dihapus. -->
 
 <main class="dashboard" id="mainContent">
+ <span id="pdExamState" hidden
+   data-started="{{if .exam_started}}1{{else}}0{{end}}"
+   data-live="{{if .exam_live}}1{{else}}0{{end}}"
+   data-ended="{{if .exam_schedule_ended}}1{{else}}0{{end}}"></span>
 
  <!-- ========== EXAM HEADER CARD ========== -->
  <section class="pd-header-card">
@@ -28,16 +33,14 @@
    <span class="pd-status-pill pd-status-idle" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis ({{formatExamTime .exam.TombstonedAt}} WIB)">
     <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-stop"/></svg> Nonaktif Otomatis
    </span>
-   {{else if .exam.ExamStartedAt}}
-    {{if eq .exam.Status "active"}}
+   {{else if .exam_live}}
    <span class="pd-status-pill pd-status-live">
     <span class="pd-pulse"></span> Sedang Diawasi
    </span>
-    {{else}}
+   {{else if .exam_started}}
    <span class="pd-status-pill pd-status-idle">
-    <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-stop"/></svg> Pengawasan Dihentikan
+    <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-stop"/></svg> {{if .exam_schedule_ended}}Waktu Ujian Berakhir{{else}}Pengawasan Dihentikan{{end}}
    </span>
-    {{end}}
    {{else}}
    <span class="pd-status-pill pd-status-idle">
     <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-key"/></svg> Belum Dimulai
@@ -53,8 +56,7 @@
     <svg class="icon-svg pd-info-icon"><use href="#hi-key"/></svg>
     <div style="flex:1;">
      <span class="pd-info-label">Token Aktif ({{if eq .token_mode "static"}}Statis{{else}}Dinamis{{end}})</span>
-     {{if .exam.ExamStartedAt}}
-     <div class="pd-token-row">
+     <div class="pd-token-row" id="pdTokenActiveWrap" {{if not .exam_live}}style="display:none;"{{end}}>
       <span class="pd-info-value pd-token-value" id="pdActiveToken">{{.exam.ActiveToken}}</span>
       {{if ne .token_mode "static"}}
       <button class="pd-token-regen-btn" data-action="regenerate-active-token" title="Generate Token Baru Sekarang" aria-label="Generate token baru sekarang">
@@ -65,10 +67,9 @@
        <svg class="icon-svg" style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
       </button>
      </div>
-     {{else}}
-     <span class="pd-info-value pd-token-hidden">Tersembunyi &mdash; mulai pengawasan dahulu</span>
-     {{end}}
-     <div class="pd-token-countdown" id="pdTokenCountdown"></div>
+     <span class="pd-info-value pd-token-hidden" id="pdTokenPaused" {{if or (not .exam_started) .exam_live}}style="display:none;"{{end}}>{{if .exam_schedule_ended}}Waktu ujian telah berakhir{{else}}Token nonaktif &mdash; pengawasan dijeda{{end}}</span>
+     <span class="pd-info-value pd-token-hidden" id="pdTokenHidden" {{if .exam_started}}style="display:none;"{{end}}>Tersembunyi &mdash; mulai pengawasan dahulu</span>
+     <div class="pd-token-countdown" id="pdTokenCountdown" {{if not .exam_live}}style="display:none;"{{end}}></div>
     </div>
    </div>
    {{if and .exam.StartTime .exam.EndTime}}
@@ -103,11 +104,18 @@
   <!-- Actions Bar -->
   <div class="pd-actions-bar">
    <div class="pd-main-action">
-    {{if .exam.ExamStartedAt}}
+    {{if .exam_started}}
+      {{if eq .exam.Status "active"}}
     <button class="pd-control-btn pd-control-stop" id="btnStopPengawasDetail" data-action="stop-pengawas-detail" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled aria-describedby="pd-control-reason" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
      <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-stop"/></svg>
      Hentikan Pengawasan
     </button>
+      {{else}}
+    <button class="pd-control-btn pd-control-start" id="btnStartPengawasDetail" data-action="start-pengawas-detail" data-resume="1" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled aria-describedby="pd-control-reason" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
+     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg>
+     Lanjutkan Pengawasan
+    </button>
+      {{end}}
     {{else}}
     <button class="pd-control-btn pd-control-start" id="btnStartPengawasDetail" data-action="start-pengawas-detail" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled aria-describedby="pd-control-reason" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
      <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg>
@@ -231,7 +239,7 @@
    <div class="pd-table-toolbar">
     <div class="pd-search-wrap">
      <svg class="icon-svg pd-search-icon"><use href="#hi-search"/></svg>
-      <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta">
+      <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, kelas, no. ujian, ID perangkat..." aria-label="Cari peserta">
     </div>
     <span class="pd-updated-chip">
      <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clock"/></svg>
@@ -265,7 +273,7 @@
       <th>Status</th>
       <th>Presence</th>
       <th>Mulai</th>
-      <th>Terakhir Seen</th>
+      <th>Terakhir Terlihat</th>
       <th class="pd-col-attempts">Upaya</th>
       <th class="pd-col-actions">Aksi</th>
      </tr>
@@ -569,6 +577,14 @@
   border-color: rgba(var(--rgb-danger),0.3);
 }
 .pd-action-danger:hover { background: rgba(var(--rgb-danger),0.18); }
+.pd-action-btn:disabled,
+.pd-action-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+.pd-action-btn:disabled:hover,
+.pd-action-btn[aria-disabled="true"]:hover { background: inherit; }
 .pd-action-warning {
   background: rgba(var(--rgb-warning),0.1);
   color: var(--color-warning-light);
@@ -760,6 +776,7 @@
   color: var(--color-primary-light);
   background: rgba(var(--rgb-info),0.06);
 }
+.pd-toolbar-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* --- Table --- */
 .pd-table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1441,6 +1458,7 @@
 /* Batch 15 (S106): input toggle berukuran 0×0 tak bisa menampung indikator
    fokus — outline digambar pada slider di sebelahnya agar posisi fokus
    keyboard pada kontrol keselamatan ini selalu terlihat. */
+#autoAcceptToggle:disabled + .pd-toggle-slider { opacity: 0.45; cursor: not-allowed; }
 #autoAcceptToggle:focus-visible + .pd-toggle-slider {
   outline: 2px solid var(--color-primary-light);
   outline-offset: 2px;
@@ -1553,30 +1571,33 @@ function refreshRepeatGrants(examId) {
 }
 
 function startExamPengawasDetail(examId) {
+    var resume = examStarted && !examLive;
+    var startLabel = resume ? 'Lanjutkan Pengawasan' : 'Mulai Pengawasan';
+    var busyLabel = resume ? 'Melanjutkan...' : 'Memulai...';
     showConfirm(
-        'Mulai pengawasan untuk ujian ini?',
-        'Ini akan memperbarui waktu mulai pengawasan.',
-        'Ya, Mulai',
+        resume ? 'Lanjutkan pengawasan untuk ujian ini?' : 'Mulai pengawasan untuk ujian ini?',
+        resume ? 'Sesi dilanjutkan tanpa mengubah waktu mulai atau token yang sedang berlaku.' : 'Ini akan memperbarui waktu mulai pengawasan.',
+        resume ? 'Ya, Lanjutkan' : 'Ya, Mulai',
         'Batal'
     ).then(function(confirmed) {
         if (!confirmed) return;
         var btn = document.getElementById('btnStartPengawasDetail');
-        if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memulai...'; }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> ' + busyLabel; }
         apiFetch('/admin/api/exams/' + examId + '/start', { method: 'POST' })
             .then(function(r) { return r.json(); })
             .then(function(res) {
                 if (res.success) {
-                    showToast('Pengawasan berhasil dimulai', 'success');
+                    showToast(res.message || (resume ? 'Pengawasan berhasil dilanjutkan' : 'Pengawasan berhasil dimulai'), 'success');
                     setTimeout(function() { window.location.reload(); }, 1000);
                 } else {
-                    showToast(res.message || 'Gagal memulai pengawasan', 'error');
-                    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
+                    showToast(res.message || (resume ? 'Gagal melanjutkan pengawasan' : 'Gagal memulai pengawasan'), 'error');
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> ' + startLabel; }
                 }
             })
             .catch(function(err) {
                 console.error('Fetch error:', err);
                 showToast('Gagal menghubungi server. Periksa koneksi.', 'error');
-                if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
+                if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> ' + startLabel; }
             });
     });
 }
@@ -1652,6 +1673,14 @@ function renderApprovalNotice(html, announceText) {
     approvalLastSerialized = null;
     approvalRowsLive = false;
     approvalRowsCache = [];
+    // The badge counts rows currently DISPLAYED. A notice means no data rows
+    // are shown, so leaving the old number there lied about the empty state.
+    // Reset the live-region counter too (to '0', not delete) so the next real
+    // count is compared against zero instead of the pre-notice number.
+    var badge = document.getElementById('approvalCountBadge');
+    if (badge) badge.textContent = '0';
+    var live = document.getElementById('queueLiveRegion');
+    if (live) live.dataset.count = '0';
     if (announceText) {
         var live = document.getElementById('queueLiveRegion');
         if (live && live.textContent !== announceText) live.textContent = announceText;
@@ -1759,6 +1788,9 @@ function loadApprovals() {
             approvalLastSerialized = serialized;
             approvalRowsLive = true;
             approvalRowsCache = res.data;
+            // Rows rendered just now are not covered by the earlier liveness
+            // pass; apply the disabled state to the fresh buttons too.
+            if (typeof updateApprovalActionAvailability === 'function') updateApprovalActionAvailability();
         })
         .catch(function(err) {
             console.error('Fetch approvals error:', err);
@@ -1855,10 +1887,18 @@ function applyApprovalRowOps(ops) {
         }
     }
     var liveRows = function() { return tbody.querySelectorAll('tr[data-mac]'); };
-    // Tahap 2+3: update in-place lalu sisipkan baris baru by index menaik.
-    for (var u = 0; u < ops.length; u++) {
-        var op = ops[u];
-        if (op.op !== 'update' && op.op !== 'add') continue;
+    // Tahap 2+3: semua update/add diterapkan urut index final menaik. Update
+    // harus MELEPAS baris lama dulu — insertBefore(new, stale) tanpa remove
+    // tidak memindahkan baris sama sekali, sehingga reorder (mis. created_at
+    // berubah) gagal. Mengurutkan per index membuat add yang menyisip di depan
+    // dan update yang bergeser saling menyesuaikan dalam satu lintasan.
+    var mutations = [];
+    for (var m = 0; m < ops.length; m++) {
+        if (ops[m].op === 'update' || ops[m].op === 'add') mutations.push(ops[m]);
+    }
+    mutations.sort(function(a, b) { return a.index - b.index; });
+    for (var u = 0; u < mutations.length; u++) {
+        var op = mutations[u];
         var fresh = document.createElement('template');
         fresh.innerHTML = buildApprovalRowHTML(op.item, op.index);
         var newRow = fresh.content.firstElementChild;
@@ -1866,15 +1906,13 @@ function applyApprovalRowOps(ops) {
         if (op.op === 'update') {
             var stale = findApprovalRowByMac(tbody, op.id);
             if (!stale) continue;
-            tbody.insertBefore(newRow, stale);
-            stale.parentNode.removeChild(stale);
+            if (stale.parentNode) stale.parentNode.removeChild(stale);
+        }
+        var rows = liveRows();
+        if (op.index < rows.length) {
+            tbody.insertBefore(newRow, rows[op.index]);
         } else {
-            var rows = liveRows();
-            if (op.index < rows.length) {
-                tbody.insertBefore(newRow, rows[op.index]);
-            } else {
-                tbody.appendChild(newRow);
-            }
+            tbody.appendChild(newRow);
         }
         applied++;
     }
@@ -1901,6 +1939,10 @@ function formatApprovalStudentLabel(macAddress) {
 }
 
 function setApproval(macAddress, status, skipConfirm) {
+    if (typeof examIsBlocked === 'function' && examIsBlocked()) {
+        showBlockedAction();
+        return;
+    }
     if (!skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
         return;
@@ -2174,14 +2216,15 @@ function refreshPresence() {
                 if (!p) continue;
                 var cell = row.querySelector('[data-presence]');
                 if (cell) cell.innerHTML = presenceHtml(!!p.online);
-                if (p.last_seen) {
-                    var seen = row.querySelector('[data-last-seen]');
-                    if (seen) seen.textContent = localizeUTC(p.last_seen);
-                }
+                // Presence heartbeat only proves the device is online NOW. Its
+                // last_seen is a heartbeat timestamp, not an access-log entry;
+                // overwriting "Terakhir Terlihat" with it erased the real last
+                // activity and made a device that merely stayed connected look
+                // like it had just accessed the exam. The detail poll refreshes
+                // last_access_at from the access logs on its own cadence.
                 for (var j = 0; j < subsSnapshot.length; j++) {
                     if (subsSnapshot[j].mac_address === mac) {
                         subsSnapshot[j].is_online = !!p.online;
-                        if (p.last_seen) subsSnapshot[j].last_access_at = p.last_seen;
                         break;
                     }
                 }
@@ -2329,25 +2372,35 @@ function loadDetail(page, silent) {
                 // render di-skip (payload identik), jadi statusnya harus ikut
                 // di dalam HTML baris.
                 var blocked = !examLive || examEnded;
-                var disAttr = blocked
-                    ? ' disabled style="opacity:0.45;cursor:not-allowed;" title="Tidak berlaku'
-                      + (!examLive ? ' — pengawasan dihentikan.' : ' — waktu ujian telah berakhir.') + '"'
-                    : '';
+                // Keep one source of truth for the blocked reason. The old
+                // markup appended a second style/title attribute via disAttr,
+                // which produced duplicate attributes and made the button's
+                // real title depend on attribute order.
+                var blockedReason = (typeof examStarted !== 'undefined' && !examStarted)
+                    ? 'Pengawasan belum dimulai.'
+                    : !examLive
+                        ? 'Pengawasan dihentikan.'
+                        : 'Waktu ujian telah berakhir.';
+                var disAttr = blocked ? ' disabled aria-disabled="true" data-blocked="1"' : '';
                 // Tombol Izinkan Mengulang tidak boleh bergantung pada status
                 // baris TERBARU saja. Placeholder approval membuat baris
                 // terbaru "mengerjakan" padahal siswa sudah punya attempt
                 // selesai di baris/perangkat lain; server menandai itu lewat
                 // repeat_blocked supaya supervisor tetap bisa melepasnya.
                 var showRepeat = !!(s.submitted || s.repeat_blocked);
+                var repeatLiveTitle = repeatGrantedKeys[s.student_key || '']
+                    ? 'Cabut izin mengulang untuk siswa ini'
+                    : 'Izinkan siswa ini mengerjakan ulang ujian (satu attempt)';
                 var repeatBtn = showRepeat
-                    ? '<button class="pd-action-btn pd-action-compact" data-action="toggle-repeat"' + disAttr + ' data-student-key="' + escapeHtml(s.student_key || '') + '" data-granted="' + (repeatGrantedKeys[s.student_key || ''] ? '1' : '0') + '" title="' + (repeatGrantedKeys[s.student_key || ''] ? 'Cabut izin mengulang untuk siswa ini' : 'Izinkan siswa ini mengerjakan ulang ujian (satu attempt)') + '"' + (repeatGrantedKeys[s.student_key || ''] ? ' style="color:var(--color-warning-light);border-color:rgba(var(--rgb-warning),0.45);"' : '') + '>' + (repeatGrantedKeys[s.student_key || ''] ? '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Cabut Izin' : '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-refresh"/></svg> Izinkan Mengulang') + '</button>'
+                    ? '<button class="pd-action-btn pd-action-compact" data-action="toggle-repeat"' + disAttr + ' data-student-key="' + escapeHtml(s.student_key || '') + '" data-granted="' + (repeatGrantedKeys[s.student_key || ''] ? '1' : '0') + '" data-live-title="' + escapeHtml(repeatLiveTitle) + '" title="' + escapeHtml(blocked ? blockedReason : repeatLiveTitle) + '"' + (repeatGrantedKeys[s.student_key || ''] ? ' style="color:var(--color-warning-light);border-color:rgba(var(--rgb-warning),0.45);"' : '') + '>' + (repeatGrantedKeys[s.student_key || ''] ? '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Cabut Izin' : '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-refresh"/></svg> Izinkan Mengulang') + '</button>'
                     : '';
+                var rejectLiveTitle = 'Cabut izin perangkat — sesi berikutnya harus minta izin lagi';
                 var rejectBtn = !s.submitted
-                    ? '<button class="pd-action-btn pd-action-danger pd-action-compact"' + disAttr + ' title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>'
+                    ? '<button class="pd-action-btn pd-action-danger pd-action-compact"' + disAttr + ' data-live-title="' + escapeHtml(rejectLiveTitle) + '" title="' + escapeHtml(blocked ? blockedReason : rejectLiveTitle) + '" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>'
                     : '';
                 var attCount = s.attempt_count > 1
                     ? '<span class="status-badge-sm tone-neutral" style="padding:2px 8px;font-size:0.7rem;" title="' + escapeHtml(String(s.attempt_count)) + '× percobaan (izin mengulang)">' + escapeHtml(String(s.attempt_count)) + 'x</span>'
-                    : '';
+                    : '<span style="color:var(--color-text-muted);" title="1× percobaan">—</span>';
 
                 // Presence diturunkan dari heartbeat (is_online) yang dikirim server —
                 // tanpa kolom ini, seluruh infrastruktur heartbeat tidak terlihat
@@ -2392,11 +2445,11 @@ function loadDetail(page, silent) {
                 html += '<tr class="pd-device-row pd-row-' + sc + '" data-mac="' + escapeHtml(s.mac_address) + '">' +
                     '<td data-label="No"><span class="pd-row-num">' + ((SUB_PAGE - 1) * ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20) + i + 1) + '</span></td>' +
                     '<td data-label="Siswa">' + studentCell + '</td>' +
-                    '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
+                    '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)" aria-label="Lihat riwayat akses perangkat ' + escapeHtml(s.mac_address) + '">' + escapeHtml(s.mac_address) + '</button></td>' +
                     '<td data-label="Status"><span class="status-badge-sm pd-status-badge ' + toneCls + '">' + sl + '</span></td>' +
                     '<td data-label="Presence" data-presence="1" class="pd-cell-nowrap">' + presence + '</td>' +
                     '<td data-label="Mulai" class="pd-cell-mono">' + startTime + '</td>' +
-                    '<td data-label="Terakhir Seen" data-last-seen="1" class="pd-cell-mono">' + lastSeen + '</td>' +
+                    '<td data-label="Terakhir Terlihat" data-last-seen="1" class="pd-cell-mono">' + lastSeen + '</td>' +
                     '<td data-label="Upaya" class="pd-col-attempts">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div class="pd-row-actions">' +
                         repeatBtn + rejectBtn +
@@ -2750,6 +2803,10 @@ function closeAuditLogModal(event) {
 }
 
 function showConfirmApprovalModal(macAddress, status) {
+    if (typeof examIsBlocked === 'function' && examIsBlocked()) {
+        showBlockedAction();
+        return;
+    }
     var modal = document.getElementById('confirmApprovalModal');
     var title = document.getElementById('confirmApprovalTitle');
     var text = document.getElementById('confirmApprovalText');
@@ -2999,10 +3056,26 @@ var tokenDueFetched = false;
 // halaman ini (setujui/tolak/mulai/hentikan) ditolak server begitu ujian
 // tidak aktif atau jendela waktunya lewat — tapi UI tetap terlihat seperti
 // panel yang hidup, sehingga supervisor baru tahu lewat ketukan yang gagal.
+// Defaults preserve the old behaviour for test harnesses that execute this
+// script without the surrounding markup. The real page overrides them from
+// #pdExamState, so a stopped/not-started/ended exam starts with the correct
+// state instead of briefly showing a live panel.
+var examStarted = true;
 var examLive = true;
 var examEnded = false;
+(function() {
+    var state = document.getElementById('pdExamState');
+    if (!state) return;
+    var started = state.getAttribute('data-started');
+    var live = state.getAttribute('data-live');
+    var ended = state.getAttribute('data-ended');
+    if (started !== null) examStarted = started === '1';
+    if (live !== null) examLive = live === '1';
+    if (ended !== null) examEnded = ended === '1';
+})();
 
 function refreshActiveToken() {
+    if (typeof examLive !== 'undefined' && (!examLive || examEnded)) return;
     if (activeTokenLoading) return;
     activeTokenLoading = true;
     // Seq guarding (BUG-5): poll dan "Generate token baru" menulis elemen yang
@@ -3043,19 +3116,78 @@ function refreshActiveToken() {
 
 // Mematikan kontrol yang pasti ditolak server, dan memberi tahu supervisor
 // kenapa — bukan membiarkan dia ketuk tombol lalu membaca toast penolakan.
+function examHasStarted() {
+    return typeof examStarted === 'undefined' ? true : examStarted;
+}
+
+function examIsBlocked() {
+    return !examHasStarted() || !examLive || examEnded;
+}
+
+function examBlockedReason() {
+    if (!examHasStarted()) return 'Pengawasan belum dimulai — aksi persetujuan aktif setelah ujian dimulai.';
+    if (examEnded) return 'Waktu ujian telah berakhir — perangkat tidak dapat disetujui atau ditolak lagi.';
+    if (!examLive) return 'Pengawasan dihentikan — persetujuan dan penolakan perangkat tidak berlaku lagi.';
+    return '';
+}
+
+function showBlockedAction() {
+    showToast(examBlockedReason(), 'error');
+    updateApprovalActionAvailability();
+}
+
+function updateApprovalActionAvailability() {
+    var blocked = !examLive || examEnded;
+    var reason = examBlockedReason();
+    var buttons = document.querySelectorAll('[data-action="set-approval"], [data-action="toggle-repeat"]');
+    for (var i = 0; i < buttons.length; i++) {
+        var btn = buttons[i];
+        btn.disabled = blocked;
+        btn.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+        var liveTitle = btn.getAttribute('data-live-title');
+        if (liveTitle) btn.title = blocked ? reason : liveTitle;
+    }
+    var aa = document.getElementById('autoAcceptToggle');
+    if (aa) {
+        aa.disabled = blocked;
+        aa.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+    }
+}
+
+function updateTokenAvailability() {
+    var wrap = document.getElementById('pdTokenActiveWrap');
+    var paused = document.getElementById('pdTokenPaused');
+    var hidden = document.getElementById('pdTokenHidden');
+    var countdown = document.getElementById('pdTokenCountdown');
+    if (wrap) wrap.style.display = examLive ? 'flex' : 'none';
+    if (countdown) countdown.style.display = examLive ? '' : 'none';
+    if (paused) {
+        paused.style.display = (examStarted && !examLive) ? '' : 'none';
+        paused.textContent = examEnded
+            ? 'Waktu ujian telah berakhir'
+            : 'Token nonaktif — pengawasan dijeda';
+    }
+    if (hidden) hidden.style.display = examStarted ? 'none' : '';
+    if (!examLive) {
+        tokenDueFetched = true;
+        if (countdown) countdown.innerHTML = '';
+    }
+}
+
 function applyExamLivenessToControls() {
     var note = document.getElementById('examLivenessNote');
-    if (!note) return;
-    if (!examLive) {
-        note.textContent = 'Pengawasan dihentikan — persetujuan dan penolakan perangkat tidak berlaku lagi.';
-        note.style.display = 'block';
-    } else if (examEnded) {
-        note.textContent = 'Waktu ujian telah berakhir — perangkat tidak dapat disetujui atau ditolak lagi.';
-        note.style.display = 'block';
-    } else {
-        note.textContent = '';
-        note.style.display = 'none';
+    var reason = typeof examBlockedReason === 'function' ? examBlockedReason() : '';
+    if (note) {
+        if (reason) {
+            note.textContent = reason;
+            note.style.display = 'block';
+        } else {
+            note.textContent = '';
+            note.style.display = 'none';
+        }
     }
+    if (typeof updateApprovalActionAvailability === 'function') updateApprovalActionAvailability();
+    if (typeof updateTokenAvailability === 'function') updateTokenAvailability();
 }
 
 // Poller antrean izin berjalan tiap 5 detik dan tetap menerima penolakan
@@ -3063,8 +3195,9 @@ function applyExamLivenessToControls() {
 // tombol baris tetap hidup sampai supervisor menekan Muat Ulang. Hanya
 // render ulang tabel saat status benar-benar berubah, bukan tiap tick.
 function setExamLivenessFromApproval(active, ended) {
-    if (examLive === active && examEnded === ended) return;
-    examLive = active;
+    var live = active && examStarted && !ended;
+    if (examLive === live && examEnded === ended) return;
+    examLive = live;
     examEnded = ended;
     applyExamLivenessToControls();
     if (subsLastHtml !== null && typeof loadDetail === 'function') {
@@ -3083,8 +3216,14 @@ function syncTokenFromPayload(res, tokenSeqAtRequest) {
     // berangkat (mis. supervisor menekan Generate saat loadDetail masih
     // in-flight) — kalau tidak, token lama menimpa token baru.
     var tokenStale = typeof tokenSeqAtRequest === 'number' && tokenSeqAtRequest !== activeTokenSeq;
-    if (typeof res.exam_active === 'boolean') examLive = res.exam_active;
+    if (typeof res.exam_started === 'boolean') examStarted = res.exam_started;
+    if (typeof res.exam_live === 'boolean') {
+        examLive = res.exam_live;
+    } else if (typeof res.exam_active === 'boolean') {
+        examLive = res.exam_active && examStarted;
+    }
     if (typeof res.exam_schedule_ended === 'boolean') examEnded = res.exam_schedule_ended;
+    if (examEnded) examLive = false;
     applyExamLivenessToControls();
     if (!tokenStale) {
         if (res.exam_token_last_reset_at) TOKEN_LAST_RESET = res.exam_token_last_reset_at;
@@ -3109,6 +3248,7 @@ function syncTokenFromPayload(res, tokenSeqAtRequest) {
 // menjadi pemicu jaringan (BUG-4: 1 req/detik selamanya saat ujian dihentikan
 // atau interval rotasi tidak berlaku).
 function requestTokenRefreshIfDue() {
+    if (typeof examLive !== 'undefined' && (!examLive || examEnded)) return;
     if (tokenDueFetched) return;
     tokenDueFetched = true;
     refreshActiveToken();
@@ -3117,6 +3257,10 @@ function requestTokenRefreshIfDue() {
 function updateCountdown() {
     var el = document.getElementById('pdTokenCountdown');
     if (!el) return;
+    if (typeof examLive !== 'undefined' && (!examLive || examEnded)) {
+        el.innerHTML = '';
+        return;
+    }
     if (TOKEN_MODE === 'static') {
         el.innerHTML = '';
         return;
@@ -3211,6 +3355,7 @@ function loadAAStatus() {
         });
 }
 
+applyExamLivenessToControls();
 loadAAStatus();
 
 (function() {
@@ -3219,6 +3364,7 @@ loadAAStatus();
     var aaKey = 'examvan_auto_accept_' + EXAM_ID;
 
     aaToggle.addEventListener('change', function() {
+            if (examIsBlocked()) { this.checked = !this.checked; showBlockedAction(); return; }
             var enabled = this.checked;
             // Batch 10 (S52): meng-AKTIFKAN auto-approve mengubah perilaku
             // SERVER untuk semua siswa berikutnya (bertahan walau halaman
@@ -3238,6 +3384,7 @@ loadAAStatus();
         });
 
         function setAutoApprove(enabled) {
+            if (examIsBlocked()) { showBlockedAction(); return; }
             apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

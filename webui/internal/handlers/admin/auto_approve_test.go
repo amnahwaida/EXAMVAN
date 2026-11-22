@@ -1266,6 +1266,7 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 	// Two MORE exams for the same assigned pengawas, so the tenant total is 3
 	// while a single page (per_page=5, so all fit) is not the differentiator —
 	// use enough exams to force paging instead.
+	extraIDs := make([]int, 0, 7)
 	for i := 0; i < 7; i++ {
 		token := fmt.Sprintf("PL%s%02d", uniq, i)
 		var id int
@@ -1278,6 +1279,17 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 		if _, err := pool.Exec(ctx, `INSERT INTO exam_pengawas (exam_id, user_id) VALUES ($1, $2)`, id, fx.PwID); err != nil {
 			t.Fatalf("assign extra exam %d: %v", i, err)
 		}
+		extraIDs = append(extraIDs, id)
+	}
+
+	// The same physical device also worked on another accessible exam. Header
+	// cards are tenant-wide "perangkat" counts, so it must still count once
+	// across exams (COUNT(DISTINCT mac_address)), not once per exam.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, answers_json, score, start_time, created_at)
+		VALUES ($1, 'AA:00:00:00:00:01', 'Siswa 1', '01', 'XII A', '{"1":"A"}', 80, $2, $3)`,
+		extraIDs[0], startedAt, time.Now()); err != nil {
+		t.Fatalf("seed cross-exam same device: %v", err)
 	}
 
 	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
@@ -1312,6 +1324,7 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 	totalExams, _ := stats["total_exams"].(float64)
 	totalStudents, _ := stats["total_students"].(float64)
 	totalSubmitted, _ := stats["total_submitted"].(float64)
+	activeExams, _ := stats["active_exams"].(float64)
 	listTotal, _ := first["total"].(float64)
 
 	if totalExams != listTotal {
@@ -1323,6 +1336,9 @@ func TestPengawasExamsStatsCoverEveryAccessibleExam(t *testing.T) {
 	}
 	if totalSubmitted != 2 {
 		t.Errorf("stats.total_submitted = %v, want 2", totalSubmitted)
+	}
+	if activeExams != 0 {
+		t.Errorf("stats.active_exams = %v, want 0 — active exams that never started are not running", activeExams)
 	}
 
 	// The per-exam row counts must use the same per-device dedup as the

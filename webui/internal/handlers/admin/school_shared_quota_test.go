@@ -924,6 +924,67 @@ func TestStartExamRequiresSchedule(t *testing.T) {
 	}
 }
 
+// TestStartExamResumesPausedSession pins the resume path: ToggleExamStatus
+// pauses an exam without clearing exam_started_at, so StartExam must reactivate
+// that same session instead of returning "Ujian sudah dimulai". The original
+// start time and active token must survive, otherwise a resume would silently
+// reset the students' session and token window.
+func TestStartExamResumesPausedSession(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-resume", "SMK Resume", []string{models.RoleGuru, models.RoleOperator}, 10)
+	client, _ := newQuotaTestClient(t, pool)
+	client.login(t, op)
+	if status, body := client.upload(t, "resume-session", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("upload: status=%d body=%s", status, body)
+	}
+	var examID int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'resume-session'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	if status, resp := client.start(t, examID); status != http.StatusOK {
+		t.Fatalf("start: status=%d resp=%+v", status, resp)
+	}
+	var startedAt time.Time
+	var token string
+	if err := pool.QueryRow(ctx, `SELECT exam_started_at, active_token FROM exams WHERE id = $1`, examID).Scan(&startedAt, &token); err != nil {
+		t.Fatalf("read started session: %v", err)
+	}
+
+	if status, resp := client.toggle(t, examID); status != http.StatusOK {
+		t.Fatalf("pause toggle: status=%d resp=%+v", status, resp)
+	}
+	var pausedStatus string
+	var pausedStarted *time.Time
+	if err := pool.QueryRow(ctx, `SELECT status, exam_started_at FROM exams WHERE id = $1`, examID).Scan(&pausedStatus, &pausedStarted); err != nil {
+		t.Fatalf("read paused exam: %v", err)
+	}
+	if pausedStatus != "inactive" || pausedStarted == nil {
+		t.Fatalf("pause: status=%q started=%v, want inactive with exam_started_at retained", pausedStatus, pausedStarted)
+	}
+
+	if status, resp := client.start(t, examID); status != http.StatusOK || !strings.Contains(resp.Message, "dilanjutkan") {
+		t.Fatalf("resume: status=%d resp=%+v, want 200 with resumed message", status, resp)
+	}
+	var resumedStatus string
+	var resumedAt time.Time
+	var resumedToken string
+	if err := pool.QueryRow(ctx, `SELECT status, exam_started_at, active_token FROM exams WHERE id = $1`, examID).Scan(&resumedStatus, &resumedAt, &resumedToken); err != nil {
+		t.Fatalf("read resumed exam: %v", err)
+	}
+	if resumedStatus != "active" {
+		t.Fatalf("resume status=%q, want active", resumedStatus)
+	}
+	if !resumedAt.Equal(startedAt) {
+		t.Fatalf("resume reset exam_started_at: before=%v after=%v", startedAt, resumedAt)
+	}
+	if resumedToken != token {
+		t.Fatalf("resume reset active_token: before=%q after=%q", token, resumedToken)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Operator without a school pool (personal bucket) — per-account quota binds
 // ---------------------------------------------------------------------------

@@ -273,7 +273,7 @@ function loadPengawasExams(page) {
                             '<div class="progress-bar-fill" style="width:' + pct + '%;background:' + barColor + ';"></div>' +
                         '</div>' +
                         '<span class="progress-text" style="color:' + barColor + ';">' + sub + '/' + total + ' (' + pct + '%)</span>' +
-                        '<a href="/admin/pengawas/' + ex.id + '" class="student-list-toggle" style="text-decoration:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</a>' +
+                        '<span class="student-list-toggle" aria-hidden="true"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</span>' +
                     '</div>' +
                 '</div>';
             }
@@ -328,10 +328,26 @@ function renderPagination(res) {
 }
 
 function updateStats(exams) {
+    // Fallback only for an older server that does not send res.stats. Keep
+    // "Sedang Berlangsung" aligned with the server definition (active AND
+    // started AND not past end_time); a bare status check counted exams that
+    // had not begun or had already ended. Cross-exam device dedupe is not
+    // possible from this page slice, so totals stay a simple sum here and the
+    // authoritative unique-device numbers come from res.stats.
     var total = exams.length, active = 0, students = 0, submitted = 0;
+    var now = Date.now();
     for (var i = 0; i < exams.length; i++) {
         var e = exams[i];
-        if (e.status === 'active') active++;
+        var running = e.status === 'active' && !!e.exam_started_at;
+        if (running && e.start_time) {
+            var startMs = Date.parse(String(e.start_time).replace(' ', 'T'));
+            if (!isNaN(startMs) && now < startMs) running = false;
+        }
+        if (running && e.end_time) {
+            var endMs = Date.parse(String(e.end_time).replace(' ', 'T'));
+            if (!isNaN(endMs) && now > endMs) running = false;
+        }
+        if (running) active++;
         students += e.total_students || 0;
         submitted += e.submitted_count || 0;
     }
@@ -368,24 +384,6 @@ function setText(id, val) { var e = document.getElementById(id); if (e) e.textCo
   });
 })();
 // ===== end Batch 7 (R28) =====
-
-// Batch 15 (R115): kartu role="button" membungkus link "Pantau" — klik link
-// dihentikan di fase capture agar delegasi aksi kartu tidak terpicu dobel;
-// navigasi tetap oleh href anchor. Blok terpisah dari registrasi R28 di atas
-// agar ekstraksi suite perilaku lama tetap self-contained.
-(function() {
-  document.addEventListener('click', function(ev) {
-    var t = ev.target;
-    while (t && t !== document) {
-      if (t.nodeType === 1 && String(t.tagName).toUpperCase() === 'A' &&
-          String(t.className).indexOf('student-list-toggle') !== -1) {
-        ev.stopPropagation();
-        return;
-      }
-      t = t.parentNode;
-    }
-  }, true);
-})();
 
 /* Auto-load on page ready */
 (function() {

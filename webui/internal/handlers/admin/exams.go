@@ -2565,11 +2565,16 @@ func StartExam() gin.HandlerFunc {
 			return
 		}
 
+		resumed := exam.Status == "inactive" && exam.ExamStartedAt != nil
 		if status, msg := startExamCore(ctx, pool, &exam, isSuperAdmin(c)); status != http.StatusOK {
 			errorResponse(c, status, msg)
 			return
 		}
 
+		if resumed {
+			successMessage(c, "Pengawasan berhasil dilanjutkan")
+			return
+		}
 		successMessage(c, "Ujian berhasil dimulai")
 	}
 }

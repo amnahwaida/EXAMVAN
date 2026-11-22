@@ -16,7 +16,7 @@ func MaybeResetActiveToken(ctx context.Context, pool *pgxpool.Pool, exam *models
 	if exam == nil || pool == nil {
 		return nil
 	}
-	if exam.GetTokenMode() != "dynamic" || exam.ExamStartedAt == nil || exam.TokenResetInterval == nil || *exam.TokenResetInterval <= 0 {
+	if exam.GetTokenMode() != "dynamic" || !exam.IsActive() || exam.ExamStartedAt == nil || exam.TokenResetInterval == nil || *exam.TokenResetInterval <= 0 {
 		return nil
 	}
 
@@ -28,20 +28,24 @@ func MaybeResetActiveToken(ctx context.Context, pool *pgxpool.Pool, exam *models
 	defer tx.Rollback(ctx)
 
 	// Fetch latest exam token state with row lock
+	var status string
 	var examStartedAt *time.Time
 	var tokenResetInterval *int
 	var tokenLastResetAt *time.Time
 	var activeToken string
 	var previousActiveToken *string
 	err = tx.QueryRow(ctx,
-		`SELECT exam_started_at, token_reset_interval, token_last_reset_at, active_token, previous_active_token
-		 FROM exams WHERE id = $1 FOR UPDATE`, exam.ID).Scan(&examStartedAt, &tokenResetInterval, &tokenLastResetAt, &activeToken, &previousActiveToken)
+		`SELECT status, exam_started_at, token_reset_interval, token_last_reset_at, active_token, previous_active_token
+		 FROM exams WHERE id = $1 FOR UPDATE`, exam.ID).Scan(&status, &examStartedAt, &tokenResetInterval, &tokenLastResetAt, &activeToken, &previousActiveToken)
 	if err != nil {
 		return err
 	}
 
-	// Recheck conditions under lock
-	if examStartedAt == nil || tokenResetInterval == nil || *tokenResetInterval <= 0 {
+	// Recheck conditions under lock. A dashboard toggle can leave
+	// exam_started_at set while status is inactive (pause/resume semantics),
+	// so status is part of the gate: a paused exam must not keep rotating its
+	// token or churning token history while nobody can join.
+	if status != "active" || examStartedAt == nil || tokenResetInterval == nil || *tokenResetInterval <= 0 {
 		return nil
 	}
 

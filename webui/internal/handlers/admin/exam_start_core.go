@@ -22,7 +22,13 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 	if exam == nil {
 		return http.StatusNotFound, "Ujian tidak ditemukan"
 	}
-	if exam.ExamStartedAt != nil {
+	// ExamStartedAt is deliberately retained when the dashboard pauses an exam
+	// (ToggleExamStatus) so resuming can continue the same session. StartExam
+	// is also the resume path: an inactive started exam is reactivated without
+	// resetting its start time or active token. An ACTIVE started exam is a
+	// genuine duplicate start and stays rejected.
+	resume := exam.Status == "inactive" && exam.ExamStartedAt != nil
+	if exam.ExamStartedAt != nil && !resume {
 		return http.StatusBadRequest, "Ujian sudah dimulai"
 	}
 	if exam.StartTime == nil {
@@ -97,14 +103,21 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 					}
 				}
 
-				if err := models.StartExamTx(ctx, tx, examID); err != nil {
-					log.Printf("start exam tx error: %v", err)
-					return http.StatusInternalServerError, "Gagal memulai ujian"
-				}
-				// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
-				// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
-				if err := models.UpdateExamActiveTokenTx(ctx, tx, examID, exam.Token); err != nil {
-					log.Printf("start exam: set active token to permanent error: %v", err)
+				if resume {
+					if err := models.ResumeExamTx(ctx, tx, examID); err != nil {
+						log.Printf("resume exam tx error: %v", err)
+						return http.StatusInternalServerError, "Gagal melanjutkan pengawasan"
+					}
+				} else {
+					if err := models.StartExamTx(ctx, tx, examID); err != nil {
+						log.Printf("start exam tx error: %v", err)
+						return http.StatusInternalServerError, "Gagal memulai ujian"
+					}
+					// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
+					// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
+					if err := models.UpdateExamActiveTokenTx(ctx, tx, examID, exam.Token); err != nil {
+						log.Printf("start exam: set active token to permanent error: %v", err)
+					}
 				}
 				if err := tx.Commit(ctx); err != nil {
 					log.Printf("start commit error: %v", err)
@@ -116,15 +129,22 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 	}
 
 	if !started {
-		if err := models.StartExam(ctx, pool, examID); err != nil {
-			log.Printf("start exam error: %v", err)
-			return http.StatusInternalServerError, "Gagal memulai ujian"
-		}
+		if resume {
+			if err := models.ResumeExam(ctx, pool, examID); err != nil {
+				log.Printf("resume exam error: %v", err)
+				return http.StatusInternalServerError, "Gagal melanjutkan pengawasan"
+			}
+		} else {
+			if err := models.StartExam(ctx, pool, examID); err != nil {
+				log.Printf("start exam error: %v", err)
+				return http.StatusInternalServerError, "Gagal memulai ujian"
+			}
 
-		// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
-		// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
-		if err := models.UpdateExamActiveToken(ctx, pool, examID, exam.Token); err != nil {
-			log.Printf("start exam: set active token to permanent error: %v", err)
+			// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
+			// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
+			if err := models.UpdateExamActiveToken(ctx, pool, examID, exam.Token); err != nil {
+				log.Printf("start exam: set active token to permanent error: %v", err)
+			}
 		}
 	}
 

@@ -179,16 +179,17 @@ test('R7: pagination submissions.html punya indikator posisi "N dari M" dan nomo
 // R8 — link "Pantau" di kartu pengawas stopPropagation
 // ---------------------------------------------------------------------------
 
-test('R8: kartu pengawas navigasi via delegasi; link Pantau bersarang tidak menavigasi ganda', () => {
+test('R8: kartu pengawas navigasi via delegasi; Pantau bukan anchor bersarang', () => {
     const html = read('templates/admin/pengawas.html');
     // Batch 7 (R28 lanjutan): onclick inline kartu dimigrasi ke delegasi
     // data-action + data-exam-id — perilaku navigasi tetap sama.
     const card = html.match(/exam-monitor-card[\s\S]{0,200}data-action="open-pengawas-detail" data-exam-id=/);
     assert.ok(card, 'kartu pengawas tetap navigasi via delegasi data-action');
 
-    // Anchor "Pantau" masih ada; stopPropagation inline dihapus karena handler
-    // kartu berbasis delegasi kini mundur bila klik berasal dari anchor —
-    // href anchor yang menavigasi (tidak ada lagi navigasi ganda).
-    const pantau = html.match(/<a href="\/admin\/pengawas\/' \+ ex\.id \+ '"[^>]*>[^<]*<svg[\s\S]*?Pantau<\/a>/);
-    assert.ok(pantau, 'anchor Pantau masih ada');
+    // "Pantau" kini span visual di dalam kartu role="button". Anchor bersarang
+    // dihapus agar tidak ada dua target interaktif di satu kartu; seluruh kartu
+    // (termasuk span) menavigasi lewat delegasi data-action.
+    const pantau = html.match(/<span class="student-list-toggle"[^>]*>[^<]*<svg[\s\S]*?Pantau<\/span>/);
+    assert.ok(pantau, 'span Pantau ada');
+    assert.doesNotMatch(html, /<a[^>]*student-list-toggle/, 'tidak ada anchor Pantau bersarang');
 });

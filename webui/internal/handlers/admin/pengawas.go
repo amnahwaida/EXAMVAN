@@ -108,8 +108,13 @@ func PengawasDetailPage() gin.HandlerFunc {
 			tokenMode = *exam.TokenMode
 		}
 
+		scheduleEnded := models.ExamScheduleEnded(&exam, time.Now().UTC())
+		examStarted := exam.ExamStartedAt != nil
 		renderAdminPage(c, "admin/pengawas_detail.html", gin.H{
 			"exam":                 exam,
+			"exam_started":         examStarted,
+			"exam_live":            exam.IsActive() && examStarted && !scheduleEnded,
+			"exam_schedule_ended":  scheduleEnded,
 			"token_mode":           tokenMode,
 			"creator_name":         creatorName,
 			"delegated_name":       delegatedName,
@@ -375,7 +380,11 @@ func PengawasExams() gin.HandlerFunc {
 				}
 				for _, e := range pageRes.Exams {
 					accessibleIDs = append(accessibleIDs, e.ID)
-					if e.IsActive() {
+					// "Sedang Berlangsung" means active AND started AND inside its
+					// schedule, matching examIsRunning used by the detail page. A raw
+					// status='active' count included not-yet-started and already-ended
+					// exams, so the header disagreed with the per-exam liveness.
+					if examIsRunning(&e) && !models.ExamScheduleEnded(&e, time.Now()) {
 						accessibleActive++
 					}
 				}
@@ -397,11 +406,9 @@ func PengawasExams() gin.HandlerFunc {
 					WHERE exam_id = ANY($1)
 					ORDER BY exam_id, mac_address, created_at DESC, id DESC
 				 )
-				 SELECT COALESCE(SUM(t),0), COALESCE(SUM(s),0) FROM (
-					SELECT COUNT(*) AS t,
-					       SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) AS s
-					FROM latest GROUP BY exam_id
-				 ) agg`, accessibleIDs).Scan(&aggStudents, &aggSubmitted); err != nil {
+				 SELECT COUNT(DISTINCT mac_address),
+				        COUNT(DISTINCT CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN mac_address END)
+				 FROM latest`, accessibleIDs).Scan(&aggStudents, &aggSubmitted); err != nil {
 				log.Printf("pengawas exam stats aggregate: %v", err)
 				aggStudents, aggSubmitted = 0, 0
 			}
@@ -672,6 +679,9 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			})
 		}
 
+		scheduleEnded := models.ExamScheduleEnded(&exam, time.Now().UTC())
+		examStarted := exam.ExamStartedAt != nil
+		examLive := exam.IsActive() && examStarted && !scheduleEnded
 		c.JSON(http.StatusOK, gin.H{
 			"success":           true,
 			"exam_name":         exam.Name,
@@ -692,7 +702,9 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			// control panel and only learned the truth from a failed tap. The
 			// client uses these to disable the actions and say why.
 			"exam_active":         exam.IsActive(),
-			"exam_schedule_ended": models.ExamScheduleEnded(&exam, time.Now().UTC()),
+			"exam_started":        examStarted,
+			"exam_live":           examLive,
+			"exam_schedule_ended": scheduleEnded,
 			"submissions":         subsData,
 			"page":                result.Page,
 			"per_page":            result.PerPage,
@@ -1234,7 +1246,9 @@ func GetAutoApprove() gin.HandlerFunc {
 		// Accountability hint for the monitoring page: who last toggled
 		// auto-approve (and when). Best effort — an absent trail just omits
 		// the fields, the toggle still works.
-		if last, err := models.LatestExamAuditLog(ctx, pool, examID); err == nil && last != nil {
+		if last, err := models.LatestExamAuditLogByActions(ctx, pool, examID, []string{
+			models.ActionAutoApproveEnable, models.ActionAutoApproveDisable,
+		}); err == nil && last != nil {
 			resp["last_changed_by"] = last.Username
 			resp["last_changed_at"] = last.CreatedAt.Format(time.RFC3339)
 			resp["last_action"] = last.Action

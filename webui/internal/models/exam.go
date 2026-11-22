@@ -344,13 +344,16 @@ func ListExams(ctx context.Context, pool *pgxpool.Pool, opts ListExamsOpts) (Lis
 		}
 	}
 
-	// Search filter.
+	// Search filter. LIKE metacharacters are escaped so a literal "%" or "_"
+	// does not turn an ordinary search into a wildcard. active_token is
+	// included because that is the token students actually use in dynamic
+	// mode; searching only the permanent token missed it.
 	if opts.Search != "" {
-		searchPattern := "%" + opts.Search + "%"
+		searchPattern := "%" + escapeLikePattern(opts.Search) + "%"
 		conditions = append(conditions,
-			fmt.Sprintf("(e.name ILIKE $%d OR e.token ILIKE $%d OR u.username ILIKE $%d)", argIdx, argIdx+1, argIdx+2))
-		args = append(args, searchPattern, searchPattern, searchPattern)
-		argIdx += 3
+			fmt.Sprintf(`(e.name ILIKE $%d ESCAPE '\' OR e.token ILIKE $%d ESCAPE '\' OR COALESCE(e.active_token, '') ILIKE $%d ESCAPE '\' OR u.username ILIKE $%d ESCAPE '\')`, argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+		argIdx += 4
 	}
 
 	// CreatedBy filter.
@@ -837,6 +840,27 @@ func StopExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
 	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("stop exam: %w", err)
+	}
+	return nil
+}
+
+// ResumeExam reactivates an exam that was paused with ToggleExamStatus. Unlike
+// StartExam it preserves exam_started_at (and the active token): the session is
+// continued, not restarted, so student timers and the current token window are
+// not reset by merely resuming supervision.
+func ResumeExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
+	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', tombstoned_at = NULL WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("resume exam: %w", err)
+	}
+	return nil
+}
+
+// ResumeExamTx is ResumeExam inside an existing transaction.
+func ResumeExamTx(ctx context.Context, tx pgx.Tx, id int) error {
+	_, err := tx.Exec(ctx, `UPDATE exams SET status = 'active', tombstoned_at = NULL WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("resume exam tx: %w", err)
 	}
 	return nil
 }
@@ -1371,11 +1395,11 @@ func ListPengawasExams(ctx context.Context, pool *pgxpool.Pool, opts ListPengawa
 	argIdx++
 
 	if opts.Search != "" {
-		pat := "%" + opts.Search + "%"
+		pat := "%" + escapeLikePattern(opts.Search) + "%"
 		conditions = append(conditions,
-			fmt.Sprintf(`(e.name ILIKE $%d OR e.token ILIKE $%d OR u.username ILIKE $%d)`, argIdx, argIdx+1, argIdx+2))
-		args = append(args, pat, pat, pat)
-		argIdx += 3
+			fmt.Sprintf(`(e.name ILIKE $%d ESCAPE '\' OR e.token ILIKE $%d ESCAPE '\' OR COALESCE(e.active_token, '') ILIKE $%d ESCAPE '\' OR u.username ILIKE $%d ESCAPE '\')`, argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, pat, pat, pat, pat)
+		argIdx += 4
 	}
 
 	where := " WHERE " + joinConditions(conditions, " AND ")

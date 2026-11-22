@@ -61,9 +61,10 @@ test('L43: kurung tutup liar sisa refactor dihapus dari pengawas_detail.html', (
 // ---------------------------------------------------------------------------
 
 test('L44: tombol kontrol disabled merujuk penjelas saat kontrol terkunci', () => {
-    // Kedua tombol (start/stop) memakai aria-describedby, bukan title hover-only:
-    assert.equal((DETAIL.match(/disabled aria-describedby="pd-control-reason"/g) || []).length, 2,
-        'start & stop sama-sama memakai aria-describedby');
+    // Ketiga tombol kontrol (mulai/hentikan/lanjutkan) memakai aria-describedby,
+    // bukan title hover-only:
+    assert.equal((DETAIL.match(/disabled aria-describedby="pd-control-reason"/g) || []).length, 3,
+        'mulai, hentikan, dan lanjutkan sama-sama memakai aria-describedby');
     assert.doesNotMatch(DETAIL, /disabled title="Hanya pembuat/,
         'alasan tidak lagi hanya dikomunikasikan via title');
     // Elemen penjelas hanya relevan saat kontrol memang terkunci; pengguna
