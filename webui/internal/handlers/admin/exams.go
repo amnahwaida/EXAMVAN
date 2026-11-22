@@ -236,6 +236,7 @@ func UploadExam() gin.HandlerFunc {
 		var poolMaxExams, poolMaxPDF, poolMaxStorage int64
 		gate := quotaGate{}
 		poolActive := false
+		perAccountStorageApplies := false
 		if !isSuper {
 			gate = examQuotaGate(ctx, pool, userID)
 			poolMaxExams, poolMaxPDF, poolMaxStorage, poolActive =
@@ -299,6 +300,7 @@ func UploadExam() gin.HandlerFunc {
 				// with its sub-accounts (see familyExamBudget), so usage is
 				// counted family-wide; other accounts keep the self count.
 				if user.MaxStorageSize > 0 {
+					perAccountStorageApplies = true
 					var currentStorageBytes int64
 					var err error
 					if isOp {
@@ -420,10 +422,12 @@ func UploadExam() gin.HandlerFunc {
 		// pool applies, every account row of the instansi) FOR UPDATE so two
 		// concurrent uploads for the same account / school are serialized (this
 		// closes the check-then-insert race window), then count + insert in one
-		// transaction. Only enforced when a per-account quota applies
-		// (maxExams >= 0; 0 = unlimited) or a school pool is active.
+		// transaction. Enforced when a per-account quota applies
+		// (maxExams >= 0; 0 = unlimited), a school pool is active, or an
+		// account/family storage cap applies (a per-account storage check must
+		// be atomic even when maxExams is unlimited).
 		var created *models.Exam
-		if maxExams >= 0 || poolActive {
+		if maxExams >= 0 || poolActive || perAccountStorageApplies {
 			tx, err := pool.Begin(ctx)
 			if err != nil {
 				log.Printf("upload begin tx error: %v", err)
@@ -483,9 +487,13 @@ func UploadExam() gin.HandlerFunc {
 			}
 
 			var lockedMaxExams int
+			var lockedMaxStorage int64
+			var lockedRole string
 			var lockedOperatorCreated bool
 			if err := tx.QueryRow(ctx,
-				`SELECT max_exams, operator_created FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedMaxExams, &lockedOperatorCreated); err != nil {
+				`SELECT max_exams, max_storage_size, COALESCE(role, ''), operator_created
+				   FROM admin_users WHERE id = $1 FOR UPDATE`, userID).
+				Scan(&lockedMaxExams, &lockedMaxStorage, &lockedRole, &lockedOperatorCreated); err != nil {
 				log.Printf("upload lock user error: %v", err)
 				// The PDF is already in R2 but no DB row exists: remove the
 				// orphan object so a failed create does not leak storage.
@@ -539,12 +547,52 @@ func UploadExam() gin.HandlerFunc {
 			perAccountApplies := (!isOp || !poolActive) && !(lockedOperatorCreated && poolActive)
 			if perAccountApplies && lockedMaxExams > 0 && cnt >= int64(lockedMaxExams) {
 				_ = tx.Rollback(ctx)
-				_ = tx.Rollback(ctx)
 				// Remove the just-uploaded R2 object so we do not leak an orphan.
 				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusForbidden,
 					fmt.Sprintf("Batas pembuatan ujian tercapai. Batas akun Anda adalah %d ujian.", lockedMaxExams))
 				return
+			}
+
+			// Per-account/family storage re-check under the same locks: the
+			// pre-check above is only a friendly early rejection. Without this
+			// atomic gate two concurrent uploads by the same account (or by an
+			// operator and its sub-accounts) could both pass the stale storage
+			// snapshot and overshoot max_storage_size. Pool/family gates
+			// already re-checked storage in the poolActive branch above.
+			if perAccountApplies && lockedMaxStorage > 0 {
+				var used int64
+				var uerr error
+				if models.HasRole(lockedRole, models.RoleOperator) {
+					// An operator's own uploads spend the family budget; lock
+					// the family rows first so a concurrent sub-account upload
+					// serializes on the same budget.
+					if _, lerr := tx.Exec(ctx,
+						`SELECT id FROM admin_users WHERE id = $1 OR created_by = $1 FOR UPDATE`, userID); lerr != nil {
+						log.Printf("upload lock family storage error: %v", lerr)
+						cleanupR2Orphan(c, ctx, filename)
+						errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+						return
+					}
+					used, uerr = models.SumStorageByFamily(ctx, tx, userID)
+				} else {
+					uerr = tx.QueryRow(ctx,
+						`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&used)
+				}
+				if uerr != nil {
+					log.Printf("upload sum account storage error: %v", uerr)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+					return
+				}
+				if used+int64(len(fileData)) > lockedMaxStorage {
+					_ = tx.Rollback(ctx)
+					cleanupR2Orphan(c, ctx, filename)
+					limitMB := roundTo(float64(lockedMaxStorage)/(1024*1024), 1)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
+					return
+				}
 			}
 
 			created, err = models.CreateExamTx(ctx, tx, exam)
@@ -966,6 +1014,7 @@ func EditExam() gin.HandlerFunc {
 		poolActive := false
 		perAccountStorageApplies := false
 		accountMaxStorage := int64(0)
+		accountFamilyStorage := false
 
 		// Beda-beda: "tidak ada file" (rename-only) vs "multipart gagal
 		// dibaca" (mis. body melebihi LimitBodySize). Sebelumnya error parse
@@ -1060,6 +1109,7 @@ func EditExam() gin.HandlerFunc {
 					}
 					perAccountStorageApplies = owner.MaxStorageSize > 0
 					accountMaxStorage = owner.MaxStorageSize
+					accountFamilyStorage = perAccountStorageApplies && owner.IsOperator()
 					if perAccountStorageApplies {
 						// An operator owner's own replacements spend the family
 						// budget together with its sub-accounts; other owners
@@ -1148,6 +1198,20 @@ func EditExam() gin.HandlerFunc {
 				// never deadlocks).
 				if err := gate.lockRows(ctx, tx); err != nil {
 					log.Printf("edit exam lock school pool error: %v", err)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+					return
+				}
+			}
+			if accountFamilyStorage {
+				// A pool-less operator's own replacements share the family
+				// budget with its sub-accounts. Lock the family rows BEFORE the
+				// exam row (the same order as UploadExam) so a concurrent
+				// sub-account upload cannot insert into the storage snapshot
+				// this delta check is about to read.
+				if _, lerr := tx.Exec(ctx,
+					`SELECT id FROM admin_users WHERE id = $1 OR created_by = $1 FOR UPDATE`, exam.CreatedBy); lerr != nil {
+					log.Printf("edit exam lock family storage error: %v", lerr)
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
 					return
