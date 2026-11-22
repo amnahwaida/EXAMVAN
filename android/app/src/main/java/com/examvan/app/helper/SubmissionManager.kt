@@ -195,7 +195,7 @@ class SubmissionManager(
         // CATATAN: flag submittedOrExited TIDAK dihapus di sini. Sebelumnya
         // dihapus → setelah submit SUKSES, re-entry mengira ujian belum selesai
         // → watchdog deadline (sudah lewat) langsung auto-submit KOSONG dalam
-        // window grace server (end_time + 60 dtk) → menimpa jawaban asli yang
+        // window grace server (end_time + 5 menit) → menimpa jawaban asli yang
         // sudah terkirim. Flag di-persist terpisah (persistSubmittedState) dan
         // dipertahankan sebagai penanda selesai: re-entry menampilkan layar
         // "Ujian Sudah Selesai", bukan menjalankan ulang alur ujian.
@@ -582,7 +582,7 @@ class SubmissionManager(
             // saat memori kosong. Kasus nyata: deadline sudah lewat saat
             // re-entry (proses mati) → watchdog menembak SEBELUM jawaban
             // dipulihkan ke ViewModel — tanpa fallback ini submit kosong akan
-            // menimpa jawaban asli dalam window grace server (end_time + 60 dtk)
+            // menimpa jawaban asli dalam window grace server (end_time + 5 menit)
             // dan clearSavedAnswers menghapus jawaban tersimpan. Memori tidak
             // kosong → dipakai apa adanya (siswa mungkin baru saja mengubah
             // jawaban setelah auto-save terakhir).

@@ -257,7 +257,7 @@ untuk dicoba lagi.
 Deadline bisa menembak sebelum jawaban dipulihkan dari disk (re-entry setelah
 proses mati) → memori kosong. Submit kini memakai `resolve_submit_answers`:
 memori lebih dulu, **fallback ke copy disk** — mencegah submit kosong menimpa
-jawaban asli dalam window grace server (end_time + 60 dtk).
+jawaban asli dalam window grace server (end_time + 5 menit).
 
 ### 4. Ujian tanpa soal → lembar jawaban KOSONG
 Tidak ada lagi fabrikasi 40 soal single-choice dummy saat exam tanpa

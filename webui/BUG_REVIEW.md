@@ -60,8 +60,8 @@ Review lanjutan tiga temuan di alur submission/penjadwalan. **Semua sudah diperb
 
 ### B. `end_time` tak pernah ditegakkan server-side (TINGGI)
 - **Masalah lama:** `ExamByToken`/`SubmitExam` hanya cek `IsActive() && ExamStartedAt != nil`; ujian di luar jendela masih bisa dibuka/disubmit (hanya aplikasi yang menghitung `end_time`). `time_limit:null` juga ditampilkan.
-- **Fix:** helper `examScheduleEnded(exam, now)` (`internal/handlers/api/exams.go:902`) — `now > end_time + 60s` (grace `scheduleGraceEnd`, :895) untuk submit yang datang tepat di tenggat. Diterapkan di **4 jalur**: `ExamByToken`, `ExamPDF`, `SubmitExam`, `AccessLog` (masing-masing `403 "Waktu ujian telah berakhir"`). `CompleteExam` **sengaja tidak di-gate** — klien memanggilnya tepat setelah submit di batas waktu untuk membersihkan heartbeat. `end_time` kini dikembalikan di payload `ExamByToken`.
-- **Test:** `TestExamScheduleEnded` (unit, 5 kasus), `TestExamByTokenRejectsPastEndTime`, `TestExamByTokenAllowsInsideWindow`.
+- **Fix:** helper `ExamScheduleEnded(exam, now)` (`internal/models/exam.go`) — `now > end_time + 5 menit` (grace `SubmissionGraceEnd`) untuk submit yang datang tepat di tenggat. Diterapkan di **4 jalur**: `ExamByToken`, `ExamPDF`, `SubmitExam`, `AccessLog` (masing-masing `403 "Waktu ujian telah berakhir"`). `CompleteExam` **sengaja tidak di-gate** — klien memanggilnya tepat setelah submit di batas waktu untuk membersihkan heartbeat. `end_time` kini dikembalikan di payload `ExamByToken`.
+- **Test:** `TestExamScheduleEnded` (unit, 7 kasus), `TestExamByTokenRejectsPastEndTime`, `TestExamByTokenAllowsInsideWindow`.
 
 ### C. Dedup submission per `mac_address` + placeholder per-MAC dihitung in-progress selamanya (MENENGAH)
 - **Masalah lama:** dedup murni per MAC → perangkat yang dipakai bergantian 2 siswa disatukan jadi satu baris; baris kosong per MAC dihitung in-progress selamanya; device yang diinstal ulang/ganti → terhitung 2×.
@@ -383,9 +383,9 @@ Audit menyusul fitur desktop/Android auto-submit-and-exit: submit auto berjalan 
 - **Test:** `TestUpsertSubmissionRowConcurrentSameDeviceNoDuplicates` (12 goroutine upsert bersamaan → tepat 1 baris).
 
 ### C. Gate jadwal dilonggarkan khusus RECOVERY (baru, 16 Agustus 2026)
-- **Masalah:** `SubmitExam` menolak SEMUA submit setelah `end_time + 60s` (grace). Recovery "Kirim Lagi" untuk skenario yang justru dibuat fitur ini (jaringan mati di deadline, siswa re-entry menit/jam kemudian) ditolak 403 → jawaban yang sudah dikerjakan hilang permanen.
+- **Masalah:** `SubmitExam` menolak SEMUA submit setelah `end_time + 5 menit` (grace). Recovery "Kirim Lagi" untuk skenario yang justru dibuat fitur ini (jaringan mati di deadline, siswa re-entry menit/jam kemudian) ditolak 403 → jawaban yang sudah dikerjakan hilang permanen.
 - **Fix:** lewat deadline, submit tetap diterima bila device **masih punya approval row `approved`** (approval hanya dicabut setelah submit DURABLE — sync path / worker pasca-commit, jadi approval tersisa = submit sebelumnya gagal). Device tanpa approval (belum pernah di-approve / sudah selesai) tetap 403 — cutoff keras untuk kerja lewat deadline dipertahankan, dan resubmit tetap idempoten (satu baris).
-- **Test:** `TestSubmitExamRecoveryAfterDeadlineAllowed` (approved + lewat deadline → 200, 1 baris), `TestSubmitExamAfterDeadlineStillRejectsUnapproved` (tanpa approval → 403, 0 baris), `TestSubmitExamWithinGraceStillAllowed` (grace 60s tetap berlaku untuk semua).
+- **Test:** `TestSubmitExamRecoveryAfterDeadlineAllowed` (approved + lewat deadline → 200, 1 baris), `TestSubmitExamAfterDeadlineStillRejectsUnapproved` (tanpa approval → 403, 0 baris), `TestSubmitExamWithinGraceStillAllowed` (grace 5 menit tetap berlaku untuk semua).
 
 ---
 

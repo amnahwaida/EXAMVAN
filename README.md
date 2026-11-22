@@ -1156,11 +1156,11 @@ Urutan pencarian hasil: **key Redis job (authoritative)** → bila key sudah TTL
 
 Tes: `TestExamResultReturnsScoreFromDB`, `TestExamResultPending` (`webui/internal/handlers/api/exams_test.go`).
 
-### 2. `end_time` kini ditegakkan server-side dengan grace 60 detik (Fix #3)
+### 2. `end_time` kini ditegakkan server-side dengan grace 5 menit (Fix #3)
 
 **Masalah:** `start_time`/`end_time` hanya dihitung oleh aplikasi Android; server hanya memeriksa `IsActive() && ExamStartedAt != nil`, jadi ujian yang waktunya sudah lewat masih bisa dibuka/disubmit dari luar aplikasi.
 
-**Solusi:** helper `examScheduleEnded(exam, now)` (`webui/internal/handlers/api/exams.go:902`) mengembalikan `true` bila `now > end_time + 60s` (konstanta grace `scheduleGraceEnd` untuk submit yang datang tepat di tenggat lewat koneksi lambat). Diterapkan **konsisten** di empat jalur:
+**Solusi:** helper `ExamScheduleEnded(exam, now)` (`webui/internal/models/exam.go`) mengembalikan `true` bila `now > end_time + 5 menit` (konstanta grace `SubmissionGraceEnd` untuk submit yang datang tepat di tenggat lewat koneksi lambat). Diterapkan **konsisten** di empat jalur:
 
 | Jalur | Penolakan |
 |-------|-----------|
@@ -1171,7 +1171,7 @@ Tes: `TestExamResultReturnsScoreFromDB`, `TestExamResultPending` (`webui/interna
 
 `end_time` sekarang juga dikembalikan dalam payload `ExamByToken`. `CompleteExam` **sengaja tidak di-gate** — klien memanggilnya tepat setelah submit di batas waktu untuk membersihkan heartbeat offline.
 
-Tes: `TestExamScheduleEnded` (unit — end tak diset, future, dalam grace 60s, lewat 5 menit, lewat 2 hari), `TestExamByTokenRejectsPastEndTime` (403), `TestExamByTokenAllowsInsideWindow` (200).
+Tes: `TestExamScheduleEnded` (unit — end tak diset, future, dalam grace 5 menit, lewat 6 menit, lewat 2 hari), `TestExamByTokenRejectsPastEndTime` (403), `TestExamByTokenAllowsInsideWindow` (200).
 
 ### 3. Dua siswa berbagi satu perangkat tidak lagi tergabung satu baris (Fix #4)
 
@@ -1512,7 +1512,7 @@ Tes: `SubmitFlowPolicyTest` — idle boleh mulai, in-flight diblok, setelah suks
 
 ### 4. Re-entry setelah deadline — tidak ada auto-submit kosong yang menimpa jawaban
 
-**Masalah (F1):** watchdog "sejak awal" menembak **sebelum** jawaban dipulihkan dari prefs (restore berjalan di `loadExamContent`, setelah `scheduleDeadlineFromStart`). Re-entry terlambat (proses mati, deadline lewat) → auto-submit mengirim jawaban **kosong** → dalam window grace server (`end_time` + 60 dtk) upsert menimpa baris dan `clearSavedAnswers` menghapus jawaban asli.
+**Masalah (F1):** watchdog "sejak awal" menembak **sebelum** jawaban dipulihkan dari prefs (restore berjalan di `loadExamContent`, setelah `scheduleDeadlineFromStart`). Re-entry terlambat (proses mati, deadline lewat) → auto-submit mengirim jawaban **kosong** → dalam window grace server (`end_time` + 5 menit) upsert menimpa baris dan `clearSavedAnswers` menghapus jawaban asli.
 
 **Masalah (F2):** `clearSavedAnswers` menghapus flag `submittedOrExited` → setelah submit **sukses**, re-entry mengira ujian belum selesai → watchdog (deadline lewat) auto-submit kosong dalam grace → menimpa jawaban yang sudah terkirim. (`ExamListActivity` sudah memperlakukan flag ini sebagai penanda "selesai" — viewer tidak konsisten.)
 
@@ -1546,11 +1546,11 @@ Audit menyusul fitur desktop/Android auto-submit-and-exit: submit auto berjalan 
 
 ### 3. Gate jadwal dilonggarkan khusus RECOVERY (device ber-approval)
 
-**Masalah:** `SubmitExam` menolak SEMUA submit setelah `end_time + 60 dtk` (grace). Recovery "Kirim Lagi" untuk skenario yang justru menjadi alasan fitur ini dibuat — jaringan mati di deadline, siswa re-entry menit/jam kemudian — ditolak 403 → jawaban yang sudah dikerjakan hilang permanen.
+**Masalah:** `SubmitExam` menolak SEMUA submit setelah `end_time + 5 menit` (grace). Recovery "Kirim Lagi" untuk skenario yang justru menjadi alasan fitur ini dibuat — jaringan mati di deadline, siswa re-entry menit/jam kemudian — ditolak 403 → jawaban yang sudah dikerjakan hilang permanen.
 
 **Solusi:** lewat deadline, submit tetap diterima bila device **masih memegang approval row `approved`** — approval hanya dicabut SETELAH submit durable (sync path langsung / worker pasca-commit), jadi approval yang tersisa berarti submit sebelumnya gagal dan ini murni recovery. Device tanpa approval (belum pernah di-approve / sudah selesai) tetap 403 — cutoff keras untuk kerja lewat deadline dipertahankan, dan resubmit tetap idempoten (upsert satu baris).
 
-**Test:** `TestSubmitExamRecoveryAfterDeadlineAllowed` (approved + lewat deadline → 200, 1 baris), `TestSubmitExamAfterDeadlineStillRejectsUnapproved` (tanpa approval → 403, 0 baris), `TestSubmitExamWithinGraceStillAllowed` (grace 60 dtk tetap berlaku untuk semua).
+**Test:** `TestSubmitExamRecoveryAfterDeadlineAllowed` (approved + lewat deadline → 200, 1 baris), `TestSubmitExamAfterDeadlineStillRejectsUnapproved` (tanpa approval → 403, 0 baris), `TestSubmitExamWithinGraceStillAllowed` (grace 5 menit tetap berlaku untuk semua).
 
 ---
 

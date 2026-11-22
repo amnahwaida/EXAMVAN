@@ -340,9 +340,9 @@ func TestRequestApprovalAutoApproveUnsticksLeftoverPending(t *testing.T) {
 	}
 }
 
-// An exam whose schedule has ended (end_time + 60s grace) is rejected like an
-// inactive one: a device requesting access after the deadline must not land in
-// the pending queue — nobody can act on it, and auto-approve would never fire.
+// An exam whose schedule has ended (end_time + 5-minute grace) is rejected like
+// an inactive one: a device requesting access after the deadline must not land
+// in the pending queue — nobody can act on it, and auto-approve would never fire.
 func TestRequestApprovalRejectsEndedExam(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
@@ -377,13 +377,13 @@ func TestRequestApprovalRejectsEndedExam(t *testing.T) {
 	}
 }
 
-// The grace window still applies: a request within 60s after end_time is a
-// legitimate borderline join (same tolerance as SubmitExam), so it is accepted
-// into the pending queue instead of being rejected.
+// The grace window still applies: a request within five minutes after end_time
+// is a legitimate borderline join (same tolerance as SubmitExam), so it is
+// accepted into the pending queue instead of being rejected.
 func TestRequestApprovalGraceWindowStillAccepted(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, examToken := createRequestApprovalFixture(t, pool, true, true, false)
-	// end_time 30s in the past — inside the 60s grace window.
+	// end_time 30s in the past — inside the five-minute grace window.
 	if _, err := pool.Exec(context.Background(),
 		`UPDATE exams SET end_time = $1 WHERE id = $2`,
 		time.Now().UTC().Add(-30*time.Second), examID); err != nil {

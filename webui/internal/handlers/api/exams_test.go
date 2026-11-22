@@ -279,15 +279,15 @@ func TestExamByTokenNotStarted(t *testing.T) {
 
 // TestExamScheduleEnded covers the end_time window logic: a nil end_time means
 // "no schedule limit" (manual start/stop governs), a past end_time (beyond the
-// 60s grace) means ended, and a recent end_time inside the grace window is
-// still accepted for a borderline submit.
+// five-minute grace) means ended, and a recent end_time inside the grace window
+// is still accepted for a borderline submit.
 func TestExamScheduleEnded(t *testing.T) {
 	now := time.Date(2026, 8, 9, 10, 0, 0, 0, time.UTC)
 
 	cases := []struct {
-		name   string
-		end    *time.Time
-		now    time.Time
+		name    string
+		end     *time.Time
+		now     time.Time
 		wantEnd bool
 	}{
 		{
@@ -303,14 +303,26 @@ func TestExamScheduleEnded(t *testing.T) {
 			wantEnd: false,
 		},
 		{
-			name:    "just-past end_time inside 60s grace = still open",
+			name:    "just-past end_time inside five-minute grace = still open",
 			end:     ptrTime(now.Add(-30 * time.Second)),
 			now:     now,
 			wantEnd: false,
 		},
 		{
-			name:    "well-past end_time = ended",
+			name:    "exactly at five-minute grace boundary = still open",
 			end:     ptrTime(now.Add(-5 * time.Minute)),
+			now:     now,
+			wantEnd: false,
+		},
+		{
+			name:    "just past five-minute grace = ended",
+			end:     ptrTime(now.Add(-5*time.Minute - time.Second)),
+			now:     now,
+			wantEnd: true,
+		},
+		{
+			name:    "well-past end_time = ended",
+			end:     ptrTime(now.Add(-6 * time.Minute)),
 			now:     now,
 			wantEnd: true,
 		},

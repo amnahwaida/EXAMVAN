@@ -348,7 +348,7 @@ func (w *Worker) runWorker(id int) {
 }
 
 // errExamWindowClosed marks a deterministic rejection: the exam is no longer
-// active or its end_time has passed (beyond the 60s submit grace). Unlike
+// active or its end_time has passed (beyond the 5-minute submit grace). Unlike
 // transient errors it must NOT be retried — the outcome can never change.
 var errExamWindowClosed = errors.New("exam no longer active or past end_time")
 
@@ -395,7 +395,7 @@ func (w *Worker) processSubmission(ctx context.Context, job *SubmissionJob) (*fl
 		return nil, fmt.Errorf("fetch exam: %w", err)
 	}
 	examActive := examStatus == "active"
-	windowClosed := endTime != nil && time.Now().UTC().After(endTime.Add(60*time.Second))
+	windowClosed := endTime != nil && time.Now().UTC().After(endTime.Add(models.SubmissionGraceEnd))
 	if !examActive || windowClosed {
 		var approved bool
 		if err := w.pool.QueryRow(ctx,

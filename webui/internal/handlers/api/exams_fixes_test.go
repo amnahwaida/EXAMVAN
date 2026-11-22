@@ -745,7 +745,7 @@ func TestSubmitExamAfterDeadlineStillRejectsUnapproved(t *testing.T) {
 	}
 }
 
-// TestSubmitExamWithinGraceStillAllowed keeps the existing 60s grace behaviour
+// TestSubmitExamWithinGraceStillAllowed keeps the five-minute grace behaviour
 // intact for a borderline submit right at the deadline: a device submitting a
 // few seconds late (still inside the grace window) is accepted even without an
 // approval row — the pre-existing tolerance for the hard cutoff.

@@ -91,12 +91,12 @@ func (e Exam) GetTokenMode() string {
 
 // SubmissionGraceEnd is how long after end_time a submission is still accepted.
 // The Android app auto-submits right at the deadline, and a borderline request
-// may arrive a few seconds late over a slow link — a small grace window keeps
-// that legitimate submit from being dropped while still enforcing the hard
-// cutoff for anyone who tries to keep working well past the deadline. Shared by
-// the public join/submit gates and the admin approval endpoints so they all
-// enforce the exact same cutoff.
-const SubmissionGraceEnd = 60 * time.Second
+// may arrive a few seconds late over a slow link — a five-minute grace window
+// keeps that legitimate submit from being dropped while still enforcing the
+// hard cutoff for anyone who tries to keep working well past the deadline.
+// Shared by the public join/submit gates and the admin approval endpoints so
+// they all enforce the exact same cutoff.
+const SubmissionGraceEnd = 5 * time.Minute
 
 // ExamScheduleEnded reports whether the exam's scheduled end_time has passed
 // (plus the submission grace window). A nil end_time means no schedule limit is

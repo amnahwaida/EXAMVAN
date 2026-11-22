@@ -90,13 +90,13 @@ func TestApprovalCleanupEndedExam(t *testing.T) {
 }
 
 // The safety margin: an exam whose end_time passed but is still within the
-// cleanup grace (the API rejects joins/subs only 60s past end_time, the purge
-// waits 1h) must keep its rows — this covers the "teacher extends end_time
+// cleanup grace (the API rejects joins/subs only 5 minutes past end_time, the
+// purge waits 1h) must keep its rows — this covers the "teacher extends end_time
 // shortly after it passed" scenario without stranding anyone.
 func TestApprovalCleanupKeepsRowsWithinEndedGrace(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "admin")
 	now := time.Now().UTC()
-	end := now.Add(-30 * time.Minute) // past the 60s submit grace, inside the 1h cleanup grace
+	end := now.Add(-30 * time.Minute) // past the 5-minute submit grace, inside the 1h cleanup grace
 	examID := insertCleanupExam(t, pool, "Grace", "active", &now, &end)
 
 	insertCleanupApproval(t, pool, examID, "EE:00:00:05:00:01", "pending", now.Add(-20*time.Minute))
@@ -152,10 +152,10 @@ func TestApprovalCleanupInactiveExamTTL(t *testing.T) {
 	now := time.Now().UTC()
 	examID := insertCleanupExam(t, pool, "Dormant", "inactive", nil, nil)
 
-	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:01", "pending", now.Add(-48*time.Hour))   // old pending → purge
-	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:02", "approved", now.Add(-48*time.Hour))  // old approved → purge
-	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:03", "approved", now.Add(-10*time.Hour))  // young approved → keep
-	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:04", "rejected", now.Add(-48*time.Hour))  // old rejected → keep
+	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:01", "pending", now.Add(-48*time.Hour))  // old pending → purge
+	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:02", "approved", now.Add(-48*time.Hour)) // old approved → purge
+	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:03", "approved", now.Add(-10*time.Hour)) // young approved → keep
+	insertCleanupApproval(t, pool, examID, "EE:00:00:20:00:04", "rejected", now.Add(-48*time.Hour)) // old rejected → keep
 
 	stats, err := models.PurgeStaleExamApprovals(context.Background(), pool, 1, 24)
 	if err != nil {
