@@ -163,11 +163,17 @@ test('T21 (statik): dashboard.html bebas seluruh handler inline \\son[a-z]+=', (
 });
 
 test('T21 (statik): form submit dimigrasi ke addEventListener', () => {
-    for (const formId of ['changePasswordForm', 'editExamForm', 'editTokenForm', 'formEditInstansi']) {
+    for (const formId of ['editExamForm', 'editTokenForm', 'formEditInstansi']) {
         assert.match(DASHBOARD,
             new RegExp(`getElementById\\('${formId}'\\)[\\s\\S]{0,120}addEventListener\\('submit'`),
             `#${formId} wajib addEventListener('submit')`);
     }
+});
+
+test('T21 (statik): form ubah password di-wire terpusat di admin.js (modal di partial nav)', () => {
+    assert.match(ADMIN_JS_SRC,
+        /getElementById\('changePasswordForm'\)[\s\S]{0,120}addEventListener\('submit',\s*submitChangePassword\)/,
+        'form ubah password wajib di-wire sekali di admin.js agar berlaku di semua halaman admin');
 });
 
 test('T21 (statik): kontrol tabel ujian lewat delegasi change', () => {

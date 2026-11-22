@@ -255,12 +255,14 @@ test('S90 (perilaku vm): keydown Enter/Space men-toggle dropdown + aria-expanded
         addEventListener() {},
     };
 
+    let dirtyCalls = 0;
     const sandbox = {
         document: doc,
         window: {},
         setTimeout,
         clearTimeout,
         escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+        markQuestionsConfigDirty: () => { dirtyCalls += 1; },
         console,
     };
     sandbox.globalThis = sandbox;
@@ -320,6 +322,7 @@ test('S90 (perilaku vm): keydown Enter/Space men-toggle dropdown + aria-expanded
     assert.equal(cbWawan.checked, true, 'prasyarat: checkbox pengawas tercentang');
     chipBtn.fire('click', { stopPropagation() {} });
     assert.equal(cbWawan.checked, false, 'aktivasi tombol chip menghapus centang pengawas');
+    assert.equal(dirtyCalls, 1, 'hapus chip via programatik tetap menandai konfigurasi kotor');
 });
 
 // ════════════════════════════════════════════════════════════════════════

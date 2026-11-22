@@ -475,7 +475,9 @@ function openQuestionsModal(examId, examName) {
                 resetQuestionsConfigDirty();
                 const secSelect = document.getElementById('examSecurityLevel');
                 if (secSelect) {
-                    secSelect.value = res.security_level || 'medium';
+                    // Default aplikasi = strict/high. Baris lama tanpa nilai
+                    // tetap jatuh ke high agar Android tidak auto-submit.
+                    secSelect.value = res.security_level || 'high';
                 }
                 // Panel color
                 const colorVal = res.panel_color || '#6366F1';
@@ -1175,8 +1177,10 @@ function handleDragOver(e) {
         // Drop before this card — use the divider before it
         dropDivider = this.previousSibling;
     } else {
-        // Drop after this card — use the divider after it
-        dropDivider = this.nextSibling?.nextSibling || this.nextSibling;
+        // Drop after this card — divider tepat setelah kartu ini. Versi lama
+        // memakai nextSibling.nextSibling (kartu berikutnya), sehingga drop di
+        // paruh bawah kartu non-terakhir tidak pernah dianggap divider.
+        dropDivider = this.nextSibling;
     }
 
     document.querySelectorAll('.q-editor-divider').forEach(d => d.classList.remove('q-drag-hover'));
@@ -1187,7 +1191,7 @@ function handleDragOver(e) {
 
 function handleDrop(e) {
     e.preventDefault();
-    if (dragSrcCard === this) return;
+    if (!dragSrcCard || dragSrcCard === this) return;
 
     const container = document.getElementById('questionsList');
     const cards = Array.from(container.querySelectorAll('.question-editor-card'));
@@ -1198,7 +1202,7 @@ function handleDrop(e) {
     if (e.clientY < midY) {
         dropDivider = this.previousSibling;
     } else {
-        dropDivider = this.nextSibling?.nextSibling || this.nextSibling;
+        dropDivider = this.nextSibling;
     }
 
     if (dropDivider && dropDivider.classList.contains('q-editor-divider')) {
@@ -1225,19 +1229,30 @@ function setAllWeights() {
 
     const currentWeight = weightInputs[0].value || '1.0';
 
+    // Escape/backdrop hanya menyembunyikan overlay lewat Modal Manager; tanpa
+    // dibuang, overlay lama tetap memegang id yang sama dan getElementById()
+    // pada pembukaan berikutnya menunjuk input lama yang tersembunyi.
+    var previous = document.getElementById('bulkWeightModal');
+    if (previous && previous.remove) previous.remove();
+
     // Build modal
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'bulkWeightModal';
     overlay.style.display = 'flex';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'bulkWeightTitle');
+    overlay.setAttribute('data-action', 'modal-dismiss');
+    overlay.setAttribute('data-modal-close', 'closeBulkWeightModal');
 
     const card = document.createElement('div');
     card.className = 'modal-card';
     card.style.maxWidth = '420px';
     card.innerHTML = `
         <div class="modal-header">
-            <h3>⚖️ Set Bobot Semua Soal</h3>
-            <button class="modal-close" data-action="modal-remove" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+            <h3 id="bulkWeightTitle">⚖️ Set Bobot Semua Soal</h3>
+            <button class="modal-close" data-action="modal-close" data-modal-close="closeBulkWeightModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
         </div>
         <div class="modal-body bulk-weight-body">
             <p class="bulk-weight-desc">
@@ -1250,7 +1265,7 @@ function setAllWeights() {
             </label>
         </div>
         <div class="modal-footer bulk-weight-footer">
-            <button class="btn-sm" data-action="modal-remove">Batal</button>
+            <button class="btn-sm" data-action="modal-close" data-modal-close="closeBulkWeightModal">Batal</button>
             <button class="btn-upload" data-action="bulk-weight-apply">Terapkan</button>
         </div>
     `;
@@ -1261,6 +1276,11 @@ function setAllWeights() {
     const input = document.getElementById('bulkWeightInput');
     input.focus();
     input.select();
+}
+
+function closeBulkWeightModal() {
+    var overlay = document.getElementById('bulkWeightModal');
+    if (overlay && overlay.remove) overlay.remove();
 }
 
 function applyBulkWeight(btn) {
@@ -1351,12 +1371,21 @@ function addIdentityFieldRow(container, field, index) {
     container.appendChild(row);
 }
 
+function reindexIdentityFields() {
+    const rows = document.querySelectorAll('#identityFieldsList .identity-field-row');
+    rows.forEach(function(row, idx) {
+        const num = row.querySelector('.identity-field-num');
+        if (num) num.textContent = idx + 1;
+    });
+}
+
 function addIdentityField() {
     const container = document.getElementById('identityFieldsList');
     const count = container.children.length;
     const field = { key: 'field_' + (count + 1), label: '', required: false };
     markQuestionsConfigDirty(); // S2: baris identitas baru = perubahan belum tersimpan
     addIdentityFieldRow(container, field, count);
+    reindexIdentityFields();
 }
 
 function getIdentityFieldsFromEditor() {
@@ -1449,7 +1478,7 @@ function renderPengawasSelection(assigned, available) {
                 x.type = 'button';
                 x.style.cssText = 'cursor:pointer;margin-left:2px;font-size:13px;line-height:1;opacity:0.7;background:transparent;border:none;color:var(--color-text-secondary);padding:0;font-family:inherit;';
                 x.setAttribute('aria-label', 'Hapus pengawas ' + p.username);
-                x.addEventListener('click', function(ev) { ev.stopPropagation(); var cb = Array.prototype.find.call(document.querySelectorAll('#pengawasDropdown .pengawas-checkbox'), function(c) { return c.value === String(p.id); }); if (cb) { cb.checked = false; renderHeaderChips(); } });
+                x.addEventListener('click', function(ev) { ev.stopPropagation(); var cb = Array.prototype.find.call(document.querySelectorAll('#pengawasDropdown .pengawas-checkbox'), function(c) { return c.value === String(p.id); }); if (cb) { cb.checked = false; renderHeaderChips(); markQuestionsConfigDirty(); } });
                 chip.appendChild(x);
                 header.appendChild(chip);
             });
@@ -1508,19 +1537,24 @@ function renderPengawasSelection(assigned, available) {
     wrapper.appendChild(dropdown);
     container.appendChild(wrapper);
 
-    // Close dropdown on outside click
+    // Close dropdown on outside click. Klik di dalam dropdown (mis. centang
+    // pengawas kedua) bukan "outside": tanpa guard contains, listener document
+    // menutup dropdown setiap kali satu pengawas dipilih.
     if (!window._pengawasDropdownListener) {
         window._pengawasDropdownListener = true;
-        document.addEventListener('click', function() {
+        document.addEventListener('click', function(ev) {
             var dd = document.getElementById('pengawasDropdown');
             var hd = document.getElementById('pengawasDropdownHeader');
-            if (dd && hd) {
-                dd.style.display = 'none';
-                hd.style.borderColor = 'var(--color-glass-border)';
-                // R132: tutup via klik-luar wajib me-reset state SR — tanpa
-                // ini screen reader tetap membaca "expanded=true".
-                hd.setAttribute('aria-expanded', 'false');
+            if (!dd || !hd) return;
+            var target = ev && ev.target;
+            if (target && ((dd.contains && dd.contains(target)) || (hd.contains && hd.contains(target)))) {
+                return;
             }
+            dd.style.display = 'none';
+            hd.style.borderColor = 'var(--color-glass-border)';
+            // R132: tutup via klik-luar wajib me-reset state SR — tanpa
+            // ini screen reader tetap membaca "expanded=true".
+            hd.setAttribute('aria-expanded', 'false');
         });
     }
 }
@@ -1642,8 +1676,17 @@ function replaceEditorQuestions(questions, onReplaced) {
 }
 
 function quickGenerateQuestions() {
-    const rawQty = parseInt(document.getElementById('generateQty').value);
-    const qty = isNaN(rawQty) ? 40 : rawQty;
+    const qtyInput = document.getElementById('generateQty');
+    const rawQty = parseInt(qtyInput ? qtyInput.value : '', 10);
+    if (isNaN(rawQty) || rawQty < 1 || rawQty > 200) {
+        showToast('Jumlah soal harus antara 1 dan 200', 'error');
+        if (qtyInput) {
+            qtyInput.focus();
+            qtyInput.select();
+        }
+        return;
+    }
+    const qty = rawQty;
     const type = document.getElementById('generateType').value;
 
     const questions = [];
@@ -1900,7 +1943,7 @@ function saveQuestionsConfig() {
         return;
     }
 
-    const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
+    const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'high';
     const strictMode = securityLevel === 'high';
 
     const identityFields = getIdentityFieldsFromEditor();
@@ -2034,12 +2077,31 @@ function submitChangePassword(e) {
             if (res.success) {
                 showToast(res.message, 'success');
                 closeChangePasswordModal();
+                // Server sudah mencabut sesi lama; tampilkan toast sebentar
+                // lalu mendarat di /login yang memuat flash sukses.
+                setTimeout(function() { window.location.href = '/login'; }, 1200);
             } else {
                 showToast(res.message || 'Gagal mengubah password', 'error');
             }
         })
         .catch(() => showToast('Gagal mengubah password', 'error'))
         .finally(restoreBtn);
+}
+
+// Modal ubah password kini disediakan partial nav di SEMUA halaman admin,
+// jadi submit-nya di-wire sekali di sini (bukan per halaman). Marker mencegah
+// listener ganda bila init berjalan lebih dari sekali.
+function initChangePasswordForm() {
+    var form = document.getElementById('changePasswordForm');
+    if (!form || form.__changePasswordBound) return;
+    form.__changePasswordBound = true;
+    form.addEventListener('submit', submitChangePassword);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initChangePasswordForm);
+} else {
+    initChangePasswordForm();
 }
 
 
@@ -4871,6 +4933,7 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     Actions.register('identity-field-remove', function (el) {
         var row = el.closest ? el.closest('.identity-field-row') : null;
         if (row && typeof row.remove === 'function') row.remove();
+        reindexIdentityFields();
         markQuestionsConfigDirty(); // S2: hapus baris identitas = belum tersimpan
     });
     // R29: pengganti onclick inline pada string HTML render-JS admin.js

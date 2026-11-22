@@ -423,3 +423,39 @@ test('PERILAKU: questions-open & modal-close via delegasi tetap bekerja lewat AP
     env.click(closeBtn);
     assert.equal(modal.style.display, 'none', 'modal-close menutup via closeQuestionsModal → Modal.close');
 });
+
+test('DEFAULT: mode ujian strict/high dipilih dan fallback data lama memakai high', async () => {
+    assert.match(DASHBOARD, /<option value="high" selected>Tinggi/,
+        'opsi Tinggi wajib terpilih secara default di modal edit soal');
+
+    const env = loadPage();
+    const modal = env.makeNode('div', { id: 'questionsModal' });
+    modal.style.display = 'none';
+    env.byId.questionsModal = modal;
+    env.byId.modalTitle = env.makeNode('h3', { id: 'modalTitle' });
+    env.byId.questionsList = env.makeNode('div', { id: 'questionsList' });
+    env.byId.identityFieldsList = env.makeNode('div', { id: 'identityFieldsList' });
+    env.byId.studentAccessControls = env.makeNode('div', { id: 'studentAccessControls' });
+    const sec = env.makeNode('select', { id: 'examSecurityLevel' });
+    sec.value = 'low';
+    env.byId.examSecurityLevel = sec;
+
+    env.sandbox.apiFetch = () => Promise.resolve({
+        json: () => Promise.resolve({
+            success: true,
+            // Baris lama tanpa security_level (mis. data hasil migrasi).
+            questions: [],
+            identity_fields: []
+        })
+    });
+    env.sandbox.showToast = () => {};
+
+    env.click(env.makeNode('button', {
+        'data-action': 'questions-open',
+        'data-exam-id': '43',
+        'data-exam-name': 'Biologi'
+    }));
+    await flush();
+
+    assert.equal(sec.value, 'high', 'data tanpa security_level tidak boleh jatuh ke medium');
+});

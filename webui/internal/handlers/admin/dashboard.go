@@ -281,10 +281,14 @@ func Dashboard() gin.HandlerFunc {
 
 		// Super admins bypass all quota enforcement (exam upload, PDF/storage
 		// size, concurrent exams), so present their dashboard as unlimited
-		// regardless of the raw values on their admin_users row.
+		// regardless of the raw values on their admin_users row. The upload
+		// file input still needs the GLOBAL maxFileSize (not the stale
+		// per-account column) or the browser rejects files the server would
+		// accept.
 		if isSuper {
 			userMaxTotal = "Tidak Terbatas"
 			userMaxConcurrent = "Tidak Terbatas"
+			userMaxPDF = int64(maxFileSize)
 			remainingStorage = "Tidak Terbatas"
 		}
 

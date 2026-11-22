@@ -1540,6 +1540,64 @@ func TestOperatorEditSubAccountQuotaNotForcedFree(t *testing.T) {
 	}
 }
 
+// TestSuperAdminEditsAllAccountQuotas pins the SuperAdmin quota-editor
+// contract: unlike the operator path (which ignores the four quota fields),
+// the SuperAdmin may set every per-account quota on any target, including
+// 0 = unlimited. The effective enforcement for pool-covered sub-accounts still
+// comes from the school pool, but the stored account columns must accept the
+// edit.
+func TestSuperAdminEditsAllAccountQuotas(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	targetID := createSchoolQuotaUser(t, pool, "quota-edit-target", "personal",
+		[]string{models.RoleGuru}, 3)
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-quota-editor", Name: "Root Quota Editor",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+
+	path := "/api/users/" + strconv.Itoa(targetID) + "/edit"
+	status, resp := postJSON(t, rt.client, rt.srv, path, map[string]interface{}{
+		"max_exams":            17,
+		"max_concurrent_exams": 9,
+		"max_pdf_size_mb":      8.5,
+		"max_storage_size_mb":  123.5,
+	})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin quota edit: status=%d resp=%+v", status, resp)
+	}
+	got := mustGetUser(t, pool, "quota-edit-target")
+	if got.MaxExams != 17 || got.MaxConcurrentExams != 9 ||
+		got.MaxPDFSize != 8.5*1024*1024 || got.MaxStorageSize != int64(123.5*1024*1024) {
+		t.Fatalf("superadmin quota edit landed as exams=%d concurrent=%d pdf=%d storage=%d",
+			got.MaxExams, got.MaxConcurrentExams, got.MaxPDFSize, got.MaxStorageSize)
+	}
+
+	status, resp = postJSON(t, rt.client, rt.srv, path, map[string]interface{}{
+		"max_exams":            0,
+		"max_concurrent_exams": 0,
+		"max_pdf_size_mb":      0.0,
+		"max_storage_size_mb":  0.0,
+	})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin unlimited quota edit: status=%d resp=%+v", status, resp)
+	}
+	unlimited := mustGetUser(t, pool, "quota-edit-target")
+	if unlimited.MaxExams != 0 || unlimited.MaxConcurrentExams != 0 ||
+		unlimited.MaxPDFSize != 0 || unlimited.MaxStorageSize != 0 {
+		t.Fatalf("0 must mean unlimited on every quota, got exams=%d concurrent=%d pdf=%d storage=%d",
+			unlimited.MaxExams, unlimited.MaxConcurrentExams, unlimited.MaxPDFSize, unlimited.MaxStorageSize)
+	}
+}
+
 // TestSuperAdminMoveOperatorIntoOccupiedSchool probes the one-operator-per-
 // school policy on the EDIT-INSTANSI path. A SuperAdmin editing an existing
 // operator and changing its instansi to a school that ALREADY has an operator

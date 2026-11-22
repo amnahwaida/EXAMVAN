@@ -410,7 +410,8 @@ func UploadExam() gin.HandlerFunc {
 			// New exams start INACTIVE: they only become joinable for students
 			// after the admin explicitly activates and starts them.
 			Status:             "inactive",
-			SecurityLevel:      "medium",
+			SecurityLevel:      "high",
+			StrictMode:         1,
 			PublicResults:      1,
 			CreatedBy:          userID,
 			DelegatedTo:        delegatedTo,
@@ -1528,8 +1529,8 @@ func GetQuestions() gin.HandlerFunc {
 			json.Unmarshal([]byte(*exam.QuestionsJSON), &questions)
 		}
 
-		// Security level
-		securityLevel := "medium"
+		// Security level (default aplikasi = strict/high)
+		securityLevel := "high"
 		if exam.SecurityLevel != "" {
 			securityLevel = exam.SecurityLevel
 		}
@@ -1710,7 +1711,7 @@ func SaveQuestions() gin.HandlerFunc {
 
 		securityLevel := body.SecurityLevel
 		if securityLevel != "low" && securityLevel != "medium" && securityLevel != "high" {
-			securityLevel = "medium"
+			securityLevel = "high"
 		}
 
 		strictMode := 0

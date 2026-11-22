@@ -30,6 +30,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
 
 const SETTINGS = read('../templates/admin/settings.html');
+const ADMIN = read('js/admin.js');
 const BILLING = read('js/settings-billing.js');
 const AUDIT = read('js/settings-voucher-audit.js');
 
@@ -53,8 +54,13 @@ test('T21: form submit di-wire via addEventListener (createUser, voucher single/
     // Wiring ada di blok script halaman (helper wire()); fungsi pemilik TIDAK dipindah.
     assert.match(SETTINGS, /wire\('newUserForm',\s*'submit'[\s\S]{0,120}createUser/,
         'form Tambah User harus memasang listener submit yang meneruskan event ke createUser');
-    assert.match(SETTINGS, /wire\('changePasswordForm',\s*'submit'/,
-        'form Ubah Password harus memasang listener submit');
+    // Modal ubah password kini di partial nav (semua halaman admin), jadi
+    // submit-nya di-wire terpusat di admin.js, bukan per halaman.
+    assert.doesNotMatch(SETTINGS, /wire\('changePasswordForm',\s*'submit'/,
+        'settings.html tidak boleh memasang listener ubah password kedua');
+    assert.match(ADMIN,
+        /getElementById\('changePasswordForm'\)[\s\S]{0,120}addEventListener\('submit',\s*submitChangePassword\)/,
+        'admin.js harus memasang listener ubah password sekali untuk semua halaman');
     assert.match(SETTINGS, /wire\('formSingleVoucher',\s*'submit',\s*lazy\('submitSingleVoucher'\)\)/,
         'form voucher single harus memasang listener submit (modul lazy)');
     assert.match(SETTINGS, /wire\('formBatchVoucher',\s*'submit',\s*lazy\('submitBatchVoucher'\)\)/,

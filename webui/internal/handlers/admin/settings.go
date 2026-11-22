@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -620,7 +621,15 @@ func ChangePassword() gin.HandlerFunc {
 			return
 		}
 
-		successMessage(c, "Password berhasil diperbarui")
+		// The stamp above revokes this session at the next AuthRequired check.
+		// Clear it now and leave a flash so the client can land on /login
+		// without the stale cookie bouncing back to the dashboard first.
+		session := sessions.Default(c)
+		session.Clear()
+		session.AddFlash("Password berhasil diperbarui. Silakan login dengan password baru Anda.")
+		_ = session.Save()
+
+		successMessage(c, "Password berhasil diperbarui. Silakan login ulang.")
 	}
 }
 

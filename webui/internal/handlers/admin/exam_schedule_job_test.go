@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -122,6 +123,67 @@ func TestExamScheduleJobAutoStartsWithinTolerance(t *testing.T) {
 	}
 	if !scheduleStarted {
 		t.Fatal("schedule_started_at must be retained after stop")
+	}
+}
+
+// TestExamScheduleJobAutoStartBypassesSuperAdminQuota pins the background-job
+// half of the superadmin-unlimited contract. runExamSchedulePass has no acting
+// user and always calls startExamCore with isSuper=false, so the owner's
+// superadmin role must itself bypass the concurrent quota. Without that check
+// a superadmin row carrying the ordinary defaults (max_concurrent_exams=2)
+// would stop auto-starting after two running exams.
+func TestExamScheduleJobAutoStartBypassesSuperAdminQuota(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "job-super-quota", Name: "Job Super Quota",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role:               models.SerializeRoles([]string{models.RoleSuperAdmin}),
+		MaxExams:           1,
+		MaxPDFSize:         1048576,
+		MaxConcurrentExams: 1,
+		MaxStorageSize:     50 * 1024 * 1024,
+		Package:            "free",
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+
+	tc, _ := newQuotaTestClient(t, pool)
+	tc.login(t, su.ID)
+
+	ids := make([]int, 0, 2)
+	for i := 1; i <= 2; i++ {
+		name := fmt.Sprintf("job-super-quota-%d", i)
+		if status, body := tc.upload(t, name, schoolTestPDF(64)); status != http.StatusOK {
+			t.Fatalf("superadmin upload %s: status=%d body=%s", name, status, body)
+		}
+		var id int
+		if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = $1`, name).Scan(&id); err != nil {
+			t.Fatalf("find exam %s: %v", name, err)
+		}
+		ids = append(ids, id)
+	}
+
+	for _, id := range ids {
+		if _, err := pool.Exec(ctx, `UPDATE exams
+			SET start_time = now() + interval '4 minutes',
+			    end_time = now() + interval '1 hour',
+			    schedule_tolerance_minutes = 5
+			WHERE id = $1`, id); err != nil {
+			t.Fatalf("set schedule for exam %d: %v", id, err)
+		}
+	}
+
+	runExamSchedulePass(ctx, pool, nil)
+
+	for _, id := range ids {
+		status, started, scheduleStarted, _ := examScheduleState(t, pool, id)
+		if status != "active" || !started || !scheduleStarted {
+			t.Errorf("superadmin exam %d after auto-start: status=%s started=%v scheduleStarted=%v, want active/true/true",
+				id, status, started, scheduleStarted)
+		}
 	}
 }
 

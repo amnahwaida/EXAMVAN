@@ -149,7 +149,7 @@ test('R132: klik-luar reset aria-expanded; Escape menutup + fokus kembali ke hea
     // (a) Blok listener klik-luar (_pengawasDropdownListener) wajib me-reset state SR.
     const coStart = ADMIN_JS.indexOf('window._pengawasDropdownListener');
     assert.ok(coStart > -1, 'listener klik-luar eksis');
-    const coBlock = ADMIN_JS.slice(coStart, coStart + 700);
+    const coBlock = ADMIN_JS.slice(coStart, coStart + 1400);
     assert.match(coBlock, /hd\.setAttribute\('aria-expanded',\s*'false'\)/,
         'tutup via klik-luar wajib me-reset aria-expanded (S108-ronde-10)');
     // (b) Keydown header menangani Escape + focus kembali.

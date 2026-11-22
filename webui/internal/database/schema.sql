@@ -69,9 +69,9 @@ CREATE TABLE IF NOT EXISTS exams (
     questions_json  TEXT,
     status          TEXT DEFAULT 'inactive'
                     CHECK (status IN ('active', 'inactive')),
-    security_level  TEXT DEFAULT 'medium'
+    security_level  TEXT DEFAULT 'high'
                     CHECK (security_level IN ('low', 'medium', 'high')),
-    strict_mode     INTEGER DEFAULT 0,
+    strict_mode     INTEGER DEFAULT 1,
     public_results  INTEGER DEFAULT 1,
     show_answers    INTEGER DEFAULT 1,
     created_by      INTEGER REFERENCES admin_users(id),

@@ -243,13 +243,17 @@ test('S31: #searchClearBtn (ikon X) punya aria-label "Bersihkan pencarian"', () 
 // ---------------------------------------------------------------------------
 
 const MODALS_DASHBOARD = [
-    'changePasswordModal', 'editExamModal', 'editTokenModal',
+    'editExamModal', 'editTokenModal',
     'delegateExamModal', 'questionsModal'
 ];
 const MODALS_SETTINGS = [
     'confirmRedeemModal', 'singleModal', 'batchModal',
     // Batch 12 (T22): confirmActionModal DIHAPUS — konfirmasi voucher kini
     // memakai showConfirm core (satu sistem, focus-trap G5).
+];
+const MODALS_NAV = [
+    // Modal ubah password hidup di nav agar tombol akun tersedia di semua
+    // halaman admin (dashboard/settings/pengawas/pengawas_detail/submissions).
     'changePasswordModal'
 ];
 
@@ -285,10 +289,23 @@ for (const id of MODALS_SETTINGS) {
     });
 }
 
+for (const id of MODALS_NAV) {
+    test(`S25: #${id} (partial nav) punya role="dialog" + aria-modal + aria-labelledby valid`, () => {
+        const tag = modalTagById(NAV, id);
+        assert.ok(tag, `elemen modal #${id} harus ada di partial nav`);
+        assert.match(tag, /role="dialog"/);
+        assert.match(tag, /aria-modal="true"/);
+        const lm = /aria-labelledby="([^"]+)"/.exec(tag);
+        assert.ok(lm, 'wajib aria-labelledby');
+        assert.match(NAV, new RegExp(`id="${lm[1]}"`),
+            `heading target "${lm[1]}" harus benar-benar eksis di partial nav`);
+    });
+}
+
 test('S25: SEMUA .modal-overlay/modal utama di dashboard+settings ber-role dialog (guard regresi)', () => {
     for (const [name, html] of [['dashboard.html', DASHBOARD], ['settings.html', SETTINGS]]) {
         const overlays = html.match(/<div[^>]*class="(?:modal-overlay|modal-backdrop)[^"]*"[^>]*>/g) || [];
-        assert.ok(overlays.length >= 6, `${name}: minimal 6 modal ditemukan`);
+        assert.ok(overlays.length >= 5, `${name}: minimal 5 modal ditemukan`);
         for (const tag of overlays) {
             assert.match(tag, /role="dialog"/, `${name}: overlay tanpa role="dialog" → ${tag}`);
             assert.match(tag, /aria-modal="true"/, `${name}: overlay tanpa aria-modal → ${tag}`);
@@ -300,8 +317,9 @@ test('S25: SEMUA .modal-overlay/modal utama di dashboard+settings ber-role dialo
 test('S25: SEMUA tombol .modal-close punya aria-label="Tutup" (settings)', () => {
     for (const [name, html] of [['dashboard.html', DASHBOARD], ['settings.html', SETTINGS]]) {
         const closes = html.match(/<button[^>]*class="[^"]*modal-close[^"]*"[^>]*>/g) || [];
-        // Batch 12 (T22): confirmActionModal dihapus — minimal settings 6 → 5.
-        const min = name === 'dashboard.html' ? 5 : 5;
+        // Modal ubah password pindah ke partial nav: dashboard 5 → 4,
+        // settings 6 → 5 tombol .modal-close di halaman masing-masing.
+        const min = name === 'dashboard.html' ? 4 : 5;
         // Catatan: close button uploadModal (settings.html:1992) tidak ber-class
         // modal-close (inline styled) tapi sudah punya aria-label="Tutup".
         assert.ok(closes.length >= min, `${name}: minimal ${min} modal-close ditemukan, dapat ${closes.length}`);

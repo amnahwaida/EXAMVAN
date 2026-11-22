@@ -338,14 +338,21 @@ func TestUploadExamSuccessNoOrphanCleanup(t *testing.T) {
 	if cnt := countExamsForUser(t, pool, userID); cnt != 1 {
 		t.Errorf("exams after successful upload = %d, want 1", cnt)
 	}
-	// The exam row points at the exact uploaded object (timestamp-prefixed).
-	var fp string
+	// The exam row points at the exact uploaded object (timestamp-prefixed)
+	// and starts in strict/high mode: the upload form never sends a security
+	// level, so the handler default is what protects the new exam.
+	var fp, securityLevel string
+	var strictMode int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT file_path FROM exams WHERE created_by = $1`, userID).Scan(&fp); err != nil {
+		`SELECT file_path, security_level, strict_mode FROM exams WHERE created_by = $1`, userID).
+		Scan(&fp, &securityLevel, &strictMode); err != nil {
 		t.Fatalf("load created exam: %v", err)
 	}
 	if !strings.HasSuffix(fp, "_ok.pdf") {
 		t.Errorf("exam file_path = %q, want suffix _ok.pdf", fp)
+	}
+	if securityLevel != "high" || strictMode != 1 {
+		t.Errorf("new exam security = %q/strict=%d, want high/1 (default strict)", securityLevel, strictMode)
 	}
 
 	// Creating the exam must open the lifecycle audit trail (created → PDF

@@ -53,9 +53,14 @@ func startExamCore(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam, i
 			// operator's own column binds too. The quota follows the exam
 			// OWNER, not the acting user, so a delegated start and an
 			// automatic start spend the same budget.
+			//
+			// The schedule job always passes isSuper=false (there is no
+			// acting user), so also honor the OWNER's superadmin role here:
+			// a superadmin-owned exam stays unlimited even when auto-started.
+			ownerIsSuper := models.HasRole(owner.Role, models.RoleSuperAdmin)
 			ownerIsOperator := models.HasRole(owner.Role, models.RoleOperator)
-			perUserLimit := (!ownerIsOperator || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
-			poolConcActive := poolActive && poolMaxConcurrent > 0
+			perUserLimit := !ownerIsSuper && (!ownerIsOperator || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
+			poolConcActive := !ownerIsSuper && poolActive && poolMaxConcurrent > 0
 
 			if perUserLimit || poolConcActive {
 				tx, err := pool.Begin(ctx)

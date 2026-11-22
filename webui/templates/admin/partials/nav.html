@@ -97,6 +97,61 @@
      container membuat toast "Sesi berakhir"/api:error lenyap senyap. */}}
 <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
+{{/* Modal Ubah Password hidup di partial nav agar tombol akun berfungsi di
+     SEMUA halaman admin (dashboard, pengawas, pengawas_detail, submissions,
+     settings). Dulu modal hanya ada di dashboard/settings sehingga tombol di
+     halaman lain tidak membuka apa pun. */}}
+<div class="modal-overlay" id="changePasswordModal" role="dialog" aria-modal="true" aria-labelledby="changePasswordModalTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeChangePasswordModal">
+ <div class="modal-card glass-card" style="max-width: 420px;">
+  <div class="modal-header">
+   <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
+   <button class="modal-close" data-action="modal-close" data-modal-close="closeChangePasswordModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+  </div>
+  <div class="modal-body">
+   <form id="changePasswordForm">
+    <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+    <div class="form-group" style="margin-bottom: 16px;">
+     <label class="required" for="currentPassword">Password Saat Ini</label>
+     <div class="password-wrapper">
+      <input type="password" id="currentPassword" required placeholder="Masukkan password lama">
+      <button type="button" id="toggleCurPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+       <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+        <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+       </svg>
+      </button>
+     </div>
+    </div>
+    <div class="form-group" style="margin-bottom: 16px;">
+     <label class="required" for="newPassword">Password Baru</label>
+     <div class="password-wrapper">
+      <input type="password" id="newPassword" required placeholder="Masukkan password baru (min. 8 karakter)" minlength="8">
+      <button type="button" id="toggleNewPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+       <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+        <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+       </svg>
+      </button>
+     </div>
+    </div>
+    <div class="form-group" style="margin-bottom: 24px;">
+     <label class="required" for="confirmNewPassword">Konfirmasi Password Baru</label>
+     <div class="password-wrapper">
+      <input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
+      <button type="button" id="toggleConfirmPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+       <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+        <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+       </svg>
+      </button>
+     </div>
+    </div>
+    <button type="submit" class="btn-upload" style="width: 100%;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Simpan Password Baru</button>
+   </form>
+  </div>
+ </div>
+</div>
+
 <script>
 /* Batch 9 (R29): registrasi aksi milik partial nav. admin-core.js dimuat di
    akhir body tiap halaman, jadi saat partial ini dieksekusi Actions belum

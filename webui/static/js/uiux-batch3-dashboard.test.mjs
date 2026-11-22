@@ -457,7 +457,7 @@ test('S4: opsi level keamanan Low/Medium/High → Rendah/Sedang/Tinggi (value te
     assert.ok(!/High \/ Strict|High —/.test(html), 'label EN "High" hilang');
     assert.match(html, /<option value="low">Rendah — /, 'opsi low berlabel Rendah');
     assert.match(html, /<option value="medium">Sedang — /, 'opsi medium berlabel Sedang');
-    assert.match(html, /<option value="high">Tinggi — /, 'opsi high berlabel Tinggi');
+    assert.match(html, /<option value="high"(?: selected)?>Tinggi — /, 'opsi high berlabel Tinggi');
 });
 
 test('S4: tombol "Set All Bobot" → "Terapkan ke Semua Bobot"', () => {

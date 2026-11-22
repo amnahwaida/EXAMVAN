@@ -276,6 +276,13 @@ func TestDashboardRendersServerDiskFree(t *testing.T) {
 		t.Fatalf("dashboard page: status=%d, want 200", status)
 	}
 
+	// Superadmin quota is unlimited, but the browser-side file input still
+	// enforces the GLOBAL maxFileSize (100 MB). It must not inherit the stale
+	// 1 MB per-account column and reject uploads the server accepts.
+	if !strings.Contains(body, `data-max-mb="100"`) {
+		t.Error("superadmin dashboard file input must use the global 100 MB upload cap, not the per-account PDF quota")
+	}
+
 	// The card itself: class marker + label.
 	const cardMarker = `class="stat-card stat-disk"`
 	idx := strings.Index(body, cardMarker)

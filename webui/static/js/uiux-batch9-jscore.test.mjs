@@ -204,10 +204,12 @@ test('T15 (perilaku): handler identity-field-remove menghapus baris & menandai k
     const registry = {};
     const sandbox = {
         Actions: { register: (n, f) => { registry[n] = f; }, _registry: registry },
-        questionsConfigDirty: false
+        questionsConfigDirty: false,
+        reindexed: 0
     };
     vm.createContext(sandbox);
     vm.runInContext('function markQuestionsConfigDirty() { questionsConfigDirty = true; }', sandbox);
+    vm.runInContext('function reindexIdentityFields() { reindexed++; }', sandbox);
     vm.runInContext(extractRegistration(ADMIN_JS_SRC, 'identity-field-remove', 'admin.js'),
         sandbox, { filename: 'admin.js#t15-reg' });
 
@@ -217,7 +219,54 @@ test('T15 (perilaku): handler identity-field-remove menghapus baris & menandai k
     registry['identity-field-remove'](btn);
 
     assert.equal(removed, 1, 'baris field dihapus dari DOM');
+    assert.equal(sandbox.reindexed, 1, 'nomor baris identitas dirapikan setelah penghapusan');
     assert.equal(sandbox.questionsConfigDirty, true, 'penghapusan menandai konfigurasi kotor');
+});
+
+test('T15 (statik): generate membatasi jumlah soal 1..200 agar editor tidak kosong/banjir', () => {
+    const gen = extractFunction(ADMIN_JS_SRC, 'quickGenerateQuestions');
+    assert.ok(gen, 'quickGenerateQuestions ada');
+    assert.match(gen, /qtyInput/, 'jumlah dibaca dari input');
+    assert.match(gen, /rawQty < 1 \|\| rawQty > 200/, 'rentang 1..200 divalidasi');
+    assert.match(gen, /Jumlah soal harus antara 1 dan 200/, 'alasan penolakan dijelaskan');
+    assert.match(gen, /return;/, 'nilai tidak valid tidak boleh mengganti isi editor');
+});
+
+test('T15 (statik): modal Set Bobot membuang overlay lama & bisa ditutup via modal-dismiss', () => {
+    const fn = extractFunction(ADMIN_JS_SRC, 'setAllWeights');
+    assert.ok(fn, 'setAllWeights ada');
+    assert.match(fn, /getElementById\('bulkWeightModal'\)/, 'overlay lama dicari sebelum dibuat');
+    assert.match(fn, /previous\.remove/, 'overlay lama dibuang agar id tidak duplikat');
+    assert.match(fn, /modal-dismiss/, 'backdrop/Escape memakai jalur modal-dismiss');
+    assert.match(fn, /closeBulkWeightModal/, 'penutup modal Set Bobot terhubung');
+
+    const close = extractFunction(ADMIN_JS_SRC, 'closeBulkWeightModal');
+    assert.ok(close, 'closeBulkWeightModal ada');
+    assert.match(close, /getElementById\('bulkWeightModal'\)/);
+    assert.match(close, /remove/, 'overlay benar-benar dilepas dari DOM');
+});
+
+test('T15 (statik): klik opsi di dropdown pengawas tidak dianggap klik-luar', () => {
+    assert.match(ADMIN_JS_SRC, /dd\.contains && dd\.contains\(target\)/,
+        'listener document harus mengabaikan klik di dalam dropdown');
+    assert.match(ADMIN_JS_SRC, /hd\.contains && hd\.contains\(target\)/,
+        'klik di header juga bukan klik-luar');
+});
+
+test('T15 (statik): hapus chip pengawas menandai konfigurasi kotor', () => {
+    assert.match(ADMIN_JS_SRC, /cb\.checked = false; renderHeaderChips\(\); markQuestionsConfigDirty\(\)/,
+        'perubahan programatik dari chip harus ikut dirty-tracking');
+});
+
+test('T15 (statik): drag reorder memakai divider tepat setelah kartu (paruh bawah berfungsi)', () => {
+    for (const name of ['handleDragOver', 'handleDrop']) {
+        const fn = extractFunction(ADMIN_JS_SRC, name);
+        assert.ok(fn, `${name} ada`);
+        assert.match(fn, /dropDivider = this\.nextSibling;/, `${name}: divider setelah kartu, bukan kartu berikutnya`);
+        assert.doesNotMatch(fn, /nextSibling\?\.nextSibling/, `${name}: jangan lompat ke kartu berikutnya`);
+    }
+    const drop = extractFunction(ADMIN_JS_SRC, 'handleDrop');
+    assert.match(drop, /!dragSrcCard \|\| dragSrcCard === this/, 'drop tanpa sumber drag diabaikan');
 });
 
 // ---------------------------------------------------------------------------

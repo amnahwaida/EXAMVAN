@@ -503,8 +503,9 @@ test('R32: SETIAP label settings.html terasosiasi (for→id ada, atau wrapping e
     const { total, associated, problems } = auditLabels(SETTINGS);
     assert.deepEqual(problems, [],
         `masih ada ${problems.length} label tanpa asosiasi programatik:\n${problems.join('\n')}`);
-    // Baseline pasangan (ronde 3: 41 dari 81) tidak boleh turun.
-    assert.ok(total >= 80, `total label = ${total}, tidak boleh menyusut drastis (baseline ±81)`);
+    // Baseline pasangan (ronde 3: 41 dari 81; 4 label modal ubah password
+    // pindah ke partial nav → 77) tidak boleh turun.
+    assert.ok(total >= 77, `total label = ${total}, tidak boleh menyusut drastis (baseline ±77)`);
     assert.ok(associated >= 41, `pasangan terasosiasi = ${associated}, baseline 41`);
     assert.ok(associated > 60, `pasangan terasosiasi = ${associated}, hasil sweep R32 harus melompat signifikan`);
 });
