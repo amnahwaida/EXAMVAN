@@ -148,7 +148,7 @@ var DefaultSettings = map[string]string{
 	SettingDefaultActiveDays:         "14",
 	SettingDefaultMaxConcurrentExams: "2",
 	SettingDefaultMaxStorageSize:     "52428800",
-	SettingAndroidVersion:            "2.7.19",
+	SettingAndroidVersion:            "2.7.20",
 	SettingWebappVersion:             "2.2.0",
 	SettingCertificateFingerprint:    "",
 	SettingSEOTitle:                  "EXAMVAN - Aplikasi Ujian Online Aman & Tertib",

@@ -14,7 +14,8 @@ package com.examvan.app.helper
  *                                      saat hanya `options` yang dikirim.
  *  - matching                        : WAJIB punya `left_items` DAN
  *                                      `right_items` valid.
- *  - true_false / short_answer       : tanpa data tambahan.
+ *  - true_false / short_answer       : tanpa data tambahan, kecuali
+ *                                      `statements` untuk beberapa isian.
  *  - tipe tidak dikenal              : SKIP (dulu diam-diam masuk hitungan
  *                                      totalQuestions tanpa dirender).
  */
@@ -48,7 +49,9 @@ object QuestionRenderPolicy {
         val statements: List<String>?,   // true_false multi-pernyataan
         val leftItems: List<String>?,    // matching
         val rightItems: List<String>?,   // matching
-        val numbering: String?           // matching: single/range
+        val numbering: String?,
+        val trueLabel: String? = null,
+        val falseLabel: String? = null
     ) : Decision()
 
     /** Soal dilewati; [reason] menjelaskan kenapa. */
@@ -61,14 +64,20 @@ object QuestionRenderPolicy {
             "single_choice", "multiple_choice" -> choiceOptions(q)
             else -> null
         }
-        val statements = if (type == "true_false") {
+        val statements = if (type == "true_false" || type == "short_answer") {
             QuestionParsing.stringList(q["statements"]).takeIf { it.isNotEmpty() }
         } else {
             null
         }
         val leftItems = if (type == "matching") QuestionParsing.stringList(q["left_items"]) else null
         val rightItems = if (type == "matching") QuestionParsing.stringList(q["right_items"]) else null
-        val numbering = if (type == "matching") QuestionParsing.normalizeNumbering(q["numbering"]) else null
+        val numbering = if (type == "matching" || type == "short_answer") {
+            QuestionParsing.normalizeNumbering(q["numbering"])
+        } else {
+            null
+        }
+        val trueLabel = if (type == "true_false") (q["true_label"] as? String)?.trim()?.takeIf { it.isNotEmpty() } else null
+        val falseLabel = if (type == "true_false") (q["false_label"] as? String)?.trim()?.takeIf { it.isNotEmpty() } else null
 
         return when {
             type != "single_choice" && type != "multiple_choice" &&
@@ -81,7 +90,7 @@ object QuestionRenderPolicy {
             type == "matching" && (leftItems.isNullOrEmpty() || rightItems.isNullOrEmpty()) ->
                 Skip(SkipReason.NO_MATCHING_ITEMS)
 
-            else -> Render(type, choices, statements, leftItems, rightItems, numbering)
+            else -> Render(type, choices, statements, leftItems, rightItems, numbering, trueLabel, falseLabel)
         }
     }
 }

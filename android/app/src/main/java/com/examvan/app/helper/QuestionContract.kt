@@ -58,9 +58,14 @@ object QuestionContract {
                 candidate
             }
             seenNumbers.add(number)
+            val normalizedType = QuestionParsing.normalizeType(question.type)
             val numbering = QuestionParsing.normalizeNumbering(question.numbering)
             val numberingSpan = if (numbering == "range") {
-                (question.leftItems?.count { it.isNotBlank() } ?: 0).coerceAtLeast(1)
+                when (normalizedType) {
+                    "matching" -> question.leftItems?.count { it.isNotBlank() } ?: 0
+                    "short_answer" -> question.statements?.count { it.isNotBlank() } ?: 0
+                    else -> 0
+                }.coerceAtLeast(1)
             } else {
                 1
             }
@@ -68,13 +73,16 @@ object QuestionContract {
 
             question.copy(
                 number = number,
-                type = QuestionParsing.normalizeType(question.type),
+                type = normalizedType,
                 weight = question.weight.takeIf { it > 0 } ?: 1.0,
                 choices = question.choices.cleanList(),
                 statements = question.statements.cleanList(),
+                trueLabel = question.trueLabel.cleanText(),
+                falseLabel = question.falseLabel.cleanText(),
                 leftItems = question.leftItems.cleanList(),
                 rightItems = question.rightItems.cleanList(),
-                numbering = numbering
+                numbering = numbering,
+                answerOrder = question.answerOrder?.trim()?.lowercase()?.takeIf { it == "any" }
             )
         }
     }
@@ -100,15 +108,21 @@ object QuestionContract {
                 map["options"] = it
             }
             question.statements?.takeIf { it.isNotEmpty() }?.let { map["statements"] = it }
+            question.trueLabel?.takeIf { it.isNotBlank() }?.let { map["true_label"] = it }
+            question.falseLabel?.takeIf { it.isNotBlank() }?.let { map["false_label"] = it }
             question.leftItems?.takeIf { it.isNotEmpty() }?.let { map["left_items"] = it }
             question.rightItems?.takeIf { it.isNotEmpty() }?.let { map["right_items"] = it }
             question.numbering?.let { map["numbering"] = it }
+            question.answerOrder?.takeIf { it == "any" }?.let { map["answer_order"] = it }
             map
         }
     }
 
     private fun List<String>?.cleanList(): List<String>? =
         this?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }
+
+    private fun String?.cleanText(): String? =
+        this?.trim()?.takeIf { it.isNotEmpty() }
 
     private object QuestionDeserializer : JsonDeserializer<Question> {
         override fun deserialize(
@@ -122,14 +136,22 @@ object QuestionContract {
             val type = QuestionParsing.normalizeType(obj.string("type"))
             val number = obj.intValue(obj.get("number"))
             val weight = obj.doubleValue(obj.get("weight"))?.takeIf { it > 0 } ?: 1.0
-            val partial = obj.boolValue(obj.get("partial_scoring"))
+            val partialRaw = obj.member("partial_scoring")
+            val partial = if (partialRaw == null) {
+                QuestionParsing.supportsPartialScoring(type)
+            } else {
+                obj.boolValue(partialRaw)
+            }
             val label = obj.string("label")?.trim()?.takeIf { it.isNotEmpty() }
             val choices = listOf("choices", "options", "pilihan", "pilihan_jawaban", "items")
                 .firstNotNullOfOrNull { obj.stringList(it) }
             val statements = obj.stringList("statements")
+            val trueLabel = obj.string("true_label")?.trim()?.takeIf { it.isNotEmpty() }
+            val falseLabel = obj.string("false_label")?.trim()?.takeIf { it.isNotEmpty() }
             val leftItems = obj.stringList("left_items")
             val rightItems = obj.stringList("right_items")
             val numbering = QuestionParsing.normalizeNumbering(obj.string("numbering"))
+            val answerOrder = obj.string("answer_order")?.trim()?.lowercase()?.takeIf { it == "any" }
 
             return Question(
                 number = number,
@@ -139,9 +161,12 @@ object QuestionContract {
                 label = label,
                 choices = choices,
                 statements = statements,
+                trueLabel = trueLabel,
+                falseLabel = falseLabel,
                 leftItems = leftItems,
                 rightItems = rightItems,
-                numbering = numbering
+                numbering = numbering,
+                answerOrder = answerOrder
             )
         }
 

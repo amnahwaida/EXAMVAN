@@ -1063,14 +1063,26 @@
  return { text: 'Belum Lulus', cls: 'score-status-fail' };
  }
 
+ function trueFalseAnswerLabel(v, q) {
+ if (!q || v === undefined || v === null) return v;
+ var raw = String(v).trim().toUpperCase();
+ if (raw === 'TRUE') return q.true_label || 'Benar';
+ if (raw === 'FALSE') return q.false_label || 'Salah';
+ return v;
+ }
+
  function formatAnswer(val, q) {
  if (val === undefined || val === null) return '<span style="color:var(--color-text-muted);">&mdash;</span>';
  if (q && Array.isArray(q.statements) && q.statements.length > 0 && Array.isArray(val)) {
  return val.map(function(v, i) {
  var stmt = q.statements[i] !== undefined ? q.statements[i] : '';
- var mark = (v === undefined || v === null || v === '') ? '&mdash;' : escapeHtml(String(v));
+ var mark = (v === undefined || v === null || v === '') ? '&mdash;' : escapeHtml(String(trueFalseAnswerLabel(v, q)));
  return '<div style="margin-bottom:2px;"><span style="color:var(--color-text-muted);">' + escapeHtml(String(i + 1)) + '. ' + escapeHtml(String(stmt)) + '</span> &rarr; <strong>' + mark + '</strong></div>';
  }).join('');
+ }
+ if (q && q.type === 'true_false') {
+ if (Array.isArray(val)) return escapeHtml(val.map(function(v) { return trueFalseAnswerLabel(v, q); }).join(', '));
+ return escapeHtml(String(trueFalseAnswerLabel(val, q)));
  }
  if (Array.isArray(val)) return escapeHtml(val.join(', '));
  if (typeof val === 'object') return escapeHtml(Object.entries(val).map(function(e) { return e[0] + '→' + e[1]; }).join(', '));

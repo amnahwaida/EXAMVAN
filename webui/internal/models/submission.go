@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/jackc/pgx/v5"
@@ -54,7 +55,41 @@ type Question struct {
 	Weight         float64     `json:"weight"`
 	Score          float64     `json:"score"` // alternative for weight
 	PartialScoring bool        `json:"partial_scoring"`
+	AnswerOrder    string      `json:"answer_order,omitempty"`
 	Label          string      `json:"label,omitempty"`
+}
+
+func (q *Question) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Number         interface{} `json:"number"`
+		Key            interface{} `json:"key"`
+		Answer         interface{} `json:"answer"`
+		Type           string      `json:"type"`
+		Weight         float64     `json:"weight"`
+		Score          float64     `json:"score"`
+		PartialScoring interface{} `json:"partial_scoring"`
+		AnswerOrder    string      `json:"answer_order"`
+		Label          string      `json:"label"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	answerOrder := "ordered"
+	if strings.EqualFold(strings.TrimSpace(wire.AnswerOrder), "any") {
+		answerOrder = "any"
+	}
+	*q = Question{
+		Number:         wire.Number,
+		Key:            wire.Key,
+		Answer:         wire.Answer,
+		Type:           wire.Type,
+		Weight:         wire.Weight,
+		Score:          wire.Score,
+		PartialScoring: normalizePartialScoring(wire.PartialScoring, wire.PartialScoring != nil, normalizeQuestionType(wire.Type)),
+		AnswerOrder:    answerOrder,
+		Label:          wire.Label,
+	}
+	return nil
 }
 
 // GetKey returns the answer key, checking both Key and Answer fields.
@@ -206,7 +241,7 @@ func QuestionNumbers(questions []Question) []string {
 
 // evaluateSingleQuestion evaluates a single student answer against the correct answer.
 // Returns the earned score and status details.
-func evaluateSingleQuestion(studentAns, correctAns interface{}, qType string, qWeight float64, partialScoring bool) EvaluationDetail {
+func evaluateSingleQuestion(studentAns, correctAns interface{}, qType string, qWeight float64, partialScoring bool, answerOrder string) EvaluationDetail {
 	if studentAns == nil || correctAns == nil {
 		if studentAns == nil {
 			return EvaluationDetail{Earned: 0, StatusText: StatusUnanswered, StatusClass: StatusUnanswered}
@@ -234,10 +269,13 @@ func evaluateSingleQuestion(studentAns, correctAns interface{}, qType string, qW
 		// Toleransi numerik (review alur ujian 14 Nov 2026): jawaban yang BENAR
 		// secara nilai jangan dinilai salah hanya karena format ketikan
 		// ("1.0" vs "1", "1,50" vs "1.5", "007" vs "7"). Bila kedua sisi
-		// terbaca sebagai angka, bandingkan nilai float-nya; selain itu
-		// perilaku lama (upper + rapatkan spasi) dipertahankan — jawaban teks
-		// tidak berubah. Koma dipetakan ke titik (desimal Indonesia);
-		// "1.234" tetap 1.234 — pemisah ribuan tidak dikenali, sengaja.
+		// terbaca sebagai angka, bandingkan nilai float-nya; teks dibandingkan
+		// tanpa memandang huruf besar/kecil maupun spasi. Koma dipetakan ke
+		// titik (desimal Indonesia); "1.234" tetap 1.234 — pemisah ribuan
+		// tidak dikenali, sengaja.
+		if correctList, ok := toStringList(correctAns); ok && len(correctList) > 0 {
+			return evaluateShortAnswerMulti(studentAns, correctList, qWeight, partialScoring, answerOrder)
+		}
 		sNorm := normalizeShortAnswer(studentAns)
 		cNorm := normalizeShortAnswer(correctAns)
 		if sNorm == cNorm {
@@ -291,12 +329,19 @@ func toMapStringInterface(v interface{}) map[string]interface{} {
 	}
 }
 
-// normalizeShortAnswer menormalkan jawaban isian singkat: upper + rapatkan
-// spasi, lalu — bila nilai terbaca sebagai angka (koma diterima sebagai
-// desimal) — kanonik ke bentuk float tanpa nol berlebih. Nilai bukan angka
-// kembali apa adanya (sudah di-upper).
+// normalizeShortAnswer menormalkan jawaban isian singkat: upper dan buang
+// SEMUA spasi, lalu — bila nilai terbaca sebagai angka (koma diterima sebagai
+// desimal) — kanonik ke bentuk float tanpa nol berlebih. Membuang seluruh
+// spasi membuat "Ibu Kota" cocok dengan "ibukota", sesuai toleransi yang
+// diminta guru. Nilai bukan angka kembali apa adanya (sudah di-upper).
 func normalizeShortAnswer(v interface{}) string {
-	s := strings.ToUpper(strings.Join(strings.Fields(fmt.Sprintf("%v", v)), " "))
+	s := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, fmt.Sprintf("%v", v))
+	s = strings.ToUpper(s)
 	n := strings.ReplaceAll(s, ",", ".")
 	if f, err := strconv.ParseFloat(n, 64); err == nil {
 		return strconv.FormatFloat(f, 'f', -1, 64)
@@ -349,6 +394,69 @@ func evaluateTrueFalseMulti(studentAns interface{}, correctList []string, qWeigh
 		sNorm := strings.ToUpper(strings.TrimSpace(studentList[i]))
 		if sNorm == cNorm {
 			correctCount++
+		}
+	}
+
+	if partialScoring {
+		portion := float64(correctCount) / float64(total)
+		earned := portion * qWeight
+		switch {
+		case correctCount == total:
+			return EvaluationDetail{Earned: earned, StatusText: StatusCorrect, StatusClass: StatusCorrect}
+		case correctCount > 0:
+			return EvaluationDetail{Earned: earned, StatusText: StatusPartial, StatusClass: StatusPartial}
+		default:
+			return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
+		}
+	}
+
+	if correctCount == total {
+		return EvaluationDetail{Earned: qWeight, StatusText: StatusCorrect, StatusClass: StatusCorrect}
+	}
+	return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
+}
+
+// evaluateShortAnswerMulti scores a short-answer card that carries several
+// answer fields. Ordered mode matches answers by index; "any" mode allows each
+// key to match any unused student answer (one-to-one). Both modes use the same
+// case/space-insensitive normalizer. With partial scoring every correct field
+// contributes weight/len(key).
+func evaluateShortAnswerMulti(studentAns interface{}, correctList []string, qWeight float64, partialScoring bool, answerOrder string) EvaluationDetail {
+	studentList, ok := toStringList(studentAns)
+	if !ok {
+		if studentAns == nil {
+			studentList = nil
+		} else if s := strings.TrimSpace(fmt.Sprintf("%v", studentAns)); s != "" {
+			studentList = []string{s}
+		}
+	}
+
+	total := len(correctList)
+	if total == 0 {
+		return EvaluationDetail{Earned: 0, StatusText: StatusIncorrect, StatusClass: StatusIncorrect}
+	}
+	correctCount := 0
+	if strings.EqualFold(strings.TrimSpace(answerOrder), "any") {
+		used := make([]bool, len(studentList))
+		for _, c := range correctList {
+			cNorm := normalizeShortAnswer(c)
+			for i, s := range studentList {
+				if used[i] || normalizeShortAnswer(s) != cNorm {
+					continue
+				}
+				used[i] = true
+				correctCount++
+				break
+			}
+		}
+	} else {
+		for i, c := range correctList {
+			if i >= len(studentList) {
+				continue
+			}
+			if normalizeShortAnswer(studentList[i]) == normalizeShortAnswer(c) {
+				correctCount++
+			}
 		}
 	}
 
@@ -497,7 +605,7 @@ func EvaluateAnswersDetailed(answers map[string]interface{}, questions []Questio
 
 		detail := evaluateSingleQuestion(
 			studentAns, correctAns, normalizeQuestionType(q.Type),
-			qWeight, q.PartialScoring,
+			qWeight, q.PartialScoring, q.AnswerOrder,
 		)
 		result[qNum] = detail
 	}

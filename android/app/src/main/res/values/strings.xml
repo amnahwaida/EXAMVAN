@@ -134,9 +134,13 @@
     <string name="answer_sheet_question_number">Soal %1$d</string>
     <string name="answer_sheet_question_range">Soal %1$d–%2$d</string>
     <string name="answer_sheet_true_false_suffix">(Benar/Salah)</string>
+    <string name="answer_sheet_true_label">Benar</string>
+    <string name="answer_sheet_false_label">Salah</string>
     <string name="answer_sheet_multiple_suffix">(Pilih beberapa)</string>
     <string name="answer_sheet_matching_suffix">(Menjodohkan)</string>
     <string name="answer_sheet_short_answer_suffix">(Isian Singkat)</string>
+    <string name="answer_sheet_short_answer_hint">Ketik jawaban Anda di sini</string>
+    <string name="answer_sheet_short_answer_item_hint">Jawaban %1$d</string>
     <string name="spinner_placeholder">-- Pilih --</string>
     <string name="results_load_error">Gagal memuat halaman hasil. Periksa koneksi internet Anda lalu ketuk tombol tutup dan coba lagi.</string>
     <string name="status_battery_charging">Mengisi baterai</string>

@@ -1,5 +1,7 @@
 /* EXAMVAN Admin Panel - JavaScript */
 
+const MAX_SHORT_ANSWER_FIELDS = 10;
+
 // __adminHasRole returns true when the current admin's session role string
 // contains the given role. The session role is usually normalized at login
 // ("operator", "superadmin") but can also hold the raw role JSON (e.g.
@@ -575,7 +577,7 @@ function closeQuestionsModal(force) {
         if (t && t.classList && t.classList.contains('q-type-select')) {
             onQuestionTypeChange(t);
         }
-        if (t && t.classList && t.classList.contains('q-matching-numbering-select')) {
+        if (t && t.classList && (t.classList.contains('q-matching-numbering-select') || t.classList.contains('q-short-numbering-select'))) {
             reindexQuestions();
         }
     });
@@ -583,14 +585,18 @@ function closeQuestionsModal(force) {
     // kartu diedit — penanda hanya hidup sampai nilainya disentuh lagi.
     qModal.addEventListener('input', function (e) {
         var t = e.target;
-        if (t && t.classList && (t.classList.contains('q-key-input') || t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input'))) {
+        if (t && t.classList && t.classList.contains('q-weight-input')) {
+            var weightCard = t.closest('.question-editor-card');
+            if (weightCard) weightCard.dataset.autoWeight = 'false';
+        }
+        if (t && t.classList && (t.classList.contains('q-key-input') || t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input') || t.classList.contains('q-short-statements-input') || t.classList.contains('q-short-keys-input') || t.classList.contains('q-tf-true-label') || t.classList.contains('q-tf-false-label'))) {
             var card = t.closest('.question-editor-card');
             if (card) {
                 card.style.outline = '';
-                if (t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input')) {
+                if (t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input') || t.classList.contains('q-short-statements-input') || t.classList.contains('q-short-keys-input') || t.classList.contains('q-tf-true-label') || t.classList.contains('q-tf-false-label')) {
                     renderQuestionAssist(card);
                 }
-                if (t.classList.contains('q-left-items-input')) {
+                if (t.classList.contains('q-left-items-input') || t.classList.contains('q-short-statements-input') || t.classList.contains('q-short-keys-input')) {
                     reindexQuestions();
                 }
             }
@@ -722,6 +728,7 @@ function renderTrueFalseAnswerRows(card) {
     const keyValues = keyRaw
         ? keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x)
         : [];
+    const labels = trueFalseAnswerLabels(card);
 
     list.innerHTML = '';
     statements.forEach((statement, idx) => {
@@ -738,7 +745,7 @@ function renderTrueFalseAnswerRows(card) {
 
         const select = document.createElement('select');
         select.className = 'q-tf-answer-select';
-        [['TRUE', 'Benar'], ['FALSE', 'Salah']].forEach(([val, text]) => {
+        [['TRUE', labels.true], ['FALSE', labels.false]].forEach(([val, text]) => {
             const opt = document.createElement('option');
             opt.value = val;
             opt.textContent = text;
@@ -764,6 +771,40 @@ function splitEditorLines(value) {
 
 function splitEditorCsv(value) {
     return String(value || '').split(',').map(x => x.trim()).filter(x => x);
+}
+
+function questionStructureSpan(card) {
+    if (!card) return 1;
+    const typeSel = card.querySelector('.q-type-select');
+    const type = typeSel ? typeSel.value : '';
+    if (type === 'matching') {
+        const numberingSel = card.querySelector('.q-matching-numbering-select');
+        if (!numberingSel || numberingSel.value !== 'range') return 1;
+        const leftInput = card.querySelector('.q-left-items-input');
+        return Math.max(1, leftInput ? splitEditorLines(leftInput.value).length : 0);
+    }
+    if (type === 'short_answer') {
+        const numberingSel = card.querySelector('.q-short-numbering-select');
+        if (!numberingSel || numberingSel.value !== 'range') return 1;
+        const statementsInput = card.querySelector('.q-short-statements-input');
+        const keysInput = card.querySelector('.q-short-keys-input');
+        return Math.max(
+            1,
+            splitEditorLines(statementsInput ? statementsInput.value : '').length,
+            splitEditorLines(keysInput ? keysInput.value : '').length
+        );
+    }
+    return 1;
+}
+
+function syncQuestionAutoWeight(card, force) {
+    if (!card) return;
+    if (!force && card.dataset.autoWeight !== 'true') return;
+    const weightInput = card.querySelector('.q-weight-input');
+    if (!weightInput) return;
+    const span = questionStructureSpan(card);
+    weightInput.value = span > 1 ? String(span) : '1.0';
+    if (force) card.dataset.autoWeight = 'true';
 }
 
 function syncChoiceKey(card) {
@@ -925,6 +966,9 @@ function renderQuestionAssist(card) {
     const choiceGroup = card.querySelector('.q-choice-key-group');
     const matchingGroup = card.querySelector('.q-matching-group');
     const tfGroup = card.querySelector('.q-tf-answers-group');
+    const statementGroup = card.querySelector('.q-statements-group');
+    const labelsGroup = card.querySelector('.q-tf-labels-group');
+    const shortGroup = card.querySelector('.q-short-group');
     const optionsInput = card.querySelector('.q-options-input');
     const leftInput = card.querySelector('.q-left-items-input');
     const rightInput = card.querySelector('.q-right-items-input');
@@ -932,7 +976,15 @@ function renderQuestionAssist(card) {
     if (choiceGroup) choiceGroup.style.display = 'none';
     if (matchingGroup) matchingGroup.style.display = 'none';
     if (tfGroup) tfGroup.style.display = 'none';
+    if (statementGroup) statementGroup.style.display = type === 'true_false' ? 'block' : 'none';
+    if (labelsGroup) labelsGroup.style.display = type === 'true_false' ? 'block' : 'none';
+    if (shortGroup) shortGroup.style.display = type === 'short_answer' ? 'block' : 'none';
     if (keyGroup) keyGroup.style.display = 'flex';
+
+    if (type === 'short_answer') {
+        if (keyGroup) keyGroup.style.display = 'none';
+        return;
+    }
 
     if (type === 'true_false') {
         renderTrueFalseAnswerRows(card);
@@ -960,17 +1012,62 @@ function renderQuestionAssist(card) {
     }
 }
 
+function questionTypeSupportsPartial(type) {
+    return type === 'multiple_choice' || type === 'matching' || type === 'true_false' || type === 'short_answer';
+}
+
+function resolvePartialScoring(type, value) {
+    if (value === undefined || value === null || value === '') return questionTypeSupportsPartial(type);
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'tidak') return false;
+        if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'ya') return true;
+    }
+    return Boolean(value);
+}
+
+function defaultTrueFalseStatements() {
+    return ['Pernyataan 1', 'Pernyataan 2'];
+}
+
+function trueFalseCustomLabels(card) {
+    if (!card) return { trueLabel: '', falseLabel: '' };
+    const trueInput = card.querySelector('.q-tf-true-label');
+    const falseInput = card.querySelector('.q-tf-false-label');
+    return {
+        trueLabel: trueInput ? trueInput.value.trim() : '',
+        falseLabel: falseInput ? falseInput.value.trim() : ''
+    };
+}
+
+function trueFalseAnswerLabels(card) {
+    const labels = trueFalseCustomLabels(card);
+    return {
+        true: labels.trueLabel || 'Benar',
+        false: labels.falseLabel || 'Salah'
+    };
+}
+
 function createNewQuestionCard(q, num) {
     const type = q.type || 'single_choice';
     const key = q.key || '';
     const weight = q.weight !== undefined ? q.weight : 1.0;
-    const partial = q.partial_scoring ? 'checked' : '';
-    const partialVisibility = (type === 'multiple_choice' || type === 'matching' || type === 'true_false') ? 'block' : 'none';
+    const partial = resolvePartialScoring(type, q.partial_scoring) ? 'checked' : '';
+    const partialVisibility = questionTypeSupportsPartial(type) ? 'block' : 'none';
     const optionsVisibility = (type === 'true_false' || type === 'short_answer' || type === 'matching') ? 'none' : 'block';
     const matchingNumbering = (q.numbering === 'range') ? 'range' : 'single';
+    const shortNumbering = (q.numbering === 'range') ? 'range' : 'single';
+    const shortOrder = q.answer_order === 'any' ? 'any' : 'ordered';
     const statementsVisibility = type === 'true_false' ? 'block' : 'none';
+    const shortVisibility = type === 'short_answer' ? 'block' : 'none';
+    const trueLabelVal = typeof q.true_label === 'string' ? q.true_label.trim() : '';
+    const falseLabelVal = typeof q.false_label === 'string' ? q.false_label.trim() : '';
     const statements = Array.isArray(q.statements) ? q.statements : [];
     const statementsVal = statements.join('\n');
+    const shortStatementsVal = type === 'short_answer' ? statements.join('\n') : '';
+    const shortKeysVal = type === 'short_answer'
+        ? (Array.isArray(key) ? key.join('\n') : (typeof key === 'string' ? key : ''))
+        : '';
     
     let optionsVal = '';
     let matchingLeftVal = '1\n2\n3';
@@ -1000,6 +1097,7 @@ function createNewQuestionCard(q, num) {
     card.className = 'question-editor-card';
     card.draggable = true;
     card.dataset.questionNum = num;
+    card.dataset.autoWeight = q.weight === undefined || q.weight === null ? 'true' : 'false';
     // Drag events for reordering
     card.addEventListener('dragstart', handleDragStart);
     card.addEventListener('dragend', handleDragEnd);
@@ -1033,13 +1131,47 @@ function createNewQuestionCard(q, num) {
                 <span class="q-field-hint">Tulis satu pernyataan per baris.</span>
                 <textarea class="q-statements-input" rows="3" placeholder="Pernyataan 1&#10;Pernyataan 2">${escapeHtml(statementsVal)}</textarea>
             </div>
+            <div class="q-field-group q-tf-labels-group" style="display: ${statementsVisibility};">
+                <label>Label Jawaban Benar/Salah</label>
+                <span class="q-field-hint">Opsional. Kosongkan untuk memakai Benar dan Salah.</span>
+                <div class="q-matching-grid">
+                    <div class="q-matching-field">
+                        <label>Label Benar</label>
+                        <input type="text" class="q-tf-true-label" value="${escapeHtml(trueLabelVal)}" placeholder="Benar">
+                    </div>
+                    <div class="q-matching-field">
+                        <label>Label Salah</label>
+                        <input type="text" class="q-tf-false-label" value="${escapeHtml(falseLabelVal)}" placeholder="Salah">
+                    </div>
+                </div>
+            </div>
+            <div class="q-field-group q-short-group" style="display: ${shortVisibility};">
+                <label>Daftar Isian</label>
+                <span class="q-field-hint">Opsional, maksimal ${MAX_SHORT_ANSWER_FIELDS} isian per nomor. Satu isian per baris; jumlah baris menentukan jumlah kolom jawaban. Kosongkan untuk satu isian tanpa label.</span>
+                <textarea class="q-short-statements-input" rows="3" placeholder="Isian 1&#10;Isian 2">${escapeHtml(shortStatementsVal)}</textarea>
+                <label>Kunci Jawaban Isian</label>
+                <span class="q-field-hint">Satu kunci per baris, maksimal ${MAX_SHORT_ANSWER_FIELDS}. Spasi dan huruf besar/kecil diabaikan saat penilaian.</span>
+                <textarea class="q-short-keys-input" rows="3" placeholder="Jawaban 1&#10;Jawaban 2">${escapeHtml(shortKeysVal)}</textarea>
+                <label>Urutan Jawaban</label>
+                <span class="q-field-hint">Pilih bebas/acak bila siswa boleh mengisi jawaban dalam urutan mana pun.</span>
+                <select class="q-short-order-select">
+                    <option value="ordered" ${shortOrder === 'ordered' ? 'selected' : ''}>Harus urut sesuai kunci</option>
+                    <option value="any" ${shortOrder === 'any' ? 'selected' : ''}>Boleh acak / urutan bebas</option>
+                </select>
+                <label>Penomoran</label>
+                <span class="q-field-hint">Pilih rentang bila setiap isian memakai nomor sendiri; bobot otomatis mengikuti jumlah isian.</span>
+                <select class="q-short-numbering-select">
+                    <option value="single" ${shortNumbering === 'single' ? 'selected' : ''}>Satu nomor untuk seluruh kartu</option>
+                    <option value="range" ${shortNumbering === 'range' ? 'selected' : ''}>Rentang nomor — tiap isian dihitung</option>
+                </select>
+            </div>
             <div class="q-field-group q-key-group">
                 <label>Kunci Jawaban</label>
                 <input type="text" class="q-key-input" value="${escapeHtml(keyVal)}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B | Benar/Salah: TRUE,FALSE">
             </div>
             <div class="q-field-group q-assist-panel q-tf-answers-group" style="display: none;">
                 <label>Kunci Benar/Salah</label>
-                <span class="q-field-hint">Pilih Benar atau Salah untuk setiap pernyataan.</span>
+                <span class="q-field-hint">Pilih label jawaban untuk setiap pernyataan.</span>
                 <div class="q-tf-answer-list"></div>
             </div>
             <div class="q-field-group q-assist-panel q-choice-key-group" style="display: none;">
@@ -1137,20 +1269,12 @@ function reindexQuestions() {
     let currentNum = 1;
     children.forEach(child => {
         if (child.classList.contains('question-editor-card')) {
-            let span = 1;
-            const typeSel = child.querySelector('.q-type-select');
-            const numberingSel = child.querySelector('.q-matching-numbering-select');
-            if (typeSel && typeSel.value === 'matching' && numberingSel && numberingSel.value === 'range') {
-                const leftInput = child.querySelector('.q-left-items-input');
-                const leftCount = leftInput
-                    ? String(leftInput.value || '').split('\n').map(x => x.trim()).filter(x => x).length
-                    : 0;
-                span = Math.max(1, leftCount);
-            }
+            const span = questionStructureSpan(child);
             child.querySelector('.q-num-badge').textContent =
                 span > 1 ? `No. ${currentNum}–${currentNum + span - 1}` : `No. ${currentNum}`;
             child.querySelector('.q-number').value = currentNum;
             currentNum += span;
+            syncQuestionAutoWeight(child);
         }
     });
     
@@ -1636,18 +1760,25 @@ function onQuestionTypeChange(selectEl) {
     const leftItemsInput = card.querySelector('.q-left-items-input');
     const rightItemsInput = card.querySelector('.q-right-items-input');
     const keyInput = card.querySelector('.q-key-input');
+    const shortStatementsInput = card.querySelector('.q-short-statements-input');
+    const shortKeysInput = card.querySelector('.q-short-keys-input');
+    const shortNumbering = card.querySelector('.q-short-numbering-select');
+    const shortOrder = card.querySelector('.q-short-order-select');
     const partialGroup = card.querySelector('.q-partial-group');
+    const partialCb = card.querySelector('.q-partial-checkbox');
+    const labelsGroup = card.querySelector('.q-tf-labels-group');
     const type = selectEl.value;
     
-    if (type === 'multiple_choice' || type === 'matching' || type === 'true_false') {
+    if (questionTypeSupportsPartial(type)) {
         partialGroup.style.display = 'block';
+        if (partialCb) partialCb.checked = true;
     } else {
         partialGroup.style.display = 'none';
-        const partialCb = card.querySelector('.q-partial-checkbox');
         if (partialCb) partialCb.checked = false;
     }
     
     if (statementsGroup) statementsGroup.style.display = type === 'true_false' ? 'block' : 'none';
+    if (labelsGroup) labelsGroup.style.display = type === 'true_false' ? 'block' : 'none';
     if (type === 'true_false' || type === 'short_answer' || type === 'matching') {
         optionsGroup.style.display = 'none';
     } else {
@@ -1662,8 +1793,8 @@ function onQuestionTypeChange(selectEl) {
         keyInput.value = 'A, C';
     } else if (type === 'true_false') {
         optionsInput.value = '';
-        if (statementsInput) statementsInput.value = '';
-        keyInput.value = 'TRUE';
+        if (statementsInput) statementsInput.value = defaultTrueFalseStatements().join('\n');
+        keyInput.value = 'TRUE, FALSE';
     } else if (type === 'matching') {
         if (leftItemsInput) leftItemsInput.value = '1\n2\n3';
         if (rightItemsInput) rightItemsInput.value = 'A\nB\nC';
@@ -1672,7 +1803,13 @@ function onQuestionTypeChange(selectEl) {
     } else if (type === 'short_answer') {
         optionsInput.value = '';
         keyInput.value = '';
+        if (shortStatementsInput) shortStatementsInput.value = '';
+        if (shortKeysInput) shortKeysInput.value = '';
+        if (shortOrder) shortOrder.value = 'ordered';
+        if (shortNumbering) shortNumbering.value = 'single';
     }
+    card.dataset.autoWeight = 'true';
+    syncQuestionAutoWeight(card, true);
     renderQuestionAssist(card);
     reindexQuestions();
 }
@@ -1719,7 +1856,7 @@ function quickGenerateQuestions() {
 
     const questions = [];
     for (let i = 1; i <= qty; i++) {
-        let q = { number: i, type: type, weight: 1.0 };
+        let q = { number: i, type: type };
         if (type === 'single_choice') {
             q.options = ['A', 'B', 'C', 'D', 'E'];
             q.key = 'A';
@@ -1727,7 +1864,8 @@ function quickGenerateQuestions() {
             q.options = ['A', 'B', 'C', 'D', 'E'];
             q.key = ['A'];
         } else if (type === 'true_false') {
-            q.key = 'TRUE';
+            q.statements = defaultTrueFalseStatements();
+            q.key = ['TRUE', 'FALSE'];
         } else if (type === 'matching') {
             q.left_items = ['1', '2', '3'];
             q.right_items = ['A', 'B', 'C'];
@@ -1737,6 +1875,7 @@ function quickGenerateQuestions() {
             // menandai kartu dengan kunci kosong sebelum mengirim ke server.
             q.key = '';
         }
+        q.partial_scoring = resolvePartialScoring(type, undefined);
         questions.push(q);
     }
     replaceEditorQuestions(questions);
@@ -1753,9 +1892,15 @@ function getQuestionsFromEditor() {
         const optionsRaw = card.querySelector('.q-options-input').value.trim();
         const statementsInput = card.querySelector('.q-statements-input');
         const statementsRaw = statementsInput ? statementsInput.value : '';
+        const shortStatementsInput = card.querySelector('.q-short-statements-input');
+        const shortKeysInput = card.querySelector('.q-short-keys-input');
+        const shortNumberingSelect = card.querySelector('.q-short-numbering-select');
+        const shortOrderSelect = card.querySelector('.q-short-order-select');
         const weight = parseFloat(card.querySelector('.q-weight-input').value) || 1.0;
         const partialCheckbox = card.querySelector('.q-partial-checkbox');
-        const partialScoring = (type === 'multiple_choice' || type === 'matching' || type === 'true_false') && partialCheckbox ? partialCheckbox.checked : false;
+        const partialScoring = partialCheckbox
+            ? resolvePartialScoring(type, partialCheckbox.checked)
+            : resolvePartialScoring(type, undefined);
         
         let q = { number: number, type: type, weight: weight, partial_scoring: partialScoring };
         
@@ -1801,6 +1946,9 @@ function getQuestionsFromEditor() {
             } else {
                 q.key = keyRaw.toUpperCase();
             }
+            const labels = trueFalseCustomLabels(card);
+            if (labels.trueLabel) q.true_label = labels.trueLabel;
+            if (labels.falseLabel) q.false_label = labels.falseLabel;
         } else if (type === 'matching') {
             const numberingSel = card.querySelector('.q-matching-numbering-select');
             q.numbering = numberingSel && numberingSel.value === 'range' ? 'range' : 'single';
@@ -1821,7 +1969,20 @@ function getQuestionsFromEditor() {
             }
             q.key = keyObj;
         } else if (type === 'short_answer') {
-            q.key = keyRaw;
+            const statements = shortStatementsInput ? splitEditorLines(shortStatementsInput.value) : [];
+            const shortKeys = shortKeysInput ? splitEditorLines(shortKeysInput.value) : [];
+            if (statements.length > 0) q.statements = statements;
+            if (statements.length > 0 || shortKeys.length > 1) {
+                q.key = shortKeys;
+            } else {
+                q.key = shortKeys[0] || '';
+            }
+            if (shortOrderSelect && shortOrderSelect.value === 'any') {
+                q.answer_order = 'any';
+            }
+            if (shortNumberingSelect && shortNumberingSelect.value === 'range') {
+                q.numbering = 'range';
+            }
         }
         
         questions.push(q);
@@ -1854,9 +2015,10 @@ function exportXMLQuestions() {
     xml += '<questions>\n';
     
     questions.forEach(q => {
-        const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching' || q.type === 'true_false') ? ` partial_scoring="${xmlEscape(q.partial_scoring)}"` : '';
-        const numberingAttr = (q.type === 'matching' && q.numbering === 'range') ? ' numbering="range"' : '';
-        xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}${numberingAttr}>\n`;
+        const partialAttr = questionTypeSupportsPartial(q.type) ? ` partial_scoring="${xmlEscape(q.partial_scoring)}"` : '';
+        const numberingAttr = ((q.type === 'matching' || q.type === 'short_answer') && q.numbering === 'range') ? ' numbering="range"' : '';
+        const answerOrderAttr = (q.type === 'short_answer' && q.answer_order === 'any') ? ' answer_order="any"' : '';
+        xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}${numberingAttr}${answerOrderAttr}>\n`;
         
         if (q.type === 'single_choice' || q.type === 'multiple_choice') {
             const choices = q.options || q.choices;
@@ -1870,13 +2032,27 @@ function exportXMLQuestions() {
             if (q.right_items && q.right_items.length > 0) {
                 xml += `        <right_items>${xmlEscape(q.right_items.join(', '))}</right_items>\n`;
             }
-        } else if (q.type === 'true_false' && q.statements && q.statements.length > 0) {
-            xml += `        <statements>${xmlEscape(q.statements.join('\n'))}</statements>\n`;
+        } else if (q.type === 'true_false') {
+            if (q.statements && q.statements.length > 0) {
+                xml += `        <statements>${xmlEscape(q.statements.join('\n'))}</statements>\n`;
+            }
+            if (q.true_label) {
+                xml += `        <true_label>${xmlEscape(q.true_label)}</true_label>\n`;
+            }
+            if (q.false_label) {
+                xml += `        <false_label>${xmlEscape(q.false_label)}</false_label>\n`;
+            }
+        } else if (q.type === 'short_answer') {
+            if (q.statements && q.statements.length > 0) {
+                xml += `        <statements>${xmlEscape(q.statements.join('\n'))}</statements>\n`;
+            }
         }
         
         let keyStr = '';
         if ((q.type === 'multiple_choice' || q.type === 'true_false') && Array.isArray(q.key)) {
             keyStr = q.key.join(', ');
+        } else if (q.type === 'short_answer' && Array.isArray(q.key)) {
+            keyStr = q.key.join('\n');
         } else if (q.type === 'matching' && q.key && typeof q.key === 'object') {
             const pairs = [];
             for (const [k, v] of Object.entries(q.key)) {
@@ -1925,8 +2101,24 @@ function findQuestionCardProblems() {
         const statementsInput = card.querySelector('.q-statements-input');
         const statementsRaw = statementsInput ? statementsInput.value : '';
         const statements = statementsRaw.split('\n').map(x => x.trim()).filter(x => x);
+        const shortStatementsInput = card.querySelector('.q-short-statements-input');
+        const shortKeysInput = card.querySelector('.q-short-keys-input');
+        const shortStatements = shortStatementsInput
+            ? shortStatementsInput.value.split('\n').map(x => x.trim()).filter(x => x)
+            : [];
+        const shortKeys = shortKeysInput
+            ? shortKeysInput.value.split('\n').map(x => x.trim()).filter(x => x)
+            : [];
         let msg = '';
-        if (!keyRaw) {
+        if (type === 'short_answer') {
+            if (shortKeys.length === 0) {
+                msg = 'belum memiliki kunci jawaban';
+            } else if (shortStatements.length > MAX_SHORT_ANSWER_FIELDS || shortKeys.length > MAX_SHORT_ANSWER_FIELDS) {
+                msg = `jumlah isian maksimal ${MAX_SHORT_ANSWER_FIELDS} per nomor`;
+            } else if (shortStatements.length > 0 && shortKeys.length !== shortStatements.length) {
+                msg = `jumlah kunci jawaban (${shortKeys.length}) harus sama dengan jumlah isian (${shortStatements.length})`;
+            }
+        } else if (!keyRaw) {
             msg = 'belum memiliki kunci jawaban';
         } else if (type === 'true_false') {
             const keys = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
@@ -3305,9 +3497,14 @@ function importXMLQuestions(event) {
                 const node = questionNodes[i];
                 const number = parseInt(node.getAttribute("number")) || (i + 1);
                 const type = node.getAttribute("type") || "single_choice";
-                const weight = parseFloat(node.getAttribute("weight")) || 1.0;
-                const partialScoring = node.getAttribute("partial_scoring") === "true";
+                const weightAttr = node.getAttribute("weight");
+                let weight = parseFloat(weightAttr) || 1.0;
+                const partialAttr = node.getAttribute("partial_scoring");
+                const partialScoring = partialAttr === null || partialAttr.trim() === ''
+                    ? resolvePartialScoring(type, undefined)
+                    : resolvePartialScoring(type, partialAttr);
                 const numbering = node.getAttribute("numbering") === "range" ? "range" : "single";
+                const answerOrder = String(node.getAttribute("answer_order") || "").trim().toLowerCase() === "any" ? "any" : "ordered";
                 
                 // Terima <options> maupun <choices> (nama field legacy).
                 const parseCSVNode = (tag) => {
@@ -3324,16 +3521,28 @@ function importXMLQuestions(event) {
                     const list = n.textContent.split(/\r?\n/).map(x => x.trim()).filter(x => x);
                     return list.length ? list : null;
                 };
+                const parseTextNode = (tag) => {
+                    const n = node.getElementsByTagName(tag)[0];
+                    if (!n) return null;
+                    const text = n.textContent.trim();
+                    return text || null;
+                };
                 let left_items = null;
                 let right_items = null;
                 let qOpts = null;
                 let statements = null;
+                let trueLabel = null;
+                let falseLabel = null;
                 if (type === 'single_choice' || type === 'multiple_choice') {
                     qOpts = parseCSVNode('options') || parseCSVNode('choices');
                 } else if (type === 'matching') {
                     left_items = parseCSVNode('left_items');
                     right_items = parseCSVNode('right_items');
                 } else if (type === 'true_false') {
+                    statements = parseLinesNode('statements');
+                    trueLabel = parseTextNode('true_label');
+                    falseLabel = parseTextNode('false_label');
+                } else if (type === 'short_answer') {
                     statements = parseLinesNode('statements');
                 }
                 
@@ -3356,12 +3565,26 @@ function importXMLQuestions(event) {
                         });
                         key = keyObj;
                     } else if (type === 'short_answer') {
-                        key = keyRaw;
+                        const keyLines = keyRaw.split(/\r?\n/).map(x => x.trim()).filter(x => x);
+                        const isMulti = (statements && statements.length > 0) || keyLines.length > 1;
+                        key = isMulti ? keyLines : keyRaw;
                     } else {
                         key = keyRaw.toUpperCase();
                     }
                 }
                 
+                if (numbering === "range" && (weightAttr === null || weightAttr.trim() === '')) {
+                    if (type === 'matching') {
+                        weight = Math.max(1, Array.isArray(left_items) ? left_items.length : 0);
+                    } else if (type === 'short_answer') {
+                        weight = Math.max(
+                            1,
+                            Array.isArray(statements) ? statements.length : 0,
+                            Array.isArray(key) ? key.length : 0
+                        );
+                    }
+                }
+
                 const qData = {
                     number: number,
                     type: type,
@@ -3373,7 +3596,10 @@ function importXMLQuestions(event) {
                 if (left_items) qData.left_items = left_items;
                 if (right_items) qData.right_items = right_items;
                 if (statements) qData.statements = statements;
-                if (type === 'matching') qData.numbering = numbering;
+                if (trueLabel) qData.true_label = trueLabel;
+                if (falseLabel) qData.false_label = falseLabel;
+                if (type === 'matching' || type === 'short_answer') qData.numbering = numbering;
+                if (type === 'short_answer' && answerOrder === 'any') qData.answer_order = 'any';
                 questions.push(qData);
             }
             
@@ -3403,16 +3629,16 @@ Pahamilah aturan format XML EXAMVAN berikut secara detail:
 Semua daftar soal harus dibungkus dalam tag root <questions>...</questions>.
 
 ### 2. Atribut Tag <question>
-Setiap butir soal ditulis sebagai elemen <question> dengan atribut wajib:
-- number: Nomor urut soal (angka bulat positif, misalnya: 1, 2, 3, dst).
-- type: Jenis tipe soal, harus bernilai salah satu dari:
+Setiap butir soal ditulis sebagai elemen <question> dengan atribut berikut:
+- number (wajib): Nomor urut soal (angka bulat positif, misalnya: 1, 2, 3, dst).
+- type (wajib): Jenis tipe soal, harus bernilai salah satu dari:
   - single_choice (Pilihan Ganda Biasa)
   - multiple_choice (Pilihan Ganda Kompleks)
   - true_false (Benar / Salah)
   - matching (Menjodohkan / Mencocokkan)
   - short_answer (Isian Singkat)
-- weight: Bobot nilai soal (default "1.0", bertipe desimal, misal: "1.0", "1.5", "2.0", dst).
-- partial_scoring: Nilai parsial untuk tipe multiple_choice, matching, atau true_false multi-pernyataan. Bernilai "true" jika siswa mendapat poin proporsional atas jawaban yang sebagian benar, atau "false" jika harus benar seluruhnya.
+- weight (wajib): Bobot nilai soal (default "1.0", bertipe desimal, misal: "1.0", "1.5", "2.0", dst).
+- partial_scoring (opsional): Nilai parsial untuk tipe multiple_choice, matching, true_false, atau short_answer. Default-nya "true" agar jawaban yang sebagian benar tetap mendapat poin proporsional. Set "false" hanya jika soal mewajibkan seluruh jawaban benar.
 
 ### 3. Skema Konten Per Tipe Soal
 
@@ -3428,7 +3654,7 @@ Contoh:
 #### B. Tipe multiple_choice (Pilihan Ganda Kompleks - Jawaban Lebih dari Satu)
 - Wajib memiliki tag <choices> berisi daftar opsi pilihan dipisahkan dengan koma (misal: A, B, C, D, E).
 - Tag <key> berisi daftar opsi jawaban benar dipisahkan dengan koma (misal: A, C, D).
-- Tambahkan atribut partial_scoring="true" jika ingin mengaktifkan penilaian sebagian.
+- Penilaian parsial aktif secara default. Tambahkan partial_scoring="false" hanya jika semua pilihan harus benar.
 Contoh:
 <question number="2" type="multiple_choice" weight="2.0" partial_scoring="true">
     <choices>A, B, C, D, E</choices>
@@ -3439,7 +3665,8 @@ Contoh:
 - Tidak membutuhkan tag <choices>.
 - SATU nomor boleh memuat BEBERAPA pernyataan. Tulis tag <statements> berisi daftar pernyataan, SATU PERNYATAAN PER BARIS (newline), agar teks yang mengandung koma tetap utuh.
 - Tag <key> berisi daftar nilai kapital TRUE atau FALSE dipisahkan koma, dengan URUTAN dan JUMLAH yang sama dengan pernyataan.
-- Tambahkan atribut partial_scoring="true" bila setiap pernyataan benar bernilai proporsional. Tanpa itu, semua pernyataan harus benar untuk mendapat nilai penuh.
+- Penilaian parsial aktif secara default. Tambahkan partial_scoring="false" hanya jika semua pernyataan harus benar.
+- Label jawaban default adalah Benar/Salah. Jika soal memakai istilah lain, tambahkan tag <true_label> dan <false_label>, misalnya Sesuai dan Tidak Sesuai. Kunci tetap ditulis TRUE/FALSE.
 Contoh satu pernyataan (format lama tetap didukung):
 <question number="3" type="true_false" weight="1.0">
     <key>TRUE</key>
@@ -3449,6 +3676,8 @@ Contoh beberapa pernyataan:
     <statements>Ibu kota Indonesia adalah Jakarta.
 2 + 2 = 5
 Air membeku pada suhu 0 derajat Celsius.</statements>
+    <true_label>Sesuai</true_label>
+    <false_label>Tidak Sesuai</false_label>
     <key>TRUE, FALSE, TRUE</key>
 </question>
 
@@ -3456,7 +3685,7 @@ Air membeku pada suhu 0 derajat Celsius.</statements>
 - Wajib memiliki tag <left_items> berisi daftar pertanyaan/item kiri yang dipisahkan koma.
 - Wajib memiliki tag <right_items> berisi daftar opsi jawaban kanan yang dipisahkan koma.
 - Tag <key> berisi relasi penjodohan dengan format itemKiri:itemKanan dipisahkan koma (misal: 1:B, 2:A, 3:C).
-- Tambahkan atribut partial_scoring="true" agar siswa mendapat poin proporsional atas pasangan yang cocok.
+- Penilaian parsial aktif secara default agar siswa mendapat poin proporsional atas pasangan yang cocok. Tambahkan partial_scoring="false" hanya jika semua pasangan harus benar.
 - Default seluruh kartu memakai SATU nomor. Tambahkan atribut numbering="range" HANYA bila setiap item kiri di soal asli memang bernomor sendiri; saat itu nomor soal berikutnya harus melompati jumlah item kiri (contoh: card nomor 4 dengan 3 item kiri memakai 4–6, soal berikutnya nomor 7).
 Contoh:
 <question number="4" type="matching" weight="3.0" partial_scoring="true">
@@ -3467,10 +3696,22 @@ Contoh:
 
 #### E. Tipe short_answer (Isian Singkat)
 - Tidak membutuhkan tag <choices>.
-- Tag <key> berisi kata kunci atau frasa jawaban benar yang diharapkan (misal: Fotosintesis atau Jakarta). Sistem akan mencocokkan jawaban siswa secara case-insensitive (mengabaikan huruf besar/kecil) dan membuang spasi di awal/akhir jawaban.
-Contoh:
+- Tag <key> berisi kata kunci atau frasa jawaban benar yang diharapkan (misal: Fotosintesis atau Jakarta).
+- Pencocokan mengabaikan huruf besar/kecil dan SEMUA spasi, sehingga Ibu Kota dianggap sama dengan ibukota. Koma desimal dinormalisasi, misalnya 1,5 sama dengan 1.5.
+- Penilaian parsial aktif secara default. Tambahkan partial_scoring="false" hanya jika semua isian harus benar.
+- SATU nomor boleh memuat BEBERAPA isian, MAKSIMAL 10 isian per nomor. Tulis tag <statements> berisi label/prompt tiap isian, SATU PER BARIS. Tag <key> berisi jawaban dengan urutan dan jumlah yang sama, juga SATU JAWABAN PER BARIS (newline) agar jawaban yang mengandung koma seperti 1,5 tetap utuh.
+- Default jawaban harus urut sesuai kunci. Tambahkan atribut answer_order="any" bila urutan jawaban siswa boleh acak; penilaian akan mencocokkan setiap kunci ke jawaban siswa yang belum terpakai.
+- Default seluruh kartu memakai SATU nomor. Tambahkan atribut numbering="range" HANYA bila setiap isian di soal asli memang bernomor sendiri; bobot sebaiknya sama dengan jumlah isian (contoh: 2 isian bernomor 5–6 memakai weight="2.0").
+Contoh satu isian:
 <question number="5" type="short_answer" weight="1.5">
     <key>Fotosintesis</key>
+</question>
+Contoh beberapa isian:
+<question number="5" type="short_answer" weight="2.0" numbering="range" partial_scoring="true">
+    <statements>Ibu kota Indonesia adalah ...
+Hasil dari 3 + 4 adalah ...</statements>
+    <key>Jakarta
+7</key>
 </question>
 
 ---

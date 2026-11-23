@@ -114,7 +114,7 @@ internal class AnswerSheetAdapter(
     inner class QuestionViewHolder(val view: View) : RecyclerView.ViewHolder(view) {
 
         /** Watcher teks aktif — dilepas sebelum re-bind (lihat catatan kelas). */
-        private var shortAnswerWatcher: android.text.TextWatcher? = null
+        private val shortAnswerWatchers = mutableListOf<Pair<EditText, android.text.TextWatcher>>()
 
         fun bind(item: AnswerSheetItem) {
             when (item.type) {
@@ -122,17 +122,16 @@ internal class AnswerSheetAdapter(
                     bindRadio(item.number, item.choices!!, labelSuffix = null)
                 AnswerSheetItem.TYPE_TRUE_FALSE ->
                     if (item.statements.isNullOrEmpty()) {
-                        bindRadio(item.number, listOf("TRUE", "FALSE"),
-                            labelSuffix = R.string.answer_sheet_true_false_suffix)
+                        bindTrueFalseRadio(item.number, item.trueLabel, item.falseLabel)
                     } else {
-                        bindTrueFalseMulti(item.number, item.statements)
+                        bindTrueFalseMulti(item.number, item.statements, item.trueLabel, item.falseLabel)
                     }
                 AnswerSheetItem.TYPE_MULTIPLE_CHOICE ->
                     bindMultiple(item.number, item.choices!!)
                 AnswerSheetItem.TYPE_MATCHING ->
                     bindMatching(item.number, item.leftItems!!, item.rightItems!!, item.numberEnd)
                 AnswerSheetItem.TYPE_SHORT_ANSWER ->
-                    bindShortAnswer(item.number)
+                    bindShortAnswer(item.number, item.statements, item.numberEnd)
             }
         }
 
@@ -183,7 +182,39 @@ internal class AnswerSheetAdapter(
 
         // ── True/False multi-pernyataan ──────────────────────────────────
 
-        private fun bindTrueFalseMulti(number: Int, statements: List<String>) {
+        private fun trueFalseOptions(trueLabel: String?, falseLabel: String?): List<Pair<String, String>> =
+            listOf(
+                "TRUE" to (trueLabel ?: context.getString(R.string.answer_sheet_true_label)),
+                "FALSE" to (falseLabel ?: context.getString(R.string.answer_sheet_false_label))
+            )
+
+        private fun bindTrueFalseRadio(number: Int, trueLabel: String?, falseLabel: String?) {
+            view.findViewById<TextView>(R.id.tvQuestionLabel).text =
+                questionLabel(number, R.string.answer_sheet_true_false_suffix)
+            val group = view.findViewById<RadioGroup>(R.id.rgChoices)
+            val checkboxes = view.findViewById<LinearLayout>(R.id.layoutCheckboxes)
+            checkboxes.visibility = View.GONE
+            group.visibility = View.VISIBLE
+            group.removeAllViews()
+
+            val selected = currentText(number)
+            for ((value, text) in trueFalseOptions(trueLabel, falseLabel)) {
+                val rb = RadioButton(context).apply {
+                    this.text = text
+                    tag = value
+                    setTextColor(ContextCompat.getColor(context, R.color.on_surface))
+                    buttonTintList = ContextCompat.getColorStateList(context, R.color.primary)
+                    textSize = 14f
+                    setPaddingRelative(4, 0, 16, 0)
+                    // State dulu, listener belakangan — bind tidak memicu event.
+                    isChecked = value == selected
+                }
+                rb.setOnCheckedChangeListener { _, _ -> onAnswerChanged(number, value) }
+                group.addView(rb)
+            }
+        }
+
+        private fun bindTrueFalseMulti(number: Int, statements: List<String>, trueLabel: String?, falseLabel: String?) {
             view.findViewById<TextView>(R.id.tvQuestionLabel).text =
                 questionLabel(number, R.string.answer_sheet_true_false_suffix)
             val group = view.findViewById<RadioGroup>(R.id.rgChoices)
@@ -208,9 +239,10 @@ internal class AnswerSheetAdapter(
                     orientation = RadioGroup.HORIZONTAL
                 }
                 val saved = selected.getOrNull(index)
-                for (value in listOf("TRUE", "FALSE")) {
+                for ((value, text) in trueFalseOptions(trueLabel, falseLabel)) {
                     val rb = RadioButton(context).apply {
-                        text = value
+                        this.text = text
+                        tag = value
                         setTextColor(ContextCompat.getColor(context, R.color.on_surface))
                         buttonTintList = ContextCompat.getColorStateList(context, R.color.primary)
                         textSize = 14f
@@ -239,7 +271,7 @@ internal class AnswerSheetAdapter(
                     val checked = group.checkedRadioButtonId
                     if (checked != -1) {
                         val rb = group.findViewById<RadioButton>(checked)
-                        selected[i] = rb?.text?.toString() ?: ""
+                        selected[i] = rb?.tag?.toString() ?: ""
                         if (selected[i].isNotEmpty()) answered = true
                     }
                 }
@@ -347,27 +379,103 @@ internal class AnswerSheetAdapter(
 
         // ── Short answer ─────────────────────────────────────────────────
 
-        private fun bindShortAnswer(number: Int) {
+        private fun bindShortAnswer(number: Int, statements: List<String>?, numberEnd: Int?) {
             view.findViewById<TextView>(R.id.tvQuestionLabel).text =
-                questionLabel(number, R.string.answer_sheet_short_answer_suffix)
-            val editText = view.findViewById<EditText>(R.id.etShortAnswer)
-            editText.filters = arrayOf(android.text.InputFilter.LengthFilter(IdentityFormPolicy.MAX_LENGTH))
+                questionLabel(number, R.string.answer_sheet_short_answer_suffix, numberEnd)
+            val container = view.findViewById<LinearLayout>(R.id.layoutShortAnswerFields)
 
             // KUNCI RECYCLING: lepas watcher lama SEBELUM menimpa teks, agar
             // teks soal lain tidak tercatat sebagai jawaban soal ini.
-            shortAnswerWatcher?.let { editText.removeTextChangedListener(it) }
-            editText.setText(currentText(number) ?: "")
+            for ((field, watcher) in shortAnswerWatchers) {
+                field.removeTextChangedListener(watcher)
+            }
+            shortAnswerWatchers.clear()
+            container.removeAllViews()
 
-            val watcher = object : android.text.TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-                override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-                override fun afterTextChanged(s: android.text.Editable?) {
+            val prompts = statements?.takeIf { it.isNotEmpty() }
+            val saved = currentStringList(number)
+                ?: currentText(number)?.let { listOf(it) }
+                ?: emptyList()
+
+            if (prompts == null) {
+                val editText = createShortAnswerField(
+                    container,
+                    context.getString(R.string.answer_sheet_short_answer_hint)
+                )
+                editText.setText(saved.getOrNull(0) ?: "")
+                val watcher = shortAnswerWatcher(number, multi = false, container = container)
+                editText.addTextChangedListener(watcher)
+                shortAnswerWatchers.add(editText to watcher)
+                return
+            }
+
+            for ((index, statement) in prompts.withIndex()) {
+                val label = TextView(context).apply {
+                    text = "${index + 1}. $statement"
+                    setTextColor(ContextCompat.getColor(context, R.color.on_surface))
+                    textSize = 14f
+                    setPadding(0, 4, 0, 2)
+                }
+                container.addView(label)
+                val editText = createShortAnswerField(
+                    container,
+                    context.getString(R.string.answer_sheet_short_answer_item_hint, index + 1)
+                )
+                editText.setText(saved.getOrNull(index) ?: "")
+                val watcher = shortAnswerWatcher(number, multi = true, container = container)
+                editText.addTextChangedListener(watcher)
+                shortAnswerWatchers.add(editText to watcher)
+            }
+        }
+
+        private fun createShortAnswerField(container: LinearLayout, hintText: String): EditText {
+            val editText = EditText(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                hint = hintText
+                textSize = 14f
+                setTextColor(ContextCompat.getColor(context, R.color.on_surface))
+                setHintTextColor(ContextCompat.getColor(context, R.color.text_muted))
+                backgroundTintList = ContextCompat.getColorStateList(context, R.color.primary)
+                inputType = android.text.InputType.TYPE_CLASS_TEXT
+                maxLines = 3
+                filters = arrayOf(android.text.InputFilter.LengthFilter(IdentityFormPolicy.MAX_LENGTH))
+                setPaddingRelative(0, 8, 0, 8)
+            }
+            container.addView(editText)
+            return editText
+        }
+
+        private fun shortAnswerWatcher(
+            number: Int,
+            multi: Boolean,
+            container: LinearLayout
+        ): android.text.TextWatcher = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!multi) {
                     val ans = s?.toString()?.trim() ?: ""
                     if (ans.isNotEmpty()) onAnswerChanged(number, ans) else onAnswerRemoved(number)
+                    return
                 }
+                emitShortAnswerMulti(container, number)
             }
-            editText.addTextChangedListener(watcher)
-            shortAnswerWatcher = watcher
+        }
+
+        private fun emitShortAnswerMulti(container: LinearLayout, number: Int) {
+            val answers = mutableListOf<String>()
+            var answered = false
+            for (i in 0 until container.childCount) {
+                val field = container.getChildAt(i) as? EditText ?: continue
+                val value = field.text?.toString()?.trim() ?: ""
+                answers.add(value)
+                if (value.isNotEmpty()) answered = true
+            }
+            while (answers.isNotEmpty() && answers.last().isEmpty()) answers.removeAt(answers.lastIndex)
+            if (answered) onAnswerChanged(number, answers) else onAnswerRemoved(number)
         }
     }
 

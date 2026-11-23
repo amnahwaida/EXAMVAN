@@ -119,6 +119,28 @@ class AnswerSheetPlannerTest {
     }
 
     @Test
+    fun plan_shortAnswerMulti_carriesStatementsAndRange() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "short_answer", "numbering" to "range",
+                "statements" to listOf("Ibu kota", "Hasil")))
+        )
+        assertEquals(listOf("Ibu kota", "Hasil"), items.single().statements)
+        assertEquals(2, items.single().numberEnd)
+    }
+
+    @Test
+    fun plan_shortAnswerRange_occupiesInnerNumbersForFallback() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(
+                mapOf("number" to 1, "type" to "short_answer", "numbering" to "range",
+                    "statements" to listOf("Satu", "Dua")),
+                mapOf("number" to "rusak", "type" to "short_answer")
+            )
+        )
+        assertEquals(listOf(1, 3), items.map { it.number })
+    }
+
+    @Test
     fun plan_trueFalseMulti_carriesStatements() {
         val items = AnswerSheetPlanner.plan(
             listOf(mapOf("number" to 1, "type" to "true_false",

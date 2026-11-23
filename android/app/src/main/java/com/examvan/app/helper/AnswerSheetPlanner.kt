@@ -9,14 +9,16 @@ data class AnswerSheetItem(
     val type: String,
     /** single_choice / multiple_choice. */
     val choices: List<String>?,
-    /** true_false multi-pernyataan; null/empty = format lama satu pernyataan. */
+    /** true_false multi-pernyataan atau short_answer multi-isian; null/empty = satu field. */
     val statements: List<String>?,
     /** matching. */
     val leftItems: List<String>?,
     /** matching. */
     val rightItems: List<String>?,
     /** Nomor terakhir yang dicakup (matching numbering=range); null = single. */
-    val numberEnd: Int? = null
+    val numberEnd: Int? = null,
+    val trueLabel: String? = null,
+    val falseLabel: String? = null
 ) {
     companion object {
         const val TYPE_SINGLE_CHOICE = "single_choice"
@@ -75,12 +77,13 @@ object AnswerSheetPlanner {
                 val decision = QuestionRenderPolicy.evaluate(q)
             ) {
                 is QuestionRenderPolicy.Render -> {
-                    val numberEnd = if (
-                        decision.type == AnswerSheetItem.TYPE_MATCHING &&
-                        decision.numbering == "range" &&
-                        (decision.leftItems?.size ?: 0) > 1
-                    ) {
-                        number + decision.leftItems!!.size - 1
+                    val span = when (decision.type) {
+                        AnswerSheetItem.TYPE_MATCHING -> decision.leftItems?.size ?: 0
+                        AnswerSheetItem.TYPE_SHORT_ANSWER -> decision.statements?.size ?: 0
+                        else -> 0
+                    }
+                    val numberEnd = if (decision.numbering == "range" && span > 1) {
+                        number + span - 1
                     } else {
                         null
                     }
@@ -97,7 +100,9 @@ object AnswerSheetPlanner {
                             statements = decision.statements,
                             leftItems = decision.leftItems,
                             rightItems = decision.rightItems,
-                            numberEnd = numberEnd
+                            numberEnd = numberEnd,
+                            trueLabel = decision.trueLabel,
+                            falseLabel = decision.falseLabel
                         )
                     )
                 }

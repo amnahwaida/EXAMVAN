@@ -33,7 +33,8 @@
           "minimum": 0
         },
         "partial_scoring": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Default true for multiple_choice, matching, true_false, and short_answer."
         },
         "label": {
           "type": "string"
@@ -62,7 +63,16 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "true_false: one statement per row. short_answer: label/prompt for each answer field. If short_answer has multiple keys but no statements, the server generates Isian 1, Isian 2, ..."
+        },
+        "true_label": {
+          "type": "string",
+          "description": "True/false only. Custom label for the TRUE answer (for example Sesuai). Empty means the client default."
+        },
+        "false_label": {
+          "type": "string",
+          "description": "True/false only. Custom label for the FALSE answer (for example Tidak Sesuai). Empty means the client default."
         },
         "left_items": {
           "type": "array",
@@ -82,10 +92,14 @@
         },
         "numbering": {
           "enum": ["single", "range"],
-          "description": "Matching only. single = the whole matching card uses one question number; range = each left item consumes one number (N..N+len(left_items)-1)."
+          "description": "matching or short_answer. single = the whole card uses one question number; range = each left item or answer field consumes one number (N..N+span-1)."
+        },
+        "answer_order": {
+          "enum": ["ordered", "any"],
+          "description": "short_answer only. ordered (default) matches answers by field index; any matches each key to any unused student answer."
         },
         "key": {
-          "description": "Answer key. SERVER-ONLY: the public student endpoint strips this field before responding."
+          "description": "Answer key. SERVER-ONLY: the public student endpoint strips this field before responding. short_answer accepts a string or an array of strings; matching uses item:item pairs; multiple_choice uses option letters."
         }
       },
       "allOf": [
@@ -113,6 +127,31 @@
           },
           "then": {
             "required": ["left_items", "right_items"]
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "const": "short_answer"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "statements": {
+                "maxItems": 10
+              },
+              "key": {
+                "if": {
+                  "type": "array"
+                },
+                "then": {
+                  "maxItems": 10
+                }
+              }
+            }
           }
         }
       ]

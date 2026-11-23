@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -24,6 +25,8 @@ func TestShortAnswerNumericTolerance(t *testing.T) {
 		{"nol di depan", "007", "7", StatusCorrect},
 		{"spasi ganda", "  1.50  ", "1.5", StatusCorrect},
 		{"teks case-insensitive", "jakarta", "JAKARTA", StatusCorrect},
+		{"spasi hilang", "ibukota", "Ibu Kota", StatusCorrect},
+		{"spasi di tengah", "Ibu   Kota", "ibukota", StatusCorrect},
 		{"bukan numerik -> string", "2.0.1", "2.0", StatusIncorrect},
 		{"memang beda", "2.5", "3.5", StatusIncorrect},
 		{"kosong vs isi", "", "1", StatusIncorrect},
@@ -44,6 +47,29 @@ func TestShortAnswerNumericTolerance(t *testing.T) {
 
 // TestMCPartialAndMatchingSanity mengunci formula partial yang sudah benar
 // agar refactor normalisasi short_answer tidak menyentuhnya.
+func TestParseQuestionsJSONPartialScoringDefaults(t *testing.T) {
+	raw := `[
+		{"number":1,"type":"multiple_choice"},
+		{"number":2,"type":"matching"},
+		{"number":3,"type":"true_false"},
+		{"number":4,"type":"multiple_choice","partial_scoring":false},
+		{"number":5,"type":"single_choice"},
+		{"number":6,"type":"true_false","partial_scoring":null},
+		{"number":7,"type":"multiple_choice","partial_scoring":"true"},
+		{"number":8,"type":"short_answer","key":"x"}
+	]`
+	questions, err := ParseQuestionsJSON(&raw)
+	if err != nil {
+		t.Fatalf("parse questions: %v", err)
+	}
+	want := []bool{true, true, true, false, false, true, true, true}
+	for i, q := range questions {
+		if q.PartialScoring != want[i] {
+			t.Fatalf("question %d partial=%v want=%v", i+1, q.PartialScoring, want[i])
+		}
+	}
+}
+
 func TestMCPartialAndMatchingSanity(t *testing.T) {
 	mc := []Question{{
 		Number: 1, Type: "multiple_choice", Weight: 4, PartialScoring: true,
@@ -169,6 +195,73 @@ func TestTrueFalseMultiStatementScoring(t *testing.T) {
 		map[string]interface{}{"1": []interface{}{"TRUE"}}, partial)["1"]
 	if got.StatusClass != StatusPartial || got.Earned != 1 {
 		t.Fatalf("jawaban terpotong: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+}
+
+func TestShortAnswerMultiScoring(t *testing.T) {
+	questions := []Question{{
+		Number: 1, Type: "short_answer", Weight: 3, PartialScoring: true,
+		Key: []interface{}{"Ibu Kota", "1,5", "Fotosintesis"},
+	}}
+	got := EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"ibukota", "1.50", "SALAH"}}, questions)["1"]
+	if got.StatusClass != StatusPartial || got.Earned != 2 {
+		t.Fatalf("partial 2/3: got %.2f/%s, want 2.00/%s", got.Earned, got.StatusClass, StatusPartial)
+	}
+
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"IBU KOTA", "1.5", "fotosintesis"}}, questions)["1"]
+	if got.StatusClass != StatusCorrect || got.Earned != 3 {
+		t.Fatalf("semua benar: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+
+	allOrNothing := []Question{{
+		Number: 2, Type: "short_answer", Weight: 2, PartialScoring: false,
+		Key: []interface{}{"Jakarta", "Bandung"},
+	}}
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"2": []interface{}{"jakarta", "salah"}}, allOrNothing)["2"]
+	if got.StatusClass != StatusIncorrect || got.Earned != 0 {
+		t.Fatalf("all-or-nothing: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+}
+
+func TestShortAnswerAnyOrderFromStoredJSON(t *testing.T) {
+	var questions []Question
+	if err := json.Unmarshal([]byte(`[{"number":1,"type":"short_answer","weight":2,
+		"partial_scoring":true,"answer_order":"ANY","key":["Jakarta","Bandung"]}]`), &questions); err != nil {
+		t.Fatal(err)
+	}
+	got := EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"bandung", "JAKARTA"}}, questions)["1"]
+	if got.StatusClass != StatusCorrect || got.Earned != 2 {
+		t.Fatalf("answer_order dari JSON: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+}
+
+func TestShortAnswerMultiAnyOrder(t *testing.T) {
+	questions := []Question{{
+		Number: 1, Type: "short_answer", Weight: 3, PartialScoring: true,
+		AnswerOrder: "any",
+		Key:         []interface{}{"Jakarta", "Bandung", "Surabaya"},
+	}}
+	got := EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"SURABAYA", "jakarta", "bandung"}}, questions)["1"]
+	if got.StatusClass != StatusCorrect || got.Earned != 3 {
+		t.Fatalf("acak semua benar: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"surabaya", "salah", "Jakarta"}}, questions)["1"]
+	if got.StatusClass != StatusPartial || got.Earned != 2 {
+		t.Fatalf("acak partial 2/3: got %.2f/%s", got.Earned, got.StatusClass)
+	}
+
+	// Satu jawaban tidak boleh dipakai untuk dua kunci berbeda.
+	got = EvaluateAnswersDetailed(
+		map[string]interface{}{"1": []interface{}{"jakarta", "jakarta", "jakarta"}}, questions)["1"]
+	if got.StatusClass != StatusPartial || got.Earned != 1 {
+		t.Fatalf("satu jawaban dipakai dua kali: got %.2f/%s", got.Earned, got.StatusClass)
 	}
 }
 

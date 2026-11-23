@@ -19,8 +19,11 @@ const QuestionsSchemaVersion = 1
 //   - both `options` and `choices` are emitted with identical content so old
 //     Go consumers and Android keep working during the compatibility window;
 //   - only the documented fields survive (number, type, weight,
-//     partial_scoring, label, choices/options, statements,
-//     left_items/right_items, numbering, key). Legacy `answer` becomes `key`.
+//     partial_scoring, label, choices/options, statements, true_label,
+//     false_label, left_items/right_items, numbering, answer_order, key).
+//     Legacy `answer` becomes `key`;
+//   - missing partial_scoring defaults to true for types that support partial
+//     credit; an explicit false is preserved.
 //
 // It operates in memory: existing database rows are never rewritten.
 func CanonicalizeQuestions(questions []map[string]interface{}) []map[string]interface{} {
@@ -38,11 +41,16 @@ func CanonicalizeQuestions(questions []map[string]interface{}) []map[string]inte
 
 	out := make([]map[string]interface{}, len(questions))
 	for i, q := range questions {
+		qType := normalizeQuestionType(questionTypeValue(q))
+		partialRaw, hasPartial := interface{}(nil), false
+		if q != nil {
+			partialRaw, hasPartial = q["partial_scoring"]
+		}
 		canonical := map[string]interface{}{
 			"number":          numbers[i],
-			"type":            normalizeQuestionType(questionTypeValue(q)),
+			"type":            qType,
 			"weight":          normalizeQuestionWeight(q["weight"]),
-			"partial_scoring": normalizeQuestionBool(q["partial_scoring"]),
+			"partial_scoring": normalizePartialScoring(partialRaw, hasPartial, qType),
 		}
 
 		if q == nil {
@@ -51,6 +59,15 @@ func CanonicalizeQuestions(questions []map[string]interface{}) []map[string]inte
 		}
 		if label := strings.TrimSpace(questionString(q["label"])); label != "" {
 			canonical["label"] = label
+		}
+
+		key, hasKey := q["key"]
+		if !hasKey || key == nil {
+			key = q["answer"]
+		}
+		var canonicalKey interface{}
+		if key != nil {
+			canonicalKey = canonicalQuestionKey(qType, key)
 		}
 
 		switch canonical["type"] {
@@ -82,6 +99,12 @@ func CanonicalizeQuestions(questions []map[string]interface{}) []map[string]inte
 				}
 				canonical["statements"] = toInterfaceSlice(trimmed)
 			}
+			if label := strings.TrimSpace(questionString(q["true_label"])); label != "" {
+				canonical["true_label"] = label
+			}
+			if label := strings.TrimSpace(questionString(q["false_label"])); label != "" {
+				canonical["false_label"] = label
+			}
 		case "matching":
 			if left := questionStringList(q["left_items"]); len(left) > 0 {
 				canonical["left_items"] = toInterfaceSlice(left)
@@ -92,19 +115,35 @@ func CanonicalizeQuestions(questions []map[string]interface{}) []map[string]inte
 			// Penomoran matching: "single" (default lama, satu nomor untuk
 			// seluruh kartu) atau "range" (tiap item kiri memakai nomor
 			// sendiri, sehingga kartu berikutnya mulai setelah rentang).
-			numbering := "single"
-			if strings.EqualFold(strings.TrimSpace(questionString(q["numbering"])), "range") {
-				numbering = "range"
+			canonical["numbering"] = normalizeQuestionNumbering(q["numbering"])
+		case "short_answer":
+			statements := questionStringList(q["statements"])
+			if len(statements) > 0 {
+				trimmed := make([]string, len(statements))
+				for i, s := range statements {
+					trimmed[i] = strings.TrimSpace(s)
+				}
+				canonical["statements"] = toInterfaceSlice(trimmed)
+			} else if keys, ok := canonicalKey.([]interface{}); ok && len(keys) > 0 {
+				// Klien hanya menerima `statements` (key selalu dibuang dari
+				// endpoint siswa), jadi isian multi tanpa label tetap harus
+				// membawa jumlah kolom yang bisa dirender.
+				generated := make([]string, len(keys))
+				for i := range keys {
+					generated[i] = fmt.Sprintf("Isian %d", i+1)
+				}
+				canonical["statements"] = toInterfaceSlice(generated)
 			}
-			canonical["numbering"] = numbering
+			if rawNumbering, present := q["numbering"]; present && rawNumbering != nil {
+				canonical["numbering"] = normalizeQuestionNumbering(rawNumbering)
+			}
+			if strings.EqualFold(strings.TrimSpace(questionString(q["answer_order"])), "any") {
+				canonical["answer_order"] = "any"
+			}
 		}
 
-		key, hasKey := q["key"]
-		if !hasKey || key == nil {
-			key = q["answer"]
-		}
-		if key != nil {
-			canonical["key"] = canonicalQuestionKey(canonical["type"].(string), key)
+		if canonicalKey != nil {
+			canonical["key"] = canonicalKey
 		}
 
 		out[i] = canonical
@@ -269,6 +308,25 @@ func normalizeQuestionBool(raw interface{}) bool {
 	return false
 }
 
+func normalizePartialScoring(raw interface{}, present bool, qType string) bool {
+	if present && raw != nil {
+		return normalizeQuestionBool(raw)
+	}
+	switch qType {
+	case "multiple_choice", "matching", "true_false", "short_answer":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeQuestionNumbering(raw interface{}) string {
+	if strings.EqualFold(strings.TrimSpace(questionString(raw)), "range") {
+		return "range"
+	}
+	return "single"
+}
+
 // canonicalQuestionKey normalizes only the shapes the scoring engine compares
 // case-insensitively: true/false keys are upper-cased, list keys are trimmed.
 // Matching maps and short-answer strings keep their content.
@@ -291,6 +349,15 @@ func canonicalQuestionKey(qType string, key interface{}) interface{} {
 			}
 			return out
 		}
+	case "short_answer":
+		if list, ok := toStringList(key); ok {
+			out := make([]interface{}, len(list))
+			for i, item := range list {
+				out[i] = strings.TrimSpace(item)
+			}
+			return out
+		}
+		return strings.TrimSpace(questionString(key))
 	}
 	return key
 }

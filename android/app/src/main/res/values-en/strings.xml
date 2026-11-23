@@ -136,9 +136,13 @@
     <string name="answer_sheet_question_number">Question %1$d</string>
     <string name="answer_sheet_question_range">Questions %1$d–%2$d</string>
     <string name="answer_sheet_true_false_suffix">(True/False)</string>
+    <string name="answer_sheet_true_label">True</string>
+    <string name="answer_sheet_false_label">False</string>
     <string name="answer_sheet_multiple_suffix">(Multiple choice)</string>
     <string name="answer_sheet_matching_suffix">(Matching)</string>
     <string name="answer_sheet_short_answer_suffix">(Short answer)</string>
+    <string name="answer_sheet_short_answer_hint">Type your answer here</string>
+    <string name="answer_sheet_short_answer_item_hint">Answer %1$d</string>
     <string name="spinner_placeholder">-- Select --</string>
     <string name="results_load_error">Failed to load the results page. Check your internet connection, then tap the close button and try again.</string>
     <string name="status_battery_charging">Charging</string>

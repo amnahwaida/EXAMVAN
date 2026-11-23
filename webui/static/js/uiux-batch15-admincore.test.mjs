@@ -146,6 +146,8 @@ test('T28 (perilaku vm): satu klik pada tombol divider hasil reindex menyisipkan
     const sandbox = {
         document: { getElementById(id) { return id === 'questionsList' ? container : null; } },
         Actions: { register(name, fn) { registry[name] = fn; } },
+        questionStructureSpan: () => 1,
+        syncQuestionAutoWeight: () => {},
         console,
     };
     sandbox.globalThis = sandbox;

@@ -18,15 +18,22 @@ data class Question(
     val label: String? = null,
     val choices: List<String>? = null,
     val statements: List<String>? = null,
+    @SerializedName("true_label")
+    val trueLabel: String? = null,
+    @SerializedName("false_label")
+    val falseLabel: String? = null,
     @SerializedName("left_items")
     val leftItems: List<String>? = null,
     @SerializedName("right_items")
     val rightItems: List<String>? = null,
     /**
-     * Matching only: "single" = whole card is one question number;
-     * "range" = each left item consumes a number (N..N+len-1).
+     * Matching/short-answer: "single" = whole card is one question number;
+     * "range" = each field/item consumes a number (N..N+count-1).
      */
-    val numbering: String? = null
+    val numbering: String? = null,
+    /** short-answer: "any" = answer order is free; null/absent = ordered. */
+    @SerializedName("answer_order")
+    val answerOrder: String? = null
 ) {
     companion object {
         const val CONTRACT_VERSION = 1

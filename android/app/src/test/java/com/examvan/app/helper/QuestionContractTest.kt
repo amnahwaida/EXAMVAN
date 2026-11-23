@@ -32,6 +32,8 @@ class QuestionContractTest {
         assertEquals("short_answer", legacy[1].type)
         assertEquals("true_false", legacy[2].type)
         assertEquals(listOf("Satu", "Dua"), legacy[2].statements)
+        assertEquals("Sesuai", legacy[2].trueLabel)
+        assertEquals("Tidak Sesuai", legacy[2].falseLabel)
         assertEquals(listOf("Ya", "Tidak"), legacy[3].choices)
     }
 
@@ -69,6 +71,54 @@ class QuestionContractTest {
     }
 
     @Test
+    fun missingPartialScoring_defaultsTrueForEligibleTypes() {
+        val decoded = QuestionContract.decode(
+            """[
+                {"number":1,"type":"multiple_choice","choices":["A","B"]},
+                {"number":2,"type":"true_false","statements":["Satu"],"key":["TRUE"]},
+                {"number":3,"type":"matching","left_items":["Satu"],"right_items":["A"]},
+                {"number":4,"type":"single_choice","choices":["A","B"]},
+                {"number":5,"type":"multiple_choice","partial_scoring":false,"choices":["A","B"]},
+                {"number":6,"type":"short_answer","key":"Jakarta"}
+            ]"""
+        )
+        assertEquals(listOf(true, true, true, false, false, true), decoded.map { it.partialScoring })
+    }
+
+    @Test
+    fun shortAnswerMulti_carriesStatementsNumberingAndPartialDefault() {
+        val decoded = QuestionContract.decode(
+            """[{"number":1,"type":"short_answer","numbering":"range",
+                "statements":[" Ibu kota ","Hasil"],"key":["Jakarta","7"],
+                "answer_order":"ANY"}]"""
+        )
+        val q = decoded.single()
+        assertEquals(listOf("Ibu kota", "Hasil"), q.statements)
+        assertEquals("range", q.numbering)
+        assertEquals("any", q.answerOrder)
+        assertEquals(true, q.partialScoring)
+
+        val encoded = QuestionContract.encodeForClient(decoded)
+        val obj = JsonParser.parseString(encoded).asJsonArray.single().asJsonObject
+        assertEquals("any", obj["answer_order"].asString)
+    }
+
+    @Test
+    fun trueFalseLabels_areParsedAndEncoded() {
+        val decoded = QuestionContract.decode(
+            """[{"number":1,"type":"true_false","true_label":" Sesuai ",
+                "false_label":"Tidak Sesuai"}]"""
+        )
+        assertEquals("Sesuai", decoded.single().trueLabel)
+        assertEquals("Tidak Sesuai", decoded.single().falseLabel)
+
+        val encoded = QuestionContract.encodeForClient(decoded)
+        val obj = JsonParser.parseString(encoded).asJsonArray.single().asJsonObject
+        assertEquals("Sesuai", obj["true_label"].asString)
+        assertEquals("Tidak Sesuai", obj["false_label"].asString)
+    }
+
+    @Test
     fun numericLegacyPartialScoring_matchesServerTruthiness() {
         val decoded = QuestionContract.decode(
             """[
@@ -100,6 +150,15 @@ class QuestionContractTest {
                 "right_items":["A","B"]},{"type":"short_answer"}]"""
         )
         assertEquals(listOf(1, 3), normalized.map { it.number })
+    }
+
+    @Test
+    fun normalize_shortAnswerRange_reservesOneNumberPerField() {
+        val normalized = QuestionContract.decode(
+            """[{"number":1,"type":"short_answer","numbering":"range",
+                "statements":["Satu","Dua","Tiga"]},{"type":"short_answer"}]"""
+        )
+        assertEquals(listOf(1, 4), normalized.map { it.number })
     }
 
     @Test

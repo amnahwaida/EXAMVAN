@@ -84,6 +84,17 @@ class QuestionRenderPolicyTest {
     }
 
     @Test
+    fun trueFalseCustomLabels_areCarriedForRendering() {
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 4, "type" to "true_false",
+                "true_label" to "Sesuai", "false_label" to "Tidak Sesuai")
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals("Sesuai", (d as QuestionRenderPolicy.Render).trueLabel)
+        assertEquals("Tidak Sesuai", d.falseLabel)
+    }
+
+    @Test
     fun trueFalseLegacyWithoutStatements_renderedAsSingle() {
         val d = QuestionRenderPolicy.evaluate(q("number" to 4, "type" to "true_false"))
         assertTrue(d is QuestionRenderPolicy.Render)
@@ -94,6 +105,18 @@ class QuestionRenderPolicyTest {
     fun shortAnswer_renderedWithoutChoices() {
         val d = QuestionRenderPolicy.evaluate(q("number" to 5, "type" to "short_answer"))
         assertTrue(d is QuestionRenderPolicy.Render)
+    }
+
+    @Test
+    fun shortAnswerMulti_carriesStatementsAndNumbering() {
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 5, "type" to "short_answer", "numbering" to "range",
+                "statements" to listOf("Ibu kota", "Hasil"))
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        val r = d as QuestionRenderPolicy.Render
+        assertEquals(listOf("Ibu kota", "Hasil"), r.statements)
+        assertEquals("range", r.numbering)
     }
 
     @Test

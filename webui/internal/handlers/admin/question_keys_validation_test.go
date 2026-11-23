@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -89,6 +90,49 @@ func TestValidateQuestionKeysRejectsUnrepresentableSingleChoice(t *testing.T) {
 				t.Fatalf("pesan harus menyebut %q, dapat: %s", tc.wantSub, msg)
 			}
 		})
+	}
+}
+
+func TestValidateQuestionKeysShortAnswerMaxTenFields(t *testing.T) {
+	statements := make([]interface{}, 0, maxShortAnswerFields+1)
+	keys := make([]interface{}, 0, maxShortAnswerFields+1)
+	for i := 0; i <= maxShortAnswerFields; i++ {
+		statements = append(statements, fmt.Sprintf("Isian %d", i+1))
+		keys = append(keys, fmt.Sprintf("Jawaban %d", i+1))
+	}
+	over := q(1, "short_answer", keys, map[string]interface{}{"statements": statements})
+	if msg := validateQuestionKeys([]map[string]interface{}{over}); !strings.Contains(msg, "maksimal") {
+		t.Fatalf("11 isian harus ditolak dengan pesan batas, dapat: %q", msg)
+	}
+
+	if msg := validateQuestionKeys([]map[string]interface{}{
+		q(1, "short_answer", keys[:maxShortAnswerFields], map[string]interface{}{"statements": statements[:maxShortAnswerFields]}),
+	}); msg != "" {
+		t.Fatalf("10 isian harus diterima: %s", msg)
+	}
+
+	noLabels := q(1, "short_answer", keys, nil)
+	if msg := validateQuestionKeys([]map[string]interface{}{noLabels}); !strings.Contains(msg, "maksimal") {
+		t.Fatalf("11 key tanpa statements harus ditolak, dapat: %q", msg)
+	}
+}
+
+func TestValidateQuestionKeysShortAnswerOrder(t *testing.T) {
+	for _, order := range []string{"ordered", "any", ""} {
+		qa := q(1, "short_answer", []interface{}{"A", "B"}, map[string]interface{}{
+			"statements":   []interface{}{"Satu", "Dua"},
+			"answer_order": order,
+		})
+		if msg := validateQuestionKeys([]map[string]interface{}{qa}); msg != "" {
+			t.Fatalf("answer_order %q valid ditolak: %s", order, msg)
+		}
+	}
+	bad := q(1, "short_answer", []interface{}{"A", "B"}, map[string]interface{}{
+		"statements":   []interface{}{"Satu", "Dua"},
+		"answer_order": "random",
+	})
+	if msg := validateQuestionKeys([]map[string]interface{}{bad}); !strings.Contains(msg, "urutan jawaban") {
+		t.Fatalf("answer_order tidak dikenal harus ditolak, dapat: %q", msg)
 	}
 }
 
@@ -355,6 +399,101 @@ func TestNormalizeQuestionsPayloadCanonicalisesTrueFalseMulti(t *testing.T) {
 	statements := stringListValue(questions[0]["statements"])
 	if len(statements) != 2 || statements[0] != "Satu" || statements[1] != "Dua" {
 		t.Fatalf("statements tidak di-trim: %#v", statements)
+	}
+}
+
+func TestValidateQuestionKeysShortAnswerMulti(t *testing.T) {
+	valid := q(1, "short_answer", []interface{}{"Jakarta", "Bandung"},
+		map[string]interface{}{"statements": []interface{}{"Ibu kota", "Kota kembang"}})
+	if msg := validateQuestionKeys([]map[string]interface{}{valid}); msg != "" {
+		t.Fatalf("short_answer multi valid ditolak: %s", msg)
+	}
+
+	withoutLabels := q(1, "short_answer", []interface{}{"Jakarta", "Bandung"}, nil)
+	if msg := validateQuestionKeys([]map[string]interface{}{withoutLabels}); msg != "" {
+		t.Fatalf("key list tanpa statements harus diterima (label dibuat server): %s", msg)
+	}
+
+	singleLabel := q(1, "short_answer", "Jakarta",
+		map[string]interface{}{"statements": []interface{}{"Ibu kota"}})
+	if msg := validateQuestionKeys([]map[string]interface{}{singleLabel}); msg != "" {
+		t.Fatalf("satu isian berlabel dengan key string harus diterima: %s", msg)
+	}
+
+	cases := []struct {
+		name string
+		q    map[string]interface{}
+	}{
+		{
+			"jumlah kunci beda dengan isian",
+			q(1, "short_answer", []interface{}{"Jakarta"},
+				map[string]interface{}{"statements": []interface{}{"Satu", "Dua"}}),
+		},
+		{
+			"kunci string dengan daftar isian ganda",
+			q(1, "short_answer", "Jakarta",
+				map[string]interface{}{"statements": []interface{}{"Satu", "Dua"}}),
+		},
+		{
+			"kunci berisi angka",
+			q(1, "short_answer", []interface{}{1}, nil),
+		},
+		{
+			"isian kosong",
+			q(1, "short_answer", []interface{}{"Jakarta"},
+				map[string]interface{}{"statements": []interface{}{"   "}}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if msg := validateQuestionKeys([]map[string]interface{}{tc.q}); msg == "" {
+				t.Fatalf("diterima: %#v", tc.q)
+			}
+		})
+	}
+}
+
+func TestValidateQuestionKeysShortAnswerRangeNumbering(t *testing.T) {
+	valid := []map[string]interface{}{
+		q(1, "short_answer", []interface{}{"A", "B"}, map[string]interface{}{
+			"statements": []interface{}{"Satu", "Dua"},
+			"numbering":  "range",
+		}),
+		q(3, "short_answer", "tiga", nil),
+	}
+	if msg := validateQuestionKeys(valid); msg != "" {
+		t.Fatalf("short_answer range valid ditolak: %s", msg)
+	}
+
+	overlap := []map[string]interface{}{
+		q(1, "short_answer", []interface{}{"A", "B"}, map[string]interface{}{
+			"statements": []interface{}{"Satu", "Dua"},
+			"numbering":  "range",
+		}),
+		q(2, "short_answer", "dua", nil),
+	}
+	if msg := validateQuestionKeys(overlap); !strings.Contains(msg, "bertabrakan") {
+		t.Fatalf("short_answer range overlap harus ditolak, dapat: %q", msg)
+	}
+}
+
+func TestNormalizeQuestionsPayloadShortAnswerMulti(t *testing.T) {
+	questions := []map[string]interface{}{
+		q(1, "short_answer", []interface{}{" Jakarta ", "Bandung"}, map[string]interface{}{
+			"numbering": "range",
+		}),
+	}
+	normalizeQuestionsPayload(questions)
+	keys := stringListValue(questions[0]["key"])
+	if len(keys) != 2 || keys[0] != "Jakarta" || keys[1] != "Bandung" {
+		t.Fatalf("key short_answer tidak di-trim: %#v", keys)
+	}
+	statements := stringListValue(questions[0]["statements"])
+	if len(statements) != 2 || statements[0] != "Isian 1" || statements[1] != "Isian 2" {
+		t.Fatalf("statements otomatis salah: %#v", statements)
+	}
+	if questions[0]["numbering"] != "range" {
+		t.Fatalf("numbering range hilang: %#v", questions[0]["numbering"])
 	}
 }
 

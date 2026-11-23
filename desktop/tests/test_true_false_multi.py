@@ -40,7 +40,11 @@ class TrueFalseMultiTest(unittest.TestCase):
         self.assertEqual(len(groups), 2)
         for group in groups:
             self.assertEqual(
-                [btn.text() for btn in group.buttons()], ["TRUE", "FALSE"]
+                [btn.text() for btn in group.buttons()], ["Benar", "Salah"]
+            )
+            self.assertEqual(
+                [sheet._radio_value(btn) for btn in group.buttons()],
+                ["TRUE", "FALSE"],
             )
 
     def test_answers_are_emitted_as_index_aligned_list(self):
@@ -56,8 +60,8 @@ class TrueFalseMultiTest(unittest.TestCase):
         sheet = self._sheet()
         sheet.restore_answers({"1": ["FALSE", "TRUE"]})
         _, groups = sheet._answer_widgets["1"]
-        self.assertEqual(groups[0].checkedButton().text(), "FALSE")
-        self.assertEqual(groups[1].checkedButton().text(), "TRUE")
+        self.assertEqual(sheet._radio_value(groups[0].checkedButton()), "FALSE")
+        self.assertEqual(sheet._radio_value(groups[1].checkedButton()), "TRUE")
         self.assertEqual(sheet.get_answers(), {"1": ["FALSE", "TRUE"]})
 
     def test_legacy_single_true_false_still_uses_single_group(self):

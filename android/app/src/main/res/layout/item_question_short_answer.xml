@@ -18,16 +18,10 @@
         android:textColor="@color/on_surface"
         android:layout_marginBottom="6dp" />
 
-    <EditText
-        android:id="@+id/etShortAnswer"
+    <LinearLayout
+        android:id="@+id/layoutShortAnswerFields"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Ketik jawaban Anda di sini"
-        android:textSize="14sp"
-        android:textColor="@color/on_surface"
-        android:textColorHint="@color/text_muted"
-        android:backgroundTint="@color/primary"
-        android:inputType="text"
-        android:maxLines="3" />
+        android:orientation="vertical" />
 
 </LinearLayout>

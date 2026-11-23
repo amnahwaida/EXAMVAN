@@ -55,6 +55,10 @@ internal object QuestionParsing {
      * "range" (tiap item kiri memakai nomor). Nilai tak dikenal = null dan
      * dirender sebagai single (perilaku lama).
      */
+    fun supportsPartialScoring(type: String): Boolean =
+        type == "multiple_choice" || type == "matching" || type == "true_false" ||
+            type == "short_answer"
+
     fun normalizeNumbering(raw: Any?): String? {
         val text = (raw as? String)?.trim()?.lowercase() ?: return null
         return when (text) {

@@ -14,7 +14,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLineEdit, QRadioButton
 
 from examvan.ui.answer_sheet import AnswerSheetWidget
 
@@ -72,6 +72,74 @@ class AnswerSheetBuildTest(unittest.TestCase):
         self.assertEqual(
             "1", AnswerSheetWidget._display_number("1", "matching", question)
         )
+
+    def test_short_answer_multi_saves_and_restores_list(self):
+        question = {
+            "number": 1,
+            "type": "short_answer",
+            "numbering": "range",
+            "statements": ["Ibu kota", "Hasil"],
+            "key": ["Jakarta", "7"],
+        }
+        self.assertEqual(
+            "1–2", AnswerSheetWidget._display_number("1", "short_answer", question)
+        )
+
+        w = AnswerSheetWidget()
+        w.build_from_questions([question])
+        edits = w.findChildren(QLineEdit)
+        self.assertEqual(2, len(edits))
+        edits[0].setText("Jakarta")
+        edits[1].setText("7")
+        self.assertEqual(["Jakarta", "7"], w.get_answers()["1"])
+
+        restored = AnswerSheetWidget()
+        self.addCleanup(restored.deleteLater)
+        restored.build_from_questions([question])
+        restored.restore_answers({"1": ["Bandung", "8"]})
+        self.assertEqual(["Bandung", "8"], restored.get_answers()["1"])
+        restored_edits = restored.findChildren(QLineEdit)
+        self.assertEqual("Bandung", restored_edits[0].text())
+        self.assertEqual("8", restored_edits[1].text())
+
+        question["numbering"] = "single"
+        self.assertEqual(
+            "1", AnswerSheetWidget._display_number("1", "short_answer", question)
+        )
+
+    def test_true_false_custom_labels_save_true_false_values(self):
+        w = AnswerSheetWidget()
+        w.build_from_questions([
+            {
+                "number": 1,
+                "type": "true_false",
+                "statements": ["Air membeku pada 0 derajat."],
+                "true_label": "Sesuai",
+                "false_label": "Tidak Sesuai",
+            },
+        ])
+        radios = w.findChildren(QRadioButton)
+        labels = [rb.text() for rb in radios]
+        self.assertIn("Sesuai", labels)
+        self.assertIn("Tidak Sesuai", labels)
+        next(rb for rb in radios if rb.text() == "Sesuai").click()
+        self.assertEqual(w.get_answers()["1"], ["TRUE"])
+
+        restored = AnswerSheetWidget()
+        self.addCleanup(restored.deleteLater)
+        restored.build_from_questions([
+            {
+                "number": 1,
+                "type": "true_false",
+                "statements": ["Air membeku pada 0 derajat."],
+                "true_label": "Sesuai",
+                "false_label": "Tidak Sesuai",
+            },
+        ])
+        restored.restore_answers({"1": ["FALSE"]})
+        self.assertEqual(restored.get_answers()["1"], ["FALSE"])
+        checked = next(rb for rb in restored.findChildren(QRadioButton) if rb.isChecked())
+        self.assertEqual(checked.text(), "Tidak Sesuai")
 
     def test_answer_then_count(self):
         w = AnswerSheetWidget()

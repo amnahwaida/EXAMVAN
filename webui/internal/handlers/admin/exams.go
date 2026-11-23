@@ -2028,17 +2028,14 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 		startNum, _ := strconv.Atoi(normNum)
 		numbering := "single"
 		span := 1
-		if qtype == "matching" {
+		if qtype == "matching" || qtype == "short_answer" {
 			var errMsg string
-			numbering, errMsg = validateMatchingNumbering(q)
+			numbering, errMsg = validateQuestionNumbering(q)
 			if errMsg != "" {
 				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), errMsg)
 			}
 			if numbering == "range" {
-				span = len(stringListValue(q["left_items"]))
-				if span < 1 {
-					span = 1
-				}
+				span = questionNumberingSpan(qtype, q)
 				if startNum+span-1 > maxQuestionNumber {
 					return fmt.Sprintf("Soal #%d (%s) rentang nomor %d–%d melewati batas %d",
 						num, questionTypeLabel(qtype), startNum, startNum+span-1, maxQuestionNumber)
@@ -2082,9 +2079,8 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), msg)
 			}
 		case "short_answer":
-			s, ok := key.(string)
-			if !ok || strings.TrimSpace(s) == "" {
-				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+			if msg := validateShortAnswerKey(q); msg != "" {
+				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), msg)
 			}
 		case "multiple_choice":
 			arr, ok := key.([]interface{})
@@ -2140,12 +2136,12 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 	return ""
 }
 
-// validateMatchingNumbering returns the matching card's numbering mode:
+// validateQuestionNumbering returns the card's numbering mode:
 // "single" (whole card = one question number, the legacy default) or "range"
-// (each left item consumes one number, so the next card starts after the
+// (each field/item consumes one number, so the next card starts after the
 // span). A missing field is single; any other value is rejected so a typo
 // cannot silently fall back to the wrong numbering.
-func validateMatchingNumbering(q map[string]interface{}) (string, string) {
+func validateQuestionNumbering(q map[string]interface{}) (string, string) {
 	raw, exists := q["numbering"]
 	if !exists || raw == nil {
 		return "single", ""
@@ -2161,6 +2157,92 @@ func validateMatchingNumbering(q map[string]interface{}) (string, string) {
 		return "range", ""
 	default:
 		return "", "nilai numbering harus \"single\" atau \"range\""
+	}
+}
+
+// questionNumberingSpan mirrors the render rules: matching range spans one
+// number per left item, short-answer range spans one number per answer field.
+func questionNumberingSpan(qtype string, q map[string]interface{}) int {
+	span := 1
+	switch qtype {
+	case "matching":
+		span = len(stringListValue(q["left_items"]))
+	case "short_answer":
+		if statements := stringListValue(q["statements"]); len(statements) > 0 {
+			span = len(statements)
+		} else if keys, ok := q["key"].([]interface{}); ok {
+			span = len(keys)
+		}
+	}
+	if span < 1 {
+		return 1
+	}
+	return span
+}
+
+// validateShortAnswerKey accepts the legacy single answer (string) and the
+// multi-field shape: `statements` labels with a same-length key list. A key
+// list may omit statements; canonicalization then generates "Isian N" labels
+// so clients still know how many inputs to render.
+func validateShortAnswerKey(q map[string]interface{}) string {
+	if raw, exists := q["answer_order"]; exists && raw != nil {
+		s, ok := raw.(string)
+		if !ok {
+			return "urutan jawaban harus \"ordered\" atau \"any\""
+		}
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "", "ordered", "any":
+		default:
+			return "urutan jawaban harus \"ordered\" atau \"any\""
+		}
+	}
+
+	var statements []interface{}
+	if raw, exists := q["statements"]; exists && raw != nil {
+		arr, ok := raw.([]interface{})
+		if !ok || len(arr) == 0 {
+			return "daftar isian harus berupa daftar teks yang tidak kosong"
+		}
+		if len(arr) > maxShortAnswerFields {
+			return fmt.Sprintf("jumlah isian maksimal %d per nomor", maxShortAnswerFields)
+		}
+		for _, el := range arr {
+			s, ok := el.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return "setiap isian harus berupa teks yang tidak kosong"
+			}
+		}
+		statements = arr
+	}
+
+	switch key := q["key"].(type) {
+	case string:
+		if len(statements) > 1 {
+			return "kunci jawaban multi-isian harus berupa daftar yang sama panjang dengan daftar isian"
+		}
+		if strings.TrimSpace(key) == "" {
+			return "belum memiliki kunci jawaban"
+		}
+		return ""
+	case []interface{}:
+		if len(key) == 0 {
+			return "belum memiliki kunci jawaban"
+		}
+		if len(key) > maxShortAnswerFields {
+			return fmt.Sprintf("jumlah isian maksimal %d per nomor", maxShortAnswerFields)
+		}
+		for _, el := range key {
+			s, ok := el.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return "setiap kunci jawaban isian harus berupa teks yang tidak kosong"
+			}
+		}
+		if statements != nil && len(key) != len(statements) {
+			return fmt.Sprintf("jumlah kunci jawaban (%d) harus sama dengan jumlah isian (%d)", len(key), len(statements))
+		}
+		return ""
+	default:
+		return "belum memiliki kunci jawaban"
 	}
 }
 
@@ -2310,6 +2392,11 @@ func containsFold(opts []string, needle string) bool {
 // membuat rekap nilai mustahil dibaca guru (nomor -1 tidak mungkin di lembar
 // jawaban, 1e15 tidak mungkin jadi nomor soal).
 const maxQuestionNumber = 10000
+
+// maxShortAnswerFields bounds one short-answer card. A large card renders as
+// one RecyclerView item, so an unbounded list would put hundreds of EditTexts
+// into a single item and defeat view recycling on low-memory devices.
+const maxShortAnswerFields = 10
 
 // adminQNumInRange reports whether an already-normalised question number is
 // inside the usable range (0 < n <= maxQuestionNumber). Fractional numbers are
