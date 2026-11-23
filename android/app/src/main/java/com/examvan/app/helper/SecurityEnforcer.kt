@@ -103,6 +103,17 @@ class SecurityEnforcer(
     // Callback for back button press (used in strict mode)
     var onBackBlocked: (() -> Unit)? = null
 
+    // Jalur keluar dari layar gesture-blocked. Layar ini tampil SEBELUM
+    // lock task aktif dan sebelum soal dimuat, jadi keluar aman: siswa bisa
+    // mengubah navigasi ke 3 tombol lalu membuka ujian lagi. Tanpa callback
+    // ini, back diblokir strict dan siswa terjebak tanpa cara keluar.
+    var onGestureBlockedExit: (() -> Unit)? = null
+
+    // Jalur keluar dari layar security violation (root, USB debugging,
+    // screen mirroring, clock drift, emulator). Pemilik activity menentukan:
+    // pra-ujian → logout + finish; saat ujian berjalan → auto-submit + exit.
+    var onSecurityViolationExit: (() -> Unit)? = null
+
     companion object {
         private const val TAG = "SecurityEnforcer"
         private const val BACK_PRESS_COOLDOWN_MS = 1200L
@@ -211,6 +222,10 @@ class SecurityEnforcer(
     fun enterImmersiveMode() {
         if (!strictMode && !strictModeFailed) return
         if (submittedOrExited) return
+        // Jangan sembunyikan navigation bar saat layar gesture-blocked:
+        // lock task belum aktif, jadi immersive hanya mempersulit siswa
+        // keluar untuk mengubah navigasi ke 3 tombol.
+        if (isGestureBlockedShowing) return
         try {
             if (Build.VERSION.SDK_INT >= 30) {
                 val controller = activity.window.decorView.windowInsetsController ?: return
@@ -239,6 +254,17 @@ class SecurityEnforcer(
      * Handle back button press with anti-spam.
      */
     fun handleBackPressed() {
+        // Layar gesture-blocked = pra-ujian (lock task belum aktif, soal
+        // belum dimuat). Back harus bisa keluar, bukan diblokir strict.
+        if (isGestureBlockedShowing) {
+            onGestureBlockedExit?.invoke() ?: activity.finish()
+            return
+        }
+        if (isSecurityViolationShowing) {
+            onSecurityViolationExit?.invoke() ?: activity.finish()
+            return
+        }
+
         val now = System.currentTimeMillis()
         if (now - lastBackPressTime < BACK_PRESS_COOLDOWN_MS) return
         lastBackPressTime = now
@@ -473,26 +499,43 @@ class SecurityEnforcer(
 
         ExamScreenPanels.hideAllControls(binding)
 
+        val manualPath = NavigationSettingsHelper.instructionText()
         binding.tvErrorMsg.text = if (strictMode) {
             "Navigasi Gesture Terdeteksi!\n\n" +
                 "Untuk keamanan ujian, perangkat WAJIB memakai Navigasi 3 Tombol " +
-                "(3-Button Navigation).\n\nMinta pengawas mengubah mode navigasi " +
-                "perangkat, lalu tekan \"Periksa Lagi\"."
+                "(3-Button Navigation).\n\nUbah mode navigasi di: $manualPath\n\n" +
+                "Tekan \"Buka Pengaturan\" untuk mencoba membuka halaman tersebut, " +
+                "atau \"Keluar\" untuk keluar dari layar ini."
         } else {
             "Navigasi Gesture Terdeteksi!\n\n" +
                 "Untuk keamanan ujian, Anda WAJIB mengaktifkan Navigasi 3 Tombol " +
-                "(3-Button Navigation) terlebih dahulu.\n\nSilakan ubah mode navigasi Anda."
+                "(3-Button Navigation) terlebih dahulu.\n\nUbah mode navigasi di: " +
+                "$manualPath\n\nSilakan ubah, lalu buka kembali ujian ini."
         }
 
         val isGesture = isGestureNavigationEnabled()
         if (isGesture) {
-            // TIDAK membuka Settings dari layar ini. Di strict mode itu jalur
-            // keluar ke aplikasi lain sebelum lock task aktif; di mode lain
-            // siswa bisa mengubah navigasi sebelum memulai ujian. Perubahan
-            // navigasi strict dilakukan pengawas, siswa hanya memeriksa ulang.
-            binding.btnRetryDownload.text = "Periksa Lagi"
+            // Layar ini tampil SEBELUM lock task aktif dan sebelum soal
+            // dimuat. Jangan jadikan jalan buntu: sediakan tombol Keluar agar
+            // siswa bisa mengubah navigasi ke 3 tombol lalu membuka ujian lagi.
+            binding.btnRetryDownload.text = "Buka Pengaturan"
             binding.btnRetryDownload.setOnClickListener {
-                showGestureBlocked(retryCallback)
+                // Aman dibuka HANYA di layar pra-ujian ini: lock task belum
+                // aktif dan soal belum dimuat. Setelah siswa kembali, onResume
+                // otomatis memeriksa ulang mode navigasi.
+                val opened = NavigationSettingsHelper.open(activity)
+                if (!opened) {
+                    Toast.makeText(
+                        activity,
+                        "Buka: $manualPath",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            binding.btnOpenResult.visibility = View.VISIBLE
+            binding.btnOpenResult.text = activity.getString(R.string.recovery_exit)
+            binding.btnOpenResult.setOnClickListener {
+                onGestureBlockedExit?.invoke() ?: activity.finish()
             }
         } else {
             binding.btnRetryDownload.text = "Mulai Ujian"
@@ -501,6 +544,8 @@ class SecurityEnforcer(
                 isGestureBlockedShowing = false
                 retryCallback()
             }
+            binding.btnOpenResult.visibility = View.GONE
+            binding.btnOpenResult.setOnClickListener(null)
         }
         binding.layoutError.visibility = View.VISIBLE
     }
@@ -566,12 +611,24 @@ class SecurityEnforcer(
 
         ExamScreenPanels.hideAllControls(binding)
 
-        binding.tvErrorMsg.text = message
+        binding.tvErrorMsg.text = message +
+            if (isPdfReady) {
+                "\n\nTekan \"Keluar\" untuk mengumpulkan jawaban dan keluar."
+            } else {
+                "\n\nTekan \"Keluar\" untuk keluar dari layar ini."
+            }
         binding.btnRetryDownload.text = "Periksa Ulang"
         binding.btnRetryDownload.setOnClickListener {
             binding.layoutError.visibility = View.GONE
             isSecurityViolationShowing = false
+            binding.btnOpenResult.visibility = View.GONE
+            binding.btnOpenResult.setOnClickListener(null)
             retryCallback()
+        }
+        binding.btnOpenResult.visibility = View.VISIBLE
+        binding.btnOpenResult.text = activity.getString(R.string.recovery_exit)
+        binding.btnOpenResult.setOnClickListener {
+            onSecurityViolationExit?.invoke() ?: activity.finish()
         }
         binding.layoutError.visibility = View.VISIBLE
     }
@@ -799,5 +856,9 @@ class SecurityEnforcer(
         // Batalkan scan lingkungan yang masih berjalan — tanpa ini callback
         // bisa menyentuh activity yang sudah destroy (temuan review: leak).
         envScanScope.cancel()
+        // Runnable focus-loss menahan Activity sampai 500 ms; di perangkat
+        // low-memory jangan biarkan view hierarchy tertahan setelah destroy.
+        focusLostRunnable?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        focusLostRunnable = null
     }
 }

@@ -63,9 +63,11 @@
     <string name="submit_failed_title">Failed</string>
     <string name="submit_failed_title_strict">Failed — Must Retry</string>
     <string name="submit_failed_message">%1$s</string>
-    <string name="submit_failed_message_strict">%1$s\n\nStrict Mode active: You must successfully submit before exiting.</string>
+    <string name="submit_failed_message_strict">%1$s\n\nStrict Mode active: You must successfully submit before exiting. Press \"Exit\" to save answers and resend later.</string>
     <string name="dialog_ok">OK</string>
     <string name="download_failed_format">Failed to start download: %1$s</string>
+    <string name="questions_unavailable_title">Exam Questions Unavailable</string>
+    <string name="questions_unavailable_message">Exam questions could not be loaded. Check your internet connection and tap \"Retry\". If it still fails, tap \"Exit\" and contact the supervisor.</string>
     <string name="auto_submit_failed_title">Failed to Submit Answers</string>
     <string name="recovery_pending_message">Your answers were not sent!\n\nAutomatic submission failed due to a network issue. Your answers are still saved on this device. Tap \"Send Again\" to resubmit.</string>
     <string name="recovery_retry_submit">Send Again</string>

@@ -155,6 +155,10 @@ object LockTaskManager {
     fun deactivate(activity: Activity) {
         try {
             stopHealthCheck()
+            // Rantai poll menahan referensi Activity sampai ~6 detik. Saat
+            // sesi selesai/tidak lagi butuh verifikasi, lepaskan segera agar
+            // view hierarchy tidak tertahan di perangkat low-memory.
+            cancelPollChain()
             activity.stopLockTask()
             Log.d(TAG, "stopLockTask() called")
             AuditLog.i(AuditLog.Events.LOCKTASK_DEACTIVATE, "normal")
@@ -439,6 +443,10 @@ object LockTaskManager {
     private fun cancelPollChain() {
         // Generasi baru membuat semua tick rantai lama berhenti sendiri;
         // removeCallbacks hanya mempercepat pembersihannya.
-        pollHandler?.removeCallbacks(pollRunnable ?: return)
+        pinPollGuard.newChain()
+        val runnable = pollRunnable ?: return
+        pollHandler?.removeCallbacks(runnable)
+        pollRunnable = null
+        pollHandler = null
     }
 }

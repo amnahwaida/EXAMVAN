@@ -104,6 +104,11 @@ class ExamViewerActivity : BaseSecureActivity() {
      */
     private var questionsFetchInFlight = false
 
+    // Dialog blokir saat soal tidak tersedia (fetch gagal/kosong). Tanpa
+    // tombol Keluar, mode strict + end_time kosong = jalan buntu: tombol
+    // kumpulkan disembunyikan dan back diblokir.
+    private var questionsUnavailableDialog: AlertDialog? = null
+
     // Student answers from ViewModel (survives rotation)
     private val studentAnswers: Map<String, Any>
         get() = viewModel.studentAnswers.value
@@ -409,6 +414,18 @@ class ExamViewerActivity : BaseSecureActivity() {
             // dibaca saat dipanggil (sudah di-initialize sebelum layar ini
             // bisa muncul — handleStrictMode berjalan setelah initializeHelpers).
             onStrictFailedExit = { submissionManager.autoSubmitAndExit() }
+            // Keluar dari layar gesture-blocked = pra-ujian: belum ada soal
+            // atau jawaban, jadi cukup logout presence lalu tutup activity.
+            // Jangan tandai submitted agar siswa bisa masuk lagi setelah
+            // mengubah navigasi ke 3 tombol.
+            onGestureBlockedExit = {
+                sendAccessLog("logout", retryOnFailure = true)
+                finish()
+            }
+            // Security violation pra-ujian (mis. USB debugging/root terdeteksi
+            // sebelum PDF siap) cukup logout + keluar. Setelah soal tampil,
+            // keluar WAJIB mengumpulkan jawaban agar bukan jalur bypass.
+            onSecurityViolationExit = { exitBlockingScreen() }
         }
 
         // AnswerSheetBuilder
@@ -704,6 +721,8 @@ class ExamViewerActivity : BaseSecureActivity() {
             submissionManager.totalQuestions = 0
             return
         }
+        questionsUnavailableDialog?.dismiss()
+        questionsUnavailableDialog = null
         // Soal bisa datang dari fetch server SETELAH percobaan pertama
         // kosong (questions_json Intent tidak terbaca). hideAnswerOverlay()
         // sudah menyembunyikan toggle & tombol kumpulkan; tanpa memulihkan
@@ -739,6 +758,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                     val fetched = response.data?.questions ?: emptyList()
                     if (fetched.isEmpty()) {
                         applyQuestions(emptyList())
+                        showQuestionsUnavailableDialog()
                         return@runOnUiThread
                     }
                     // Simpan lagi agar re-entry berikutnya tidak perlu re-fetch.
@@ -756,6 +776,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                     questionsFetchInFlight = false
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     applyQuestions(emptyList())
+                    showQuestionsUnavailableDialog()
                 }
             }
         )
@@ -897,6 +918,66 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     private fun showError(message: String) {
         pdfRendererHelper.showError(message)
+        // Di strict mode back diblokir dan lock task aktif. Tanpa tombol
+        // Keluar, kegagalan PDF (termasuk intent tidak valid) hanya punya
+        // "Coba Lagi" — bila end_time tidak ada, tidak ada watchdog yang
+        // menutup ujian. Tombol ini menutup layar error tanpa bypass:
+        // pra-PDF logout; setelah PDF siap auto-submit.
+        if (securityEnforcer.strictMode) {
+            binding.btnOpenResult.visibility = View.VISIBLE
+            binding.btnOpenResult.text = getString(R.string.recovery_exit)
+            binding.btnOpenResult.setOnClickListener { exitBlockingScreen() }
+        } else {
+            binding.btnOpenResult.visibility = View.GONE
+            binding.btnOpenResult.setOnClickListener(null)
+        }
+    }
+
+    /**
+     * Keluar dari layar blokir (PDF error, soal tidak tersedia, security
+     * violation). Pra-PDF cukup logout; setelah PDF siap WAJIB auto-submit
+     * agar bukan jalur bypass.
+     */
+    private fun exitBlockingScreen() {
+        if (viewModel.isPdfReady.value) {
+            submissionManager.autoSubmitAndExit()
+        } else {
+            sendAccessLog("logout", retryOnFailure = true)
+            finish()
+        }
+    }
+
+    /**
+     * Soal gagal dimuat dari server (kosong/error). Tanpa dialog ini, lembar
+     * jawaban disembunyikan dan siswa strict tidak punya tombol kumpulkan
+     * maupun jalan keluar sampai deadline (yang bisa saja tidak ada).
+     */
+    private fun showQuestionsUnavailableDialog() {
+        if (isFinishing || isDestroyed) return
+        if (questionsUnavailableDialog?.isShowing == true) return
+
+        securityEnforcer.holdAppDialog(AppDialogIds.QUESTIONS_UNAVAILABLE)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.questions_unavailable_title))
+            .setMessage(getString(R.string.questions_unavailable_message))
+            .setCancelable(false)
+            .setPositiveButton(getString(R.string.btn_retry)) { _, _ ->
+                securityEnforcer.releaseAppDialog(AppDialogIds.QUESTIONS_UNAVAILABLE)
+                questionsUnavailableDialog = null
+                fetchQuestionsFromServer()
+            }
+            .setNegativeButton(getString(R.string.recovery_exit)) { _, _ ->
+                securityEnforcer.releaseAppDialog(AppDialogIds.QUESTIONS_UNAVAILABLE)
+                questionsUnavailableDialog = null
+                exitBlockingScreen()
+            }
+            .create()
+        dialog.setOnDismissListener {
+            securityEnforcer.releaseAppDialog(AppDialogIds.QUESTIONS_UNAVAILABLE)
+            if (questionsUnavailableDialog === dialog) questionsUnavailableDialog = null
+        }
+        questionsUnavailableDialog = dialog
+        dialog.show()
     }
 
     /**
@@ -1195,6 +1276,8 @@ class ExamViewerActivity : BaseSecureActivity() {
                 )
             }
         }
+        questionsUnavailableDialog?.dismiss()
+        questionsUnavailableDialog = null
         super.onDestroy()
         countDownTimer?.cancel()
         deadlineRunnable?.let { deadlineHandler?.removeCallbacks(it) }

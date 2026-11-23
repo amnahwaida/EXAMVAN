@@ -25,6 +25,9 @@ object AppDialogIds {
     /** Dialog kegagalan submit manual (SubmissionManager). */
     const val SUBMIT_FAILED = "submit_failed"
 
+    /** Dialog soal tidak tersedia (ExamViewerActivity). */
+    const val QUESTIONS_UNAVAILABLE = "questions_unavailable"
+
     /** Dialog ucapan selamat fallback bila launch activity gagal (SubmissionManager). */
     const val SUBMIT_CONGRATS = "submit_congrats"
 }

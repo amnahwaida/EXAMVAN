@@ -384,14 +384,25 @@ class SubmissionManager(
                     val dialogMsg = if (strictMode) context.getString(R.string.submit_failed_message_strict, errorMsg) else context.getString(R.string.submit_failed_message, errorMsg)
 
                     holdAppDialog(AppDialogIds.SUBMIT_FAILED)
-                    AlertDialog.Builder(context)
+                    val dialogBuilder = AlertDialog.Builder(context)
                         .setTitle(dialogTitle)
                         .setMessage(dialogMsg)
                         .setPositiveButton(context.getString(R.string.dialog_ok)) { _, _ ->
                             releaseAppDialog(AppDialogIds.SUBMIT_FAILED)
                         }
                         .setOnCancelListener { releaseAppDialog(AppDialogIds.SUBMIT_FAILED) }
-                        .show()
+                    // Strict + jaringan mati permanen + end_time kosong = tidak
+                    // ada watchdog dan back diblokir. Tombol ini menutup app
+                    // dengan jawaban TETAP tersimpan (autoSubmitAndExit
+                    // mem-persist submitted + retry background; re-entry
+                    // menampilkan layar recovery).
+                    if (strictMode) {
+                        dialogBuilder.setNegativeButton(context.getString(R.string.recovery_exit)) { _, _ ->
+                            releaseAppDialog(AppDialogIds.SUBMIT_FAILED)
+                            autoSubmitAndExit()
+                        }
+                    }
+                    dialogBuilder.show()
                     AuditLog.e(AuditLog.Events.SUBMIT_FAILED, "examId=$examId error=${errorMsg.take(80)}")
                 }
             }

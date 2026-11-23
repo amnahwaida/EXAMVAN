@@ -63,9 +63,11 @@
     <string name="submit_failed_title">Gagal</string>
     <string name="submit_failed_title_strict">Gagal — Wajib Coba Lagi</string>
     <string name="submit_failed_message">%1$s</string>
-    <string name="submit_failed_message_strict">%1$s\n\nMode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar.</string>
+    <string name="submit_failed_message_strict">%1$s\n\nMode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar. Tekan \"Keluar\" untuk menyimpan jawaban dan mengirim ulang nanti.</string>
     <string name="dialog_ok">OK</string>
     <string name="download_failed_format">Gagal memulai unduhan: %1$s</string>
+    <string name="questions_unavailable_title">Soal Ujian Tidak Tersedia</string>
+    <string name="questions_unavailable_message">Soal ujian belum berhasil dimuat. Periksa koneksi internet lalu tekan \"Coba Lagi\". Jika tetap gagal, tekan \"Keluar\" dan hubungi pengawas.</string>
     <string name="auto_submit_failed_title">Gagal Mengirim Jawaban Otomatis</string>
     <string name="recovery_pending_message">Jawaban Anda belum terkirim!\n\nPengumpulan otomatis gagal karena masalah jaringan. Jawaban Anda masih tersimpan di perangkat ini. Tekan \"Kirim Lagi\" untuk mengirim ulang.</string>
     <string name="recovery_retry_submit">Kirim Lagi</string>

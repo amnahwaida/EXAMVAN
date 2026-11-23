@@ -476,6 +476,8 @@ class PdfRendererHelper(
         binding.layoutError.visibility = View.GONE
         binding.ivPdfPage.visibility = View.GONE
         binding.btnCancel.visibility = View.GONE
+        binding.btnOpenResult.visibility = View.GONE
+        binding.btnOpenResult.setOnClickListener(null)
         downloadStartedAtMs = System.currentTimeMillis()
         binding.progressDownload.progress = 0
         binding.tvDownloadPercent.text = "0%"
@@ -485,6 +487,8 @@ class PdfRendererHelper(
         binding.layoutDownload.visibility = View.GONE
         binding.layoutError.visibility = View.GONE
         binding.ivPdfPage.visibility = View.VISIBLE
+        binding.btnOpenResult.visibility = View.GONE
+        binding.btnOpenResult.setOnClickListener(null)
     }
 
     fun showError(message: String) {
@@ -507,6 +511,10 @@ class PdfRendererHelper(
         setSwipeListener(null)
         renderVersion++ // invalidates any in-flight render
         closeCurrentDocument()
+        // Lepas referensi ImageView SEBELUM recycle: activity bisa saja masih
+        // ditahan sementara oleh submit background (GlobalScope), dan
+        // ImageView tidak boleh memegang bitmap yang sudah di-recycle.
+        binding.ivPdfPage.setImageDrawable(null)
         currentBitmap?.recycle()
         currentBitmap = null
         currentPdfFile = null

@@ -27,6 +27,7 @@ class AppDialogIdsTest {
             AppDialogIds.PERMISSION_PROMPT,
             AppDialogIds.SUBMIT_CONFIRM,
             AppDialogIds.SUBMIT_FAILED,
+            AppDialogIds.QUESTIONS_UNAVAILABLE,
             AppDialogIds.SUBMIT_CONGRATS
         )
         assertEquals(
@@ -44,6 +45,7 @@ class AppDialogIdsTest {
             AppDialogIds.PERMISSION_PROMPT,
             AppDialogIds.SUBMIT_CONFIRM,
             AppDialogIds.SUBMIT_FAILED,
+            AppDialogIds.QUESTIONS_UNAVAILABLE,
             AppDialogIds.SUBMIT_CONGRATS
         )
         assertTrue(ids.all { it.isNotBlank() })
