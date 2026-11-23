@@ -76,6 +76,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtWidgets import QApplication, QDialog, QWidget
 
 from examvan import __main__ as main_mod
+from examvan.device_status import BatteryStatus
 from examvan.models import Exam
 from examvan.ui import exam_viewer
 from examvan.ui.answer_sheet import AnswerSheetWidget
@@ -439,6 +440,36 @@ class NetworkIndicatorTest(unittest.TestCase):
 
             win._on_ws_connection_changed(False)
             self.assertEqual(win._lbl_network.text(), "Offline")
+        finally:
+            win.close()
+
+
+class BatteryIndicatorTest(unittest.TestCase):
+    """Chip baterai hanya tampil kalau perangkat benar-benar punya baterai."""
+
+    def test_battery_chip_shows_level_and_charging_state(self):
+        win, _ = _make_viewer()
+        try:
+            with mock.patch(
+                "examvan.ui.exam_viewer.read_battery_status",
+                return_value=BatteryStatus(42, True),
+            ):
+                win._refresh_battery_indicator()
+            self.assertEqual(win.battery_label().text(), "Baterai 42% (mengisi)")
+            self.assertTrue(win.battery_label().isVisibleTo(win))
+        finally:
+            win.close()
+
+    def test_battery_chip_is_hidden_without_a_battery(self):
+        win, _ = _make_viewer()
+        try:
+            win.battery_label().show()
+            with mock.patch(
+                "examvan.ui.exam_viewer.read_battery_status",
+                return_value=None,
+            ):
+                win._refresh_battery_indicator()
+            self.assertTrue(win.battery_label().isHidden())
         finally:
             win.close()
 

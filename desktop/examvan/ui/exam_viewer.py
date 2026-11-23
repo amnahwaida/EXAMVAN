@@ -252,6 +252,13 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import APP_VERSION, api, config, notify
+from ..device_status import (
+    BATTERY_CRITICAL,
+    BATTERY_LOW,
+    BatteryStatus,
+    battery_text,
+    read_battery_status,
+)
 from ..models import Exam, SubmitResponse
 from ..security.enforcer import SecurityEnforcer, protect_window_capture
 from ..utils import (
@@ -700,6 +707,20 @@ class ExamViewerWindow(QMainWindow):
         )
         self._set_network_indicator(None)
         top_layout.addWidget(self._lbl_network)
+
+        # Battery chip (mirror Android DeviceStatusPolicy). Hidden on lab PCs
+        # that report no battery; refreshed slowly because level changes are
+        # not urgent and the read is best-effort.
+        self._lbl_battery = QLabel("")
+        self._lbl_battery.setAlignment(Qt.AlignCenter)
+        self._lbl_battery.setToolTip("Status baterai perangkat.")
+        self._lbl_battery.hide()
+        top_layout.addWidget(self._lbl_battery)
+        self._refresh_battery_indicator()
+        self._battery_timer = QTimer(self)
+        self._battery_timer.setInterval(60000)
+        self._battery_timer.timeout.connect(self._refresh_battery_indicator)
+        self._battery_timer.start()
 
         # Timer (countdown if end_time, else elapsed)
         self._timer_widget = ElapsedTimerWidget(end_time=self._exam.end_time)
@@ -1242,6 +1263,37 @@ class ExamViewerWindow(QMainWindow):
 
     def _on_ws_connection_changed(self, connected: bool) -> None:
         self._set_network_indicator(bool(connected))
+
+    def battery_label(self) -> QLabel:
+        return self._lbl_battery
+
+    def _refresh_battery_indicator(self) -> None:
+        status = read_battery_status()
+        if status is None:
+            self._lbl_battery.hide()
+            return
+        self._set_battery_indicator(status)
+
+    def _set_battery_indicator(self, status: BatteryStatus) -> None:
+        category = status.category
+        if category == BATTERY_CRITICAL:
+            color = "#dc2626"
+        elif category == BATTERY_LOW:
+            color = "#b45309"
+        elif status.charging:
+            color = "#16a34a"
+        else:
+            color = "#475569"
+        self._lbl_battery.setText(battery_text(status))
+        self._lbl_battery.setStyleSheet(
+            f"color: {color}; font-weight: bold; font-size: 12px;"
+            "padding: 0 6px;"
+        )
+        self._lbl_battery.setToolTip(
+            f"Baterai perangkat: {status.percent}%"
+            + (" — sedang mengisi daya." if status.charging else ".")
+        )
+        self._lbl_battery.show()
 
     def _on_ws_event(self, event: str, data: dict) -> None:
         if event == "exam_terminated":

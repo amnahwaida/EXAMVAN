@@ -129,7 +129,7 @@ if (Test-Path $ExePath) {
 # ---- Post-build gate: modul wajib harus benar-benar ikut terpaket ----
 # Modul yang tidak ikut terpaket baru ketahuan saat dipanggil di PC siswa.
 & $VenvPython (Join-Path $PSScriptRoot "installer\list_exe_modules.py") `
-    --require examvan.api,examvan.ui.pdf_viewer,examvan.security.enforcer,examvan.security_levels `
+    --require examvan.api,examvan.device_status,examvan.ui.pdf_viewer,examvan.security.enforcer,examvan.security_levels `
     $ExePath
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERR] Modul wajib hilang dari EXAMVAN.exe. Lihat daftar di atas." -ForegroundColor Red

@@ -143,7 +143,7 @@ if not defined SIZE (
 
 rem ---- Post-build gate: modul wajib harus benar-benar ikut terpaket ----
 rem Modul yang tidak ikut terpaket baru ketahuan saat dipanggil di PC siswa.
-"%VPY%" "%~dp0installer\list_exe_modules.py" --require examvan.api,examvan.ui.pdf_viewer,examvan.security.enforcer,examvan.security_levels "%OUTPUT_DIR%\EXAMVAN.exe"
+"%VPY%" "%~dp0installer\list_exe_modules.py" --require examvan.api,examvan.device_status,examvan.ui.pdf_viewer,examvan.security.enforcer,examvan.security_levels "%OUTPUT_DIR%\EXAMVAN.exe"
 if errorlevel 1 (
     echo [ERR] Modul wajib hilang dari EXAMVAN.exe. Lihat daftar di atas.
     pause
