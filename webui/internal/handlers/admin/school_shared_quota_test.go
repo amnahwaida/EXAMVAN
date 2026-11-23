@@ -1425,6 +1425,81 @@ func TestSaveQuestionsPengawasCrossTenantRejected(t *testing.T) {
 	}
 }
 
+// TestSaveQuestionsBucketCreatorEmptyPengawasIsNoOp pins the SuperAdmin
+// bootstrap case: the "owner" bucket has no school tenant, so the questions
+// modal always submits an empty pengawas roster. That empty roster must not
+// fail the whole config save; the creator auto-assigned at upload stays.
+func TestSaveQuestionsBucketCreatorEmptyPengawasIsNoOp(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	root := createCascadeSuperadmin(t, pool, "cascade-bucket-pengawas-root")
+
+	tc, _ := newQuotaTestClient(t, pool)
+	tc.login(t, root.ID)
+	if status, body := tc.upload(t, "bucket-pengawas-exam", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("superadmin upload: status=%d body=%s", status, body)
+	}
+	var examID int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'bucket-pengawas-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	status, resp := postJSON(t, tc.client, tc.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/questions",
+		map[string]interface{}{
+			"pengawas_ids": []int{},
+			"start_time":   "2030-01-01 09:00",
+			"end_time":     "2030-01-02 15:04",
+		})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("save bucket-owner questions with empty roster: status=%d resp=%+v", status, resp)
+	}
+
+	ids, err := models.GetPengawasIDs(ctx, pool, examID)
+	if err != nil || len(ids) != 1 || ids[0] != root.ID {
+		t.Fatalf("empty bucket roster must keep the auto-assigned creator, got ids=%v err=%v", ids, err)
+	}
+}
+
+// TestNonOperatorGuruCanCreateConfigureAndStartExam pins the ordinary-user
+// path: a guru-only account (no operator role) must be able to upload an exam,
+// save its configuration, and start it. The upload route has no operator gate;
+// this test keeps a future role check from silently locking teachers out.
+func TestNonOperatorGuruCanCreateConfigureAndStartExam(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	guru := createSchoolQuotaUser(t, pool, "guru-mandiri", "SMA Guru Mandiri", []string{models.RoleGuru}, 3)
+
+	tc, _ := newQuotaTestClient(t, pool)
+	tc.login(t, guru)
+	if status, body := tc.upload(t, "guru-mandiri-exam", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("guru upload: status=%d body=%s", status, body)
+	}
+	var examID int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'guru-mandiri-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	status, resp := postJSON(t, tc.client, tc.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/questions",
+		map[string]interface{}{
+			"start_time": "2030-01-01 09:00",
+			"end_time":   "2030-01-02 15:04",
+		})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("guru save questions: status=%d resp=%+v", status, resp)
+	}
+
+	ids, err := models.GetPengawasIDs(ctx, pool, examID)
+	if err != nil || len(ids) != 1 || ids[0] != guru {
+		t.Fatalf("guru must remain auto-assigned pengawas, got ids=%v err=%v", ids, err)
+	}
+
+	if status, resp := tc.start(t, examID); status != http.StatusOK || !resp.Success {
+		t.Fatalf("guru start exam: status=%d resp=%+v", status, resp)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Per-account atomic gate vs school pool (M7)
 // ---------------------------------------------------------------------------

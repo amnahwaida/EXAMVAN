@@ -1883,43 +1883,51 @@ func SaveQuestions() gin.HandlerFunc {
 				}
 				creatorScope := models.InstansiScope{ID: creatorInstansiID, Name: creatorInstansi}
 				if creatorScope.IsBucket() {
-					errorResponse(c, http.StatusBadRequest, "Pengawas hanya dapat ditugaskan untuk ujian di instansi sekolah")
-					return
-				}
-				for _, pid := range body.PengawasIDs {
-					var ti, tr, ts string
-					var tiID *int
-					err := pool.QueryRow(ctx,
-						`SELECT COALESCE(instansi, ''), instansi_id, role, status FROM admin_users WHERE id = $1`,
-						pid).Scan(&ti, &tiID, &tr, &ts)
-					if err != nil {
-						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
+					// Bootstrap SuperAdmin lives in the "owner" bucket, which has
+					// no school tenant to draw pengawas from. UploadExam already
+					// auto-assigns the creator, so the questions modal's empty
+					// roster is a no-op — not an invalid assignment. A non-empty
+					// roster is still rejected: bucket accounts are never a tenant.
+					if len(body.PengawasIDs) > 0 {
+						errorResponse(c, http.StatusBadRequest, "Pengawas hanya dapat ditugaskan untuk ujian di instansi sekolah")
 						return
 					}
-					if !operatorScopeMatches(ti, tiID, creatorScope) {
-						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
+				} else {
+					for _, pid := range body.PengawasIDs {
+						var ti, tr, ts string
+						var tiID *int
+						err := pool.QueryRow(ctx,
+							`SELECT COALESCE(instansi, ''), instansi_id, role, status FROM admin_users WHERE id = $1`,
+							pid).Scan(&ti, &tiID, &tr, &ts)
+						if err != nil {
+							errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
+							return
+						}
+						if !operatorScopeMatches(ti, tiID, creatorScope) {
+							errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
+							return
+						}
+						if ts != models.UserStatusActive {
+							errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak aktif", pid))
+							return
+						}
+						if !strings.Contains(tr, "pengawas") {
+							errorResponse(c, http.StatusBadRequest, fmt.Sprintf("User %d tidak memiliki role Pengawas", pid))
+							return
+						}
+					}
+					if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
+						// A failed roster save must NEVER surface as success: the
+						// questions did persist (transactional), but the pengawas
+						// roster silently stayed at its OLD version while the
+						// operator believes the new one is live. Fail loudly (500)
+						// so the operator retries instead of discovering the
+						// divergence after an exam session.
+						log.Printf("save pengawas error: %v", err)
+						errorResponse(c, http.StatusInternalServerError,
+							"Konfigurasi soal tersimpan, tetapi penugasan pengawas gagal — coba lagi.")
 						return
 					}
-					if ts != models.UserStatusActive {
-						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak aktif", pid))
-						return
-					}
-					if !strings.Contains(tr, "pengawas") {
-						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("User %d tidak memiliki role Pengawas", pid))
-						return
-					}
-				}
-				if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
-					// A failed roster save must NEVER surface as success: the
-					// questions did persist (transactional), but the pengawas
-					// roster silently stayed at its OLD version while the
-					// operator believes the new one is live. Fail loudly (500)
-					// so the operator retries instead of discovering the
-					// divergence after an exam session.
-					log.Printf("save pengawas error: %v", err)
-					errorResponse(c, http.StatusInternalServerError,
-						"Konfigurasi soal tersimpan, tetapi penugasan pengawas gagal — coba lagi.")
-					return
 				}
 			}
 		} else {
