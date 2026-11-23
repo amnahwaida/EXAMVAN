@@ -91,13 +91,14 @@ Output: `windows\dist\EXAMVAN.exe`
 ### Low Mode (semua platform)
 | Fitur | Linux X11 | Linux Wayland | Windows |
 |-------|-----------|---------------|---------|
-| Anti-screenshot | Bypass compositor | Inherently protected | `WDA_MONITOR` |
+| Anti-screenshot | Bypass compositor | Inherently protected | — (aktif mulai Medium) |
 | Clipboard clear tiap 10 detik | `xsel` (worker thread) | `wl-copy --clear` (worker thread) | `EmptyClipboard()` (worker thread) |
 | Screen wake lock | `systemd-inhibit` / `xset` | `systemd-inhibit` | `SetThreadExecutionState` |
 | Sleep prevention | ✅ | ✅ | ✅ |
 | Dark mode detection | `gsettings` + env | `gsettings` + env | Registry + Qt palette |
 
 ### Medium Mode (Low +)
+- Capture protection `WDA_MONITOR` di Windows
 - Focus loss detection → auto-submit 3 detik
 - Window focus polling tiap 500ms
 - Force raise window di strict mode

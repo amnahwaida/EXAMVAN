@@ -48,8 +48,8 @@ import time
 import unicodedata
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont, QFontMetrics, QPixmap
+from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QFont, QFontMetrics, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QFrame,
@@ -502,21 +502,34 @@ class CongratulationsWindow(QMainWindow):
         )
         self._copy_btn.clicked.connect(self.copy_link)
         link_row.addWidget(self._copy_btn, 0)
+
+        self._open_btn = QPushButton("Buka Hasil")
+        self._open_btn.setEnabled(
+            bool(self._result_url) and self._public_results)
+        self._open_btn.setToolTip(
+            "Membuka link hasil di browser default. Token ujian akan "
+            "tercatat di riwayat browser komputer ini."
+        )
+        self._open_btn.clicked.connect(self.open_result_link)
+        link_row.addWidget(self._open_btn, 0)
         card_layout.addLayout(link_row)
 
         if self._public_results:
             note_text = (
-                "Buka link tersebut di browser untuk melihat hasil ujianmu. "
+                "Klik Buka Hasil untuk melihat hasil ujianmu di browser. "
                 "Link ini menampilkan hasil seluruh kelas."
             )
         else:
             # H6: guru mematikan publikasi nilai — tidak ada link yang bisa
-            # dibuka siswa; tombol salin disembunyikan dan catatannya jujur.
+            # dibuka siswa; tombol salin dan buka disembunyikan dan
+            # catatannya jujur.
             note_text = (
                 "Nilai tidak dipublikasikan guru — hubungi pengawas."
             )
             self._copy_btn.hide()
             self._copy_btn.setEnabled(False)
+            self._open_btn.hide()
+            self._open_btn.setEnabled(False)
         note = QLabel(note_text)
         note.setWordWrap(True)
         note.setAlignment(Qt.AlignCenter)
@@ -596,8 +609,27 @@ class CongratulationsWindow(QMainWindow):
     def copy_button(self) -> QPushButton:
         return self._copy_btn
 
+    def open_button(self) -> QPushButton:
+        return self._open_btn
+
     def finish_button(self) -> QPushButton:
         return self._finish_btn
+
+    # ------------------------------------------------------------------
+    # Open + copy result link
+    # ------------------------------------------------------------------
+
+    def open_result_link(self) -> None:
+        if not self._result_url:
+            return
+        url = QUrl(self._result_url)
+        if not url.isValid() or url.scheme() != "https" or not url.host():
+            log.warning("menolak membuka link hasil yang tidak sah")
+            return
+        try:
+            QDesktopServices.openUrl(url)
+        except Exception:
+            log.warning("gagal membuka link hasil", exc_info=True)
 
     # ------------------------------------------------------------------
     # Copy + auto-clear

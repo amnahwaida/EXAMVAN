@@ -117,6 +117,31 @@ class LifecycleRobustnessTestCase(unittest.TestCase):
         self.ws.disconnect()
 
 
+class ConnectionStateSignalTest(unittest.TestCase):
+    """Indikator jaringan memakai state koneksi WebSocket."""
+
+    def setUp(self):
+        if QCoreApplication.instance() is None:
+            self._app = QCoreApplication([])
+        else:
+            self._app = QCoreApplication.instance()
+        self.ws = ExamWebSocket()
+
+    def test_connected_then_disconnected_emits_state(self):
+        states = []
+        self.ws.connection_changed.connect(states.append)
+        self.ws._on_connected()
+        self.ws._should_reconnect = False
+        self.ws._on_disconnected()
+        self.assertEqual(states, [True, False])
+
+    def test_invalid_connect_marks_offline(self):
+        states = []
+        self.ws.connection_changed.connect(states.append)
+        self.ws.connect(None, 7, "TOK")
+        self.assertEqual(states, [False])
+
+
 class ReconnectJitterTest(unittest.TestCase):
     """Retry delay harus punya jitter supaya banyak klien yang disconnect
     sama-sama tidak menghasilkan gempa bumi reconnect ke server."""

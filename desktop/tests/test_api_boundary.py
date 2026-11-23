@@ -126,7 +126,7 @@ class TokenStaysOnTheExamOriginTestCase(unittest.TestCase):
             headers={
                 "X-Exam-Token": "ABCD1234",
                 "X-Device-Id": "DESKTOP:abc",
-                "User-Agent": "EXAMVAN-Windows/2.5.1",
+                "User-Agent": "EXAMVAN-Windows/2.7.20",
             },
         )
         new = handler.redirect_request(

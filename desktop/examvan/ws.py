@@ -63,6 +63,8 @@ class ExamWebSocket(QObject):
 
     # Emitted when the server sends an event: (event_name, payload_dict).
     event_received = pyqtSignal(str, dict)
+    # Emitted when the real-time connection comes up or goes down.
+    connection_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -103,6 +105,7 @@ class ExamWebSocket(QObject):
                 "(%r, %r)", base_url, exam_id,
             )
             self._should_reconnect = False
+            self.connection_changed.emit(False)
             return
         self._should_reconnect = True
         self._do_connect()
@@ -184,9 +187,11 @@ class ExamWebSocket(QObject):
         # backoff.
         self._connect_time_mono = time.monotonic()
         log.info("WS connected to /ws/%s", self._exam_id)
+        self.connection_changed.emit(True)
 
     def _on_disconnected(self) -> None:
         log.info("WS disconnected from /ws/%s", self._exam_id)
+        self.connection_changed.emit(False)
         now = time.monotonic()
         if (
             self._connect_time_mono is not None

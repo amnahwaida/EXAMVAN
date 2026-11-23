@@ -14,7 +14,7 @@
 # package contents" di ci.yml membaca `APP_VERSION = "..."` dengan regex
 # tanpa mengeksekusi source. Kalau arahnya dibalik, ketiganya ikut gagal
 # diam-diam dan paket .deb/${dist} terlabel versi fallback yang salah.
-APP_VERSION = "2.5.1"
+APP_VERSION = "2.7.20"
 
 # Yang ditampilkan di layar. Diturunkan, bukan literal kedua.
 __version__ = APP_VERSION

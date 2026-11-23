@@ -423,5 +423,25 @@ class DuplicateQuestionNumberTest(unittest.TestCase):
         self.assertEqual(len(answers), len(set(answers)))
 
 
+class NetworkIndicatorTest(unittest.TestCase):
+    """Indikator jaringan mengikuti state koneksi WebSocket."""
+
+    def test_indicator_starts_connecting_and_tracks_websocket_state(self):
+        win, _ = _make_viewer()
+        try:
+            self.assertEqual(win._lbl_network.text(), "Menghubungkan...")
+            win._ws.connection_changed.connect.assert_called_once_with(
+                win._on_ws_connection_changed
+            )
+
+            win._on_ws_connection_changed(True)
+            self.assertEqual(win._lbl_network.text(), "Online")
+
+            win._on_ws_connection_changed(False)
+            self.assertEqual(win._lbl_network.text(), "Offline")
+        finally:
+            win.close()
+
+
 if __name__ == "__main__":
     unittest.main()

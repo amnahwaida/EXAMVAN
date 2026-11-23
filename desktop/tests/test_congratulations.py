@@ -617,6 +617,35 @@ class CongratsPolishTestCase(unittest.TestCase):
         self.addCleanup(page.deleteLater)
         return page
 
+    def test_open_button_opens_the_result_link_in_the_default_browser(self):
+        page = self._page()
+        with mock.patch(
+            "examvan.ui.congratulations.QDesktopServices.openUrl"
+        ) as open_url:
+            page.open_button().click()
+        open_url.assert_called_once()
+        opened = open_url.call_args.args[0]
+        self.assertEqual(opened.toString(), page.result_url())
+
+    def test_open_button_is_hidden_when_results_are_unpublished(self):
+        page = self._page(public_results=False)
+        page.show()
+        self.app.processEvents()
+        self.assertTrue(page.open_button().isHidden())
+        self.assertFalse(page.open_button().isEnabled())
+
+    def test_open_refuses_a_non_https_result_link(self):
+        page = self._page(server_url="http://examvan.my.id")
+        with mock.patch(
+            "examvan.ui.congratulations.QDesktopServices.openUrl"
+        ) as open_url:
+            page.open_result_link()
+        open_url.assert_not_called()
+
+    def test_open_button_is_disabled_without_a_result_url(self):
+        page = self._page(exam_token="")
+        self.assertFalse(page.open_button().isEnabled())
+
     def test_identity_values_wrap(self):
         from PyQt5.QtWidgets import QLabel
 

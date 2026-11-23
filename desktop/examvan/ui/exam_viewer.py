@@ -584,6 +584,7 @@ class ExamViewerWindow(QMainWindow):
         # (ujian dihentikan pengawas). Receive-only; presence via HTTP di atas.
         self._ws = ExamWebSocket(self)
         self._ws.event_received.connect(self._on_ws_event)
+        self._ws.connection_changed.connect(self._on_ws_connection_changed)
         self._ws.connect(self._server_url, self._exam.id, self._token)
 
         # Restore saved answers
@@ -688,6 +689,17 @@ class ExamViewerWindow(QMainWindow):
             f"border-radius: 4px; font-weight: bold; font-size: 12px;"
         )
         top_layout.addWidget(self._lbl_security)
+
+        # Real-time server connection indicator (mirror Android
+        # ExamViewerActivity's Online/Offline chip).
+        self._lbl_network = QLabel("Menghubungkan...")
+        self._lbl_network.setAlignment(Qt.AlignCenter)
+        self._lbl_network.setMinimumWidth(88)
+        self._lbl_network.setToolTip(
+            "Status koneksi real-time ke server ujian."
+        )
+        self._set_network_indicator(None)
+        top_layout.addWidget(self._lbl_network)
 
         # Timer (countdown if end_time, else elapsed)
         self._timer_widget = ElapsedTimerWidget(end_time=self._exam.end_time)
@@ -1210,6 +1222,26 @@ class ExamViewerWindow(QMainWindow):
     # -------------------------------------------------------------------
     # WebSocket events
     # -------------------------------------------------------------------
+
+    def _set_network_indicator(self, connected: Optional[bool]) -> None:
+        if connected is None:
+            text = "Menghubungkan..."
+            background = "#b45309"
+        elif connected:
+            text = "Online"
+            background = "#16a34a"
+        else:
+            text = "Offline"
+            background = "#dc2626"
+        self._lbl_network.setText(text)
+        self._lbl_network.setStyleSheet(
+            f"background-color: {background}; color: #ffffff;"
+            "padding: 4px 10px; border-radius: 4px;"
+            "font-weight: bold; font-size: 12px;"
+        )
+
+    def _on_ws_connection_changed(self, connected: bool) -> None:
+        self._set_network_indicator(bool(connected))
 
     def _on_ws_event(self, event: str, data: dict) -> None:
         if event == "exam_terminated":
