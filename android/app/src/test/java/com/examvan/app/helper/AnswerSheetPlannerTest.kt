@@ -58,6 +58,17 @@ class AnswerSheetPlannerTest {
     }
 
     @Test
+    fun plan_legacyOptions_carriesChoices() {
+        // Server historis bisa mengirim `options`, bukan `choices`; planner
+        // harus tetap menghasilkan item agar lembar jawaban tidak kosong.
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "single_choice",
+                "options" to listOf("Jakarta", "Bogor")))
+        )
+        assertEquals(listOf("Jakarta", "Bogor"), items.single().choices)
+    }
+
+    @Test
     fun plan_matching_carriesLeftAndRight() {
         val items = AnswerSheetPlanner.plan(
             listOf(mapOf("number" to 1, "type" to "matching",
@@ -65,6 +76,46 @@ class AnswerSheetPlannerTest {
         )
         assertEquals(listOf("1", "2"), items.single().leftItems)
         assertEquals(listOf("A", "B"), items.single().rightItems)
+    }
+
+    @Test
+    fun plan_matchingRange_carriesNumberEnd() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "matching", "numbering" to "range",
+                "left_items" to listOf("1", "2"), "right_items" to listOf("A", "B")))
+        )
+        assertEquals(2, items.single().numberEnd)
+    }
+
+    @Test
+    fun plan_matchingSingle_hasNoNumberEnd() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "matching", "numbering" to "single",
+                "left_items" to listOf("1", "2"), "right_items" to listOf("A", "B")))
+        )
+        assertNull(items.single().numberEnd)
+    }
+
+    @Test
+    fun plan_matchingLegacyWithoutNumbering_defaultsToSingle() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "matching",
+                "left_items" to listOf("1", "2"), "right_items" to listOf("A", "B")))
+        )
+        assertNull(items.single().numberEnd)
+    }
+
+    @Test
+    fun plan_matchingRange_occupiesInnerNumbersForFallback() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(
+                mapOf("number" to 1, "type" to "matching", "numbering" to "range",
+                    "left_items" to listOf("1", "2"), "right_items" to listOf("A", "B"),
+                    "key" to mapOf("1" to "A", "2" to "B")),
+                mapOf("number" to "rusak", "type" to "short_answer", "key" to "x")
+            )
+        )
+        assertEquals(listOf(1, 3), items.map { it.number })
     }
 
     @Test
@@ -85,19 +136,43 @@ class AnswerSheetPlannerTest {
     }
 
     @Test
-    fun plan_invalidNumber_skipped() {
+    fun plan_invalidNumber_fallsBackToPosition() {
+        // Nomor rusak tidak boleh membuat soal hilang; pakai nomor urut
+        // posisi. Server memakai aturan fallback yang sama saat menilai.
         val items = AnswerSheetPlanner.plan(
-            listOf(mapOf("number" to "bukan-angka", "type" to "short_answer"))
+            listOf(
+                mapOf("number" to "bukan-angka", "type" to "short_answer"),
+                mapOf("number" to 2, "type" to "short_answer")
+            )
         )
-        assertEquals(emptyList<AnswerSheetItem>(), items)
+        assertEquals(listOf(1, 2), items.map { it.number })
+    }
+
+    @Test
+    fun plan_invalidNumber_avoidsExplicitNumberCollision() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(
+                mapOf("number" to "rusak", "type" to "short_answer"),
+                mapOf("number" to 1, "type" to "short_answer")
+            )
+        )
+        assertEquals(listOf(2, 1), items.map { it.number })
     }
 
     @Test
     fun plan_unknownType_skipped() {
         val items = AnswerSheetPlanner.plan(
-            listOf(mapOf("number" to 1, "type" to "essay"))
+            listOf(mapOf("number" to 1, "type" to "file_upload"))
         )
         assertEquals(emptyList<AnswerSheetItem>(), items)
+    }
+
+    @Test
+    fun plan_legacyEssayType_renderedAsShortAnswer() {
+        val items = AnswerSheetPlanner.plan(
+            listOf(mapOf("number" to 1, "type" to "essay"))
+        )
+        assertEquals(AnswerSheetItem.TYPE_SHORT_ANSWER, items.single().type)
     }
 
     @Test
@@ -155,8 +230,8 @@ class AnswerSheetPlannerTest {
         try {
             AnswerSheetPlanner.plan(
                 listOf(
-                    mapOf("number" to "rusak"),                                     // nomor invalid — TIDAK dilaporkan (tak ada nomor)
-                    mapOf("number" to 1, "type" to "essay"),                        // UNKNOWN_TYPE
+                    mapOf("number" to "rusak", "type" to "short_answer"),           // nomor invalid -> fallback urut, tetap dirender
+                    mapOf("number" to 1, "type" to "file_upload"),                  // UNKNOWN_TYPE
                     mapOf("number" to 2, "type" to "single_choice"),                // NO_CHOICES
                     mapOf("number" to 3, "type" to "matching", "left_items" to listOf("1")), // NO_MATCHING_ITEMS
                     mapOf("number" to 4, "type" to "true_false")                    // valid

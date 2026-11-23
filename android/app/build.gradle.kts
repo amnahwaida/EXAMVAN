@@ -11,14 +11,21 @@ android {
         applicationId = "com.examvan.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 54
-        versionName = "2.7.18"
+        versionCode = 55
+        versionName = "2.7.19"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     testOptions {
         // JVM unit tests call android.util.Log (via ApiClient) — no-op stubs.
         unitTests.isReturnDefaultValues = true
+    }
+
+    sourceSets {
+        getByName("test") {
+            // One shared golden fixture for Go and Kotlin contract tests.
+            resources.srcDir("../../contracts")
+        }
     }
 
     signingConfigs {

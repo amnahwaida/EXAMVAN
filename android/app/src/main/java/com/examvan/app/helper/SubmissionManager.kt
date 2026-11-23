@@ -209,6 +209,10 @@ class SubmissionManager(
             .remove(AppPrefs.KEY_ACTIVE_EXAM_ID)
             .remove(AppPrefs.KEY_ACTIVE_SERVER_URL)
             .remove(AppPrefs.KEY_AUTO_RESUME_PENDING)
+            // Sesi selesai — attempt/repeat berikutnya wajib menghitung
+            // baseline clock-drift baru, bukan mewarisi baseline lama.
+            .remove(AppPrefs.KEY_CLOCK_DRIFT_BASELINE)
+            .remove(AppPrefs.KEY_CLOCK_DRIFT_BOOT_COUNT)
             .apply()
         // Naskah soal tidak menetap di perangkat setelah jawaban durable
         // (review klien 14 Nov 2026): cache PDF ujian ikut dibersihkan.

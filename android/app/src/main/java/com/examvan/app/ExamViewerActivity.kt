@@ -21,12 +21,12 @@ import com.examvan.app.helper.AppDialogIds
 import com.examvan.app.helper.ExamDeadline
 import com.examvan.app.helper.ExamLaunchPolicy
 import com.examvan.app.helper.ExamModePolicy
+import com.examvan.app.helper.ExamScreenPanels
 import com.examvan.app.helper.PdfRendererHelper
+import com.examvan.app.helper.QuestionContract
 import com.examvan.app.helper.SecurityEnforcer
 import com.examvan.app.helper.SubmissionManager
-import com.google.gson.Gson
 import android.widget.Toast
-import com.google.gson.reflect.TypeToken
 import androidx.lifecycle.lifecycleScope
 import java.time.Instant
 
@@ -157,7 +157,6 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     companion object {
         private const val TAG = "ExamViewer"
-        private val questionsListType = object : TypeToken<List<Map<String, Any>>>() {}.type
 
         // ID holder dialog terpusat di AppDialogIds (fix review ronde 4 #1).
     }
@@ -426,6 +425,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             // sebelum PDF siap) cukup logout + keluar. Setelah soal tampil,
             // keluar WAJIB mengumpulkan jawaban agar bukan jalur bypass.
             onSecurityViolationExit = { exitBlockingScreen() }
+            // Layar blokir memanggil hideAllControls — termasuk ivPdfPage.
+            // Saat retry berhasil, pulihkan panel konten + lembar jawaban;
+            // tanpa ini PDF tetap GONE walau renderer sudah siap.
+            onBlockingScreenDismissed = { restoreMainUiAfterBlock() }
         }
 
         // AnswerSheetBuilder
@@ -530,6 +533,22 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     /**
+     * Settings.Global.BOOT_COUNT (API 24+), -1 bila tidak tersedia. Dipakai
+     * untuk membatalkan baseline clock-drift lintas reboot: elapsedRealtime
+     * kembali ke 0 setiap boot sehingga baseline lama selalu tampak sebagai
+     * manipulasi jam.
+     */
+    private fun currentBootCount(): Int = try {
+        android.provider.Settings.Global.getInt(
+            contentResolver,
+            android.provider.Settings.Global.BOOT_COUNT,
+            -1
+        )
+    } catch (_: Throwable) {
+        -1
+    }
+
+    /**
      * Load exam content: questions, answers, PDF download.
      */
     private fun loadExamContent(savedInstanceState: Bundle?) {
@@ -581,15 +600,28 @@ class ExamViewerActivity : BaseSecureActivity() {
         val persistedDrift = if (prefs.contains(AppPrefs.KEY_CLOCK_DRIFT_BASELINE)) {
             prefs.getLong(AppPrefs.KEY_CLOCK_DRIFT_BASELINE, 0L)
         } else null
+        val persistedBoot = if (prefs.contains(AppPrefs.KEY_CLOCK_DRIFT_BOOT_COUNT)) {
+            prefs.getInt(AppPrefs.KEY_CLOCK_DRIFT_BOOT_COUNT, -1)
+        } else null
+        val currentBoot = currentBootCount()
         val resolvedDrift = com.examvan.app.helper.ClockDriftPolicy.resolveBaseline(
             savedStateDriftMs = savedDriftRaw,
             persistedDriftMs = persistedDrift,
-            freshDriftMs = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+            freshDriftMs = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime(),
+            persistedBootCount = persistedBoot,
+            currentBootCount = currentBoot
         )
         securityEnforcer.initialClockDrift = resolvedDrift.baselineDriftMs
+        val driftEditor = prefs.edit()
         if (resolvedDrift.isNew) {
-            prefs.edit().putLong(AppPrefs.KEY_CLOCK_DRIFT_BASELINE, resolvedDrift.baselineDriftMs).apply()
+            driftEditor.putLong(AppPrefs.KEY_CLOCK_DRIFT_BASELINE, resolvedDrift.baselineDriftMs)
         }
+        // Selalu segarkan penanda boot saat valid: data lama yang belum punya
+        // penanda akan dihitung ulang sekali, lalu reboot berikutnya terdeteksi.
+        if (currentBoot > 0) {
+            driftEditor.putInt(AppPrefs.KEY_CLOCK_DRIFT_BOOT_COUNT, currentBoot)
+        }
+        driftEditor.apply()
 
         val savedEndTime = savedInstanceState?.getString("endTime")
         if (savedEndTime != null) {
@@ -687,11 +719,7 @@ class ExamViewerActivity : BaseSecureActivity() {
             // coba ambil ulang dari server sebelum menyerah — jangan memalsukan
             // 40 soal default (jawaban palsu tidak cocok dengan koreksi server).
             val parsed: List<Map<String, Any>> = if (json != null) {
-                try {
-                    Gson().fromJson(json, questionsListType) ?: emptyList()
-                } catch (e: Throwable) {
-                    emptyList()
-                }
+                QuestionContract.toMaps(QuestionContract.decode(json))
             } else {
                 emptyList()
             }
@@ -728,7 +756,16 @@ class ExamViewerActivity : BaseSecureActivity() {
         // sudah menyembunyikan toggle & tombol kumpulkan; tanpa memulihkan
         // di sini PDF tampil tetapi lembar jawaban tetap hilang (Samsung A51).
         showAnswerOverlay()
-        submissionManager.totalQuestions = answerSheetBuilder.build(questions)
+        val renderedQuestions = answerSheetBuilder.build(questions)
+        submissionManager.totalQuestions = renderedQuestions
+        // Daftar mentah tidak kosong tetapi semua soal invalid (nomor rusak,
+        // tipe tak dikenal, pilihan hilang): builder menyembunyikan panel dan
+        // tombol kumpulkan. Jangan tinggalkan layar buntu — tawarkan ambil
+        // ulang soal / keluar seperti jalur fetch kosong.
+        if (renderedQuestions == 0) {
+            showQuestionsUnavailableDialog()
+            return
+        }
         // Restore saved answers (#6 fix: view tagging handles this)
         val savedAnswers = submissionManager.restoreAnswersFromPrefs()
         if (savedAnswers != null) {
@@ -763,12 +800,12 @@ class ExamViewerActivity : BaseSecureActivity() {
                     }
                     // Simpan lagi agar re-entry berikutnya tidak perlu re-fetch.
                     try {
-                        val json = Gson().toJson(fetched)
+                        val json = QuestionContract.encodeForClient(fetched)
                         AppPrefs.getExamPrefsSafe(this).edit()
                             .putString(AppPrefs.KEY_QUESTIONS_JSON, json)
                             .apply()
                     } catch (_: Exception) { }
-                    applyQuestions(fetched)
+                    applyQuestions(QuestionContract.toMaps(fetched))
                 }
             },
             onError = { _, _ ->
@@ -858,6 +895,19 @@ class ExamViewerActivity : BaseSecureActivity() {
         binding.answerSheetToggle.visibility = View.VISIBLE
         binding.btnToggleAnswerSheet.visibility = View.VISIBLE
         binding.btnSubmitAnswers.visibility = View.VISIBLE
+    }
+
+    /**
+     * Pulihkan UI setelah layar blok (strict-failed/gesture/security) ditutup.
+     * Panel konten dan lembar jawaban ikut disembunyikan oleh
+     * [ExamScreenPanels.hideAllControls]; tanpa pemulihan ini retry hanya
+     * menampilkan tombol navigasi, sementara PDF/answer sheet tetap GONE.
+     */
+    private fun restoreMainUiAfterBlock() {
+        if (isFinishing || isDestroyed) return
+        ExamScreenPanels.showMainControls(binding)
+        ExamScreenPanels.showContent(binding, viewModel.isPdfReady.value)
+        if (submissionManager.totalQuestions > 0) showAnswerOverlay() else hideAnswerOverlay()
     }
 
     private fun confirmAndLogout() {
@@ -965,6 +1015,9 @@ class ExamViewerActivity : BaseSecureActivity() {
                 securityEnforcer.releaseAppDialog(AppDialogIds.QUESTIONS_UNAVAILABLE)
                 questionsUnavailableDialog = null
                 fetchQuestionsFromServer()
+                // Jangan biarkan siswa menekan retry soal sementara PDF tetap
+                // di layar error. Helper no-op bila PDF sudah siap/berjalan.
+                pdfRendererHelper.retryDownloadIfFailed(examId, examToken)
             }
             .setNegativeButton(getString(R.string.recovery_exit)) { _, _ ->
                 securityEnforcer.releaseAppDialog(AppDialogIds.QUESTIONS_UNAVAILABLE)

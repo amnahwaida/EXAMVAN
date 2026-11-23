@@ -92,36 +92,116 @@ const (
 
 // ===== Scoring Engine =====
 
-// normalizeQNum normalizes a question number, handling float representations.
-// e.g. 1.0 -> "1", "2.5" -> "2.5"
-func normalizeQNum(number interface{}) string {
+// normalizeQuestionType maps legacy/alias type names to the canonical types
+// used by the scoring engine. Android's answer sheet applies the same aliases
+// so a legacy question is rendered and scored consistently.
+func normalizeQuestionType(raw string) string {
+	t := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(raw)), "-", "_")
+	t = strings.ReplaceAll(t, " ", "_")
+	switch t {
+	case "", "single_choice", "singlechoice", "single", "pg",
+		"pilihan_ganda", "pilihanganda", "pilihan_ganda_biasa":
+		return "single_choice"
+	case "multiple_choice", "multiplechoice", "multiple",
+		"pg_kompleks", "pgkompleks", "pilihan_ganda_kompleks",
+		"multiple_response":
+		return "multiple_choice"
+	case "true_false", "truefalse", "tf", "benar_salah", "benarsalah":
+		return "true_false"
+	case "matching", "match", "menjodohkan", "jodoh", "jodohkan":
+		return "matching"
+	case "short_answer", "shortanswer", "short", "essay",
+		"isian", "isian_singkat", "uraian":
+		return "short_answer"
+	default:
+		return t
+	}
+}
+
+// questionNumberInt is the single question-number rule shared by scoring,
+// contract canonicalization, and Android's AnswerSheetPlanner. Numeric values
+// truncate toward zero (Gson gives Android a Double), strings must be a plain
+// base-10 integer ("3.0" is invalid), and anything else is invalid.
+func questionNumberInt(number interface{}) (int, bool) {
 	switch v := number.(type) {
 	case float64:
-		if v == float64(int64(v)) {
-			return strconv.FormatInt(int64(v), 10)
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
 		}
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case string:
-		// Try parsing as number first.
-		f, err := strconv.ParseFloat(v, 64)
-		if err == nil {
-			if f == float64(int64(f)) {
-				return strconv.FormatInt(int64(f), 10)
-			}
-			return strconv.FormatFloat(f, 'f', -1, 64)
+		return int(v), true
+	case float32:
+		f := float64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
 		}
-		return v
-	case int, int64, int32:
-		return fmt.Sprintf("%d", v)
+		return int(f), true
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case int32:
+		return int(v), true
 	case json.Number:
-		f, _ := v.Float64()
-		if f == float64(int64(f)) {
-			return strconv.FormatInt(int64(f), 10)
+		if n, err := v.Int64(); err == nil {
+			return int(n), true
 		}
-		return v.String()
+		f, err := v.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return int(f), true
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return 0, false
+		}
+		return n, true
 	default:
-		return fmt.Sprintf("%v", v)
+		return 0, false
 	}
+}
+
+// questionNumbersFromRaw mirrors Android's AnswerSheetPlanner: explicit valid
+// numbers win; invalid/missing numbers receive the first unused positional
+// number. Keeping both sides identical ensures answers are keyed to the same
+// question during scoring, rendering, and reporting.
+func questionNumbersFromRaw(raw []interface{}) []int {
+	numbers := make([]int, len(raw))
+	valid := make([]bool, len(raw))
+	explicit := make(map[int]bool, len(raw))
+	for i, v := range raw {
+		if n, ok := questionNumberInt(v); ok {
+			numbers[i] = n
+			valid[i] = true
+			explicit[n] = true
+		}
+	}
+	used := make(map[int]bool, len(raw))
+	for i := range raw {
+		if !valid[i] {
+			candidate := i + 1
+			for explicit[candidate] || used[candidate] {
+				candidate++
+			}
+			numbers[i] = candidate
+		}
+		used[numbers[i]] = true
+	}
+	return numbers
+}
+
+// QuestionNumbers exposes the shared numbering rule for scores and reports.
+func QuestionNumbers(questions []Question) []string {
+	raw := make([]interface{}, len(questions))
+	for i, q := range questions {
+		raw[i] = q.Number
+	}
+	numbers := questionNumbersFromRaw(raw)
+	keys := make([]string, len(numbers))
+	for i, n := range numbers {
+		keys[i] = strconv.Itoa(n)
+	}
+	return keys
 }
 
 // evaluateSingleQuestion evaluates a single student answer against the correct answer.
@@ -408,13 +488,17 @@ func EvaluateAnswersDetailed(answers map[string]interface{}, questions []Questio
 		return result
 	}
 
-	for _, q := range questions {
-		qNum := normalizeQNum(q.Number)
+	qNums := QuestionNumbers(questions)
+	for i, q := range questions {
+		qNum := qNums[i]
 		studentAns := answers[qNum]
 		correctAns := q.GetKey()
 		qWeight := q.GetWeight()
 
-		detail := evaluateSingleQuestion(studentAns, correctAns, q.Type, qWeight, q.PartialScoring)
+		detail := evaluateSingleQuestion(
+			studentAns, correctAns, normalizeQuestionType(q.Type),
+			qWeight, q.PartialScoring,
+		)
 		result[qNum] = detail
 	}
 	return result

@@ -253,6 +253,13 @@ func TestValidateQuestionKeysErrorKeepsExistingWording(t *testing.T) {
 	}); !strings.Contains(msg, "nomor soal yang valid") {
 		t.Fatalf("pesan nomor tidak valid berubah: %s", msg)
 	}
+	// Contract v1 numbers are integers; 2.5 would truncate to 2 and collide
+	// with question 2 in the answer map.
+	if msg := validateQuestionKeys([]map[string]interface{}{
+		q("2.5", "short_answer", "x", nil),
+	}); !strings.Contains(msg, "nomor soal yang valid") {
+		t.Fatalf("nomor pecahan harus ditolak, pesan: %s", msg)
+	}
 }
 
 func TestValidateChoiceOptionsAcceptsLegacyChoices(t *testing.T) {
@@ -348,5 +355,37 @@ func TestNormalizeQuestionsPayloadCanonicalisesTrueFalseMulti(t *testing.T) {
 	statements := stringListValue(questions[0]["statements"])
 	if len(statements) != 2 || statements[0] != "Satu" || statements[1] != "Dua" {
 		t.Fatalf("statements tidak di-trim: %#v", statements)
+	}
+}
+
+func TestValidateQuestionKeysMatchingRangeNumbering(t *testing.T) {
+	base := map[string]interface{}{
+		"left_items":  []interface{}{"Satu", "Dua"},
+		"right_items": []interface{}{"A", "B"},
+		"numbering":   "range",
+	}
+	valid := []map[string]interface{}{
+		q(1, "matching", map[string]interface{}{"Satu": "A", "Dua": "B"}, base),
+		q(3, "short_answer", "tiga", nil),
+	}
+	if msg := validateQuestionKeys(valid); msg != "" {
+		t.Fatalf("range valid ditolak: %s", msg)
+	}
+
+	overlap := []map[string]interface{}{
+		q(1, "matching", map[string]interface{}{"Satu": "A", "Dua": "B"}, base),
+		q(2, "short_answer", "dua", nil),
+	}
+	if msg := validateQuestionKeys(overlap); !strings.Contains(msg, "bertabrakan") {
+		t.Fatalf("range overlap harus ditolak, dapat: %q", msg)
+	}
+
+	invalid := q(1, "matching", map[string]interface{}{"Satu": "A", "Dua": "B"}, map[string]interface{}{
+		"left_items":  []interface{}{"Satu", "Dua"},
+		"right_items": []interface{}{"A", "B"},
+		"numbering":   "rentang",
+	})
+	if msg := validateQuestionKeys([]map[string]interface{}{invalid}); !strings.Contains(msg, "numbering") {
+		t.Fatalf("numbering tak dikenal harus ditolak, dapat: %q", msg)
 	}
 }

@@ -43,6 +43,16 @@ const ErrMsgSignURLFailed = "Gagal menghasilkan URL unduhan."
 // ErrMsgSignURLFailed.
 const ErrCodeSignURLFailed = "SIGNED_URL_FAILED"
 
+// SignedURLOptions customizes the response a presigned GET returns. Zero
+// values leave the object's stored metadata untouched.
+type SignedURLOptions struct {
+	// ContentDisposition overrides the Content-Disposition response header
+	// (e.g. `attachment; filename="ujian.pdf"` to force a download).
+	ContentDisposition string
+	// ContentType overrides the Content-Type response header.
+	ContentType string
+}
+
 // Client is the object-storage abstraction the handlers depend on. The
 // concrete Cloudflare R2 implementation is S3Client; tests can substitute a
 // stub (e.g. recording the keys passed to Delete) without a network call.
@@ -57,6 +67,9 @@ type Client interface {
 	UploadBytes(ctx context.Context, key string, data []byte) error
 	// SignedURL generates a temporary download URL valid for the given duration.
 	SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error)
+	// SignedURLWithOptions is SignedURL with response-header overrides baked
+	// into the signature (S3/R2 reject response overrides added after signing).
+	SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts SignedURLOptions) (string, error)
 	// Delete removes a file with the given key.
 	Delete(ctx context.Context, key string) error
 }
@@ -157,12 +170,27 @@ func (c *S3Client) UploadBytes(ctx context.Context, key string, data []byte) err
 
 // SignedURL generates a temporary download URL valid for the given duration.
 func (c *S3Client) SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
-	presign := s3.NewPresignClient(c.S3)
+	return c.SignedURLWithOptions(ctx, key, ttl, SignedURLOptions{})
+}
 
-	req, err := presign.PresignGetObject(ctx, &s3.GetObjectInput{
+// SignedURLWithOptions generates a temporary GET URL with response-header
+// overrides. The overrides MUST be part of the presign input: S3 SigV4 (and
+// R2) signs the canonical query string, so appending response-content-* after
+// signing produces a rejected URL.
+func (c *S3Client) SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts SignedURLOptions) (string, error) {
+	presign := s3.NewPresignClient(c.S3)
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(c.Bucket),
 		Key:    aws.String(key),
-	}, func(po *s3.PresignOptions) {
+	}
+	if opts.ContentDisposition != "" {
+		input.ResponseContentDisposition = aws.String(opts.ContentDisposition)
+	}
+	if opts.ContentType != "" {
+		input.ResponseContentType = aws.String(opts.ContentType)
+	}
+
+	req, err := presign.PresignGetObject(ctx, input, func(po *s3.PresignOptions) {
 		po.Expires = ttl
 	})
 	if err != nil {

@@ -34,6 +34,27 @@ class QuestionRenderPolicyTest {
     }
 
     @Test
+    fun singleChoice_legacyOptions_rendered() {
+        // Data legacy/admin lama menyimpan pilihan di `options`; tanpa
+        // fallback seluruh lembar jawaban kosong walau PDF tetap tampil.
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 1, "type" to "single_choice", "options" to listOf("Jakarta", "Bogor"))
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals(listOf("Jakarta", "Bogor"), (d as QuestionRenderPolicy.Render).choices)
+    }
+
+    @Test
+    fun multipleChoice_emptyChoices_fallsBackToOptions() {
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 2, "type" to "multiple_choice",
+                "choices" to emptyList<String>(), "options" to listOf("A", "B", "C"))
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals(listOf("A", "B", "C"), (d as QuestionRenderPolicy.Render).choices)
+    }
+
+    @Test
     fun multipleChoice_emptyList_skipped() {
         val d = QuestionRenderPolicy.evaluate(q("number" to 2, "type" to "multiple_choice", "choices" to emptyList<String>()))
         assertEquals(QuestionRenderPolicy.SkipReason.NO_CHOICES, (d as QuestionRenderPolicy.Skip).reason)
@@ -85,6 +106,16 @@ class QuestionRenderPolicyTest {
     }
 
     @Test
+    fun matchingRange_carriesNumbering() {
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 1, "type" to "matching", "numbering" to "range",
+                "left_items" to listOf("1", "2"), "right_items" to listOf("A", "B"))
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals("range", (d as QuestionRenderPolicy.Render).numbering)
+    }
+
+    @Test
     fun matching_missingRightItems_skipped() {
         val d = QuestionRenderPolicy.evaluate(
             q("number" to 6, "type" to "matching", "left_items" to listOf("1"))
@@ -94,14 +125,47 @@ class QuestionRenderPolicyTest {
 
     @Test
     fun unknownType_skipped_notCounted() {
-        // FIX #1: tipe typo/tak dikenal ("essay", "singel_choice") harus
-        // SKIP — dulu tetap masuk hitungan totalQuestions tanpa dirender.
-        for (type in listOf("essay", "singel_choice", "")) {
+        // FIX #1: tipe typo/tak dikenal ("file_upload", "singel_choice")
+        // harus SKIP — dulu tetap masuk hitungan totalQuestions tanpa dirender.
+        for (type in listOf("file_upload", "singel_choice", "upload")) {
             val d = QuestionRenderPolicy.evaluate(q("number" to 7, "type" to type))
             assertTrue(
                 "Tipe '$type' harus di-skip",
                 d is QuestionRenderPolicy.Skip && d.reason == QuestionRenderPolicy.SkipReason.UNKNOWN_TYPE
             )
         }
+    }
+
+    @Test
+    fun legacyTypeAliases_mappedToCanonicalTypes() {
+        val essay = QuestionRenderPolicy.evaluate(q("number" to 1, "type" to "essay"))
+        assertTrue(essay is QuestionRenderPolicy.Render)
+        assertEquals(AnswerSheetItem.TYPE_SHORT_ANSWER, (essay as QuestionRenderPolicy.Render).type)
+
+        val pg = QuestionRenderPolicy.evaluate(
+            q("number" to 2, "type" to "pg", "options" to listOf("A", "B"))
+        )
+        assertTrue(pg is QuestionRenderPolicy.Render)
+        assertEquals(AnswerSheetItem.TYPE_SINGLE_CHOICE, (pg as QuestionRenderPolicy.Render).type)
+
+        val benarSalah = QuestionRenderPolicy.evaluate(q("number" to 3, "type" to "benar_salah"))
+        assertTrue(benarSalah is QuestionRenderPolicy.Render)
+        assertEquals(AnswerSheetItem.TYPE_TRUE_FALSE, (benarSalah as QuestionRenderPolicy.Render).type)
+    }
+
+    @Test
+    fun objectChoices_renderedFromTextFields() {
+        val d = QuestionRenderPolicy.evaluate(
+            q("number" to 1, "type" to "single_choice",
+                "options" to listOf(
+                    mapOf("text" to "Jakarta"),
+                    mapOf("label" to "Bandung")
+                ))
+        )
+        assertTrue(d is QuestionRenderPolicy.Render)
+        assertEquals(
+            listOf("Jakarta", "Bandung"),
+            (d as QuestionRenderPolicy.Render).choices
+        )
     }
 }

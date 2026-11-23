@@ -1,7 +1,10 @@
 package com.examvan.app.api
 
+import com.examvan.app.helper.QuestionContract
 import com.examvan.app.model.HealthResponse
+import com.examvan.app.model.Question
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -28,7 +31,9 @@ object ApiClient {
 
     private const val TAG = "ApiClient"
 
-    private val gson = Gson()
+    private val gson: Gson = GsonBuilder()
+        .registerTypeAdapter(Question::class.java, QuestionContract.deserializer)
+        .create()
 
     /**
      * HTTP status returned by the server (middleware.AndroidVersionCheck)

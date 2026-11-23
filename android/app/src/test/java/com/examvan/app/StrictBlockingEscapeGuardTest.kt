@@ -122,6 +122,22 @@ class StrictBlockingEscapeGuardTest {
     }
 
     @Test
+    fun applyQuestions_allInvalid_showsBlockingDialog() {
+        val apply = examViewerActivity()
+            .substringAfter("private fun applyQuestions(")
+            .substringBefore("private fun fetchQuestionsFromServer()")
+        assertTrue(
+            "Jumlah soal yang dirender harus dipakai, bukan ukuran list mentah",
+            apply.contains("val renderedQuestions = answerSheetBuilder.build(questions)")
+        )
+        assertTrue(
+            "Bila semua soal invalid (0 dirender), jangan sembunyikan panel tanpa dialog",
+            apply.contains("if (renderedQuestions == 0)") &&
+                apply.contains("showQuestionsUnavailableDialog()")
+        )
+    }
+
+    @Test
     fun questionsFetchFailure_showsBlockingDialog() {
         val fetch = examViewerActivity()
             .substringAfter("private fun fetchQuestionsFromServer()")

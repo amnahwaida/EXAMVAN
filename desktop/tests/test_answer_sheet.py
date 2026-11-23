@@ -53,6 +53,26 @@ class AnswerSheetBuildTest(unittest.TestCase):
         w.build_from_questions([])
         self.assertEqual(w._answer_widgets, {})
 
+    def test_matching_range_numbering_labels_the_span(self):
+        question = {
+            "number": 1,
+            "type": "matching",
+            "numbering": "range",
+            "left_items": ["Satu", "Dua"],
+            "right_items": ["A", "B"],
+        }
+        self.assertEqual(
+            "1–2", AnswerSheetWidget._display_number("1", "matching", question)
+        )
+        question["numbering"] = "single"
+        self.assertEqual(
+            "1", AnswerSheetWidget._display_number("1", "matching", question)
+        )
+        question.pop("numbering")
+        self.assertEqual(
+            "1", AnswerSheetWidget._display_number("1", "matching", question)
+        )
+
     def test_answer_then_count(self):
         w = AnswerSheetWidget()
         w.build_from_questions([

@@ -132,6 +132,7 @@
     <!-- Timer & lembar jawaban (fix review ronde 2: pindah dari literal kode agar i18n) -->
     <string name="timer_remaining">Sisa: %1$02d:%2$02d:%3$02d</string>
     <string name="answer_sheet_question_number">Soal %1$d</string>
+    <string name="answer_sheet_question_range">Soal %1$d–%2$d</string>
     <string name="answer_sheet_true_false_suffix">(Benar/Salah)</string>
     <string name="answer_sheet_multiple_suffix">(Pilih beberapa)</string>
     <string name="answer_sheet_matching_suffix">(Menjodohkan)</string>

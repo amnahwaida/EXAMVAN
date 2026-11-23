@@ -1381,9 +1381,10 @@ func writeStudentDetailSheet(f *excelize.File, sheet, examName string, sub model
 		_ = f.SetCellStyle(sheet, "A"+strconv.Itoa(qHeaderRow), lastCol+strconv.Itoa(qHeaderRow), st.headerStyle)
 	}
 
+	qNums := models.QuestionNumbers(questions)
 	for i, q := range questions {
 		row := qHeaderRow + 1 + i
-		qNum := fmt.Sprintf("%v", q.Number)
+		qNum := qNums[i]
 		qType := q.Type
 		qWeight := fmt.Sprintf("%.1f", q.GetWeight())
 

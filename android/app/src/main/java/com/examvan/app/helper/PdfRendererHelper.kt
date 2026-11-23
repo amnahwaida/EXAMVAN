@@ -42,6 +42,14 @@ class PdfRendererHelper(
     private var downloadCall: Call? = null
     private var downloadStartedAtMs = 0L
     private var isCleanedUp = false
+    /**
+     * True hanya saat layar error PDF sedang tampil. Dipakai retry gabungan
+     * soal+PDF: jangan restart unduhan yang masih berjalan atau PDF yang sudah
+     * siap, tapi jangan pula biarkan PDF tetap error saat siswa menekan
+     * "Coba Lagi".
+     */
+    var hasDownloadError = false
+        private set
 
     /**
      * Dirilis saat app masuk background (profil low-memory / trim dari
@@ -112,7 +120,7 @@ class PdfRendererHelper(
         if (PdfCache.isCacheUsable(cachedFile, System.currentTimeMillis())) {
             binding.tvDownloadPercent.text = "100%"
             binding.progressDownload.progress = 100
-            openPdfAsync(cachedFile)
+            openPdfOrDefer(cachedFile)
             return
         }
         // Cache basi/rusak → buang agar tidak menabrak file unduhan baru.
@@ -147,7 +155,7 @@ class PdfRendererHelper(
                 mainHandler.post {
                     val isActivityFinishing = (context as? android.app.Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
                     if (isCleanedUp || isActivityFinishing) return@post
-                    openPdfAsync(file)
+                    openPdfOrDefer(file)
                 }
             },
             onError = { errorMsg ->
@@ -158,6 +166,18 @@ class PdfRendererHelper(
                 }
             }
         )
+    }
+
+    /**
+     * Retry PDF hanya jika percobaan sebelumnya benar-benar gagal. No-op saat
+     * PDF sudah siap atau masih diunduh, sehingga aman dipanggil berdampingan
+     * dengan retry soal.
+     */
+    fun retryDownloadIfFailed(examId: Int, token: String): Boolean {
+        if (!hasDownloadError) return false
+        if (examId <= 0 || token.isEmpty()) return false
+        downloadPdf(examId, token)
+        return true
     }
 
     fun cancelDownload() {
@@ -184,6 +204,30 @@ class PdfRendererHelper(
             currentPage++
             renderPage(currentPage)
         }
+    }
+
+    /**
+     * Buka PDF hanya saat Activity benar-benar terlihat. Unduhan yang selesai
+     * ketika app sudah di background (kasus low-memory/OEM kill) tidak boleh
+     * langsung mengalokasikan renderer + bitmap; cukup tandai untuk dibuka
+     * oleh [reopenIfNeeded] saat onResume.
+     */
+    private fun openPdfOrDefer(file: File) {
+        currentPdfFile = file
+        if (isActivityResumed()) {
+            openPdfAsync(file)
+            return
+        }
+        releasedForBackground = true
+        releasedPage = currentPage
+        Log.i(TAG, "PDF siap saat background — tunda buka sampai resume")
+    }
+
+    private fun isActivityResumed(): Boolean {
+        val owner = context as? androidx.lifecycle.LifecycleOwner ?: return true
+        return owner.lifecycle.currentState.isAtLeast(
+            androidx.lifecycle.Lifecycle.State.RESUMED
+        )
     }
 
     /**
@@ -346,9 +390,12 @@ class PdfRendererHelper(
                 withContext(Dispatchers.Main) {
                     if (isCleanedUp) return@withContext
                     closeCurrentDocument()
+                    // Lepas drawable DULU: recycle bitmap yang masih dipakai
+                    // ImageView bisa memicu "trying to use a recycled bitmap"
+                    // saat sistem menggambar frame berikutnya.
+                    binding.ivPdfPage.setImageDrawable(null)
                     currentBitmap?.recycle()
                     currentBitmap = null
-                    binding.ivPdfPage.setImageDrawable(null)
                     Log.i(
                         TAG,
                         "PDF dirilis saat background (lowRamProfile=$useLowRamProfile force=$force)"
@@ -472,6 +519,7 @@ class PdfRendererHelper(
     }
 
     fun showDownloading() {
+        hasDownloadError = false
         binding.layoutDownload.visibility = View.VISIBLE
         binding.layoutError.visibility = View.GONE
         binding.ivPdfPage.visibility = View.GONE
@@ -484,6 +532,7 @@ class PdfRendererHelper(
     }
 
     fun showPdfViewer() {
+        hasDownloadError = false
         binding.layoutDownload.visibility = View.GONE
         binding.layoutError.visibility = View.GONE
         binding.ivPdfPage.visibility = View.VISIBLE
@@ -492,6 +541,7 @@ class PdfRendererHelper(
     }
 
     fun showError(message: String) {
+        hasDownloadError = true
         binding.layoutDownload.visibility = View.GONE
         binding.layoutError.visibility = View.VISIBLE
         binding.ivPdfPage.visibility = View.GONE

@@ -48,6 +48,10 @@ func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (
 	return "https://storage.example.test/" + key, nil
 }
 
+func (s *stubR2) SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts r2client.SignedURLOptions) (string, error) {
+	return s.SignedURL(ctx, key, ttl)
+}
+
 func (s *stubR2) Upload(ctx context.Context, key string, reader io.Reader) error {
 	return nil
 }

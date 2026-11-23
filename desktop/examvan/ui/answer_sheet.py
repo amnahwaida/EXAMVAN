@@ -436,6 +436,25 @@ class AnswerSheetWidget(QWidget):
                 out.append(num)
         return out
 
+    @staticmethod
+    def _display_number(num: str, qtype: str, q: Dict[str, Any]) -> str:
+        """Nomor yang tampil di judul blok.
+
+        Matching ``numbering="range"`` memakai satu nomor per item kiri;
+        judulnya harus "1–2", bukan "1", supaya siswa melihat nomor yang
+        sama dengan lembar jawaban Android. Mode selain itu tetap satu nomor.
+        """
+        if qtype != "matching" or q.get("numbering") != "range":
+            return num
+        left_items = q.get("left_items")
+        if not isinstance(left_items, list) or len(left_items) <= 1:
+            return num
+        try:
+            start = int(num)
+        except (TypeError, ValueError):
+            return num
+        return f"{start}–{start + len(left_items) - 1}"
+
     def _build_question_widget(
         self, num: str, qtype: str, q: Dict[str, Any]
     ) -> tuple:
@@ -445,14 +464,15 @@ class AnswerSheetWidget(QWidget):
         `_answer_widgets`: `build_from_questions` yang memutuskan kuncinya,
         karena hanya dia yang tahu soal nomor mana yang bentrok.
         """
+        shown_num = self._display_number(num, qtype, q)
         titles = {
-            "single_choice": f"Soal {num} — Pilihan Ganda",
-            "multiple_choice": f"Soal {num} — Pilihan Ganda Kompleks",
-            "true_false": f"Soal {num} — Benar/Salah",
-            "matching": f"Soal {num} — Menjodohkan",
-            "short_answer": f"Soal {num} — Jawaban Singkat",
+            "single_choice": f"Soal {shown_num} — Pilihan Ganda",
+            "multiple_choice": f"Soal {shown_num} — Pilihan Ganda Kompleks",
+            "true_false": f"Soal {shown_num} — Benar/Salah",
+            "matching": f"Soal {shown_num} — Menjodohkan",
+            "short_answer": f"Soal {shown_num} — Jawaban Singkat",
         }
-        group = QGroupBox(titles.get(qtype, f"Soal {num}"))
+        group = QGroupBox(titles.get(qtype, f"Soal {shown_num}"))
         layout = QVBoxLayout(group)
         layout.setContentsMargins(12, 20, 12, 12)
         layout.setSpacing(6)

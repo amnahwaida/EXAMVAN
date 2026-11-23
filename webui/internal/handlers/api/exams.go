@@ -945,12 +945,16 @@ func ExamByToken() gin.HandlerFunc {
 
 		sizeMB := roundTo(float64(exam.SizeBytes)/(1024*1024), 2)
 
-		// Parse questions JSON for clients that need it (Android, Linux)
-		var questions interface{}
+		// Parse questions JSON for clients that need it (Android, Linux). The
+		// canonical v1 shape is produced here so legacy rows (options/choices,
+		// type aliases, string numbers) never leak across the API boundary.
+		var questions []map[string]interface{}
 		if exam.QuestionsJSON != nil && *exam.QuestionsJSON != "" {
 			var parsed interface{}
 			if err := json.Unmarshal([]byte(*exam.QuestionsJSON), &parsed); err == nil {
-				questions = parsed
+				if canonical, ok := models.CanonicalizeQuestionsValue(parsed); ok {
+					questions = canonical
+				}
 			}
 		}
 
@@ -963,14 +967,15 @@ func ExamByToken() gin.HandlerFunc {
 			// Boolean agar client (desktop congratulations page) tahu apakah
 			// tautan hasil boleh ditampilkan: server default public (ujian baru
 			// dibuat dengan PublicResults=1), false hanya bila guru menonaktifkan.
-			"public_results":  exam.AreResultsPublic(),
-			"show_answers":    exam.ShowAnswers,
-			"identity_fields": identityFields,
-			"panel_color":     panelColor,
-			"size_mb":         sizeMB,
-			"time_limit":      nil,
-			"start_time":      formatNullableISOUTC(exam.StartTime),
-			"end_time":        formatNullableISOUTC(exam.EndTime),
+			"public_results":           exam.AreResultsPublic(),
+			"show_answers":             exam.ShowAnswers,
+			"identity_fields":          identityFields,
+			"panel_color":              panelColor,
+			"questions_schema_version": models.QuestionsSchemaVersion,
+			"size_mb":                  sizeMB,
+			"time_limit":               nil,
+			"start_time":               formatNullableISOUTC(exam.StartTime),
+			"end_time":                 formatNullableISOUTC(exam.EndTime),
 		}
 		if questions != nil {
 			// Strip answer keys before sending to students. The answer key for

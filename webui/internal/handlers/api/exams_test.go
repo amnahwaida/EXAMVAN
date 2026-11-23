@@ -192,9 +192,10 @@ func TestExamByTokenStripsAnswerKeys(t *testing.T) {
 	var body struct {
 		Success bool `json:"success"`
 		Exam    struct {
-			ID        int                      `json:"id"`
-			Name      string                   `json:"name"`
-			Questions []map[string]interface{} `json:"questions"`
+			ID                     int                      `json:"id"`
+			Name                   string                   `json:"name"`
+			QuestionsSchemaVersion int                      `json:"questions_schema_version"`
+			Questions              []map[string]interface{} `json:"questions"`
 		} `json:"exam"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -202,6 +203,10 @@ func TestExamByTokenStripsAnswerKeys(t *testing.T) {
 	}
 	if !body.Success {
 		t.Fatalf("success = false")
+	}
+	if body.Exam.QuestionsSchemaVersion != models.QuestionsSchemaVersion {
+		t.Fatalf("questions_schema_version = %d, want %d",
+			body.Exam.QuestionsSchemaVersion, models.QuestionsSchemaVersion)
 	}
 	if len(body.Exam.Questions) != 2 {
 		t.Fatalf("len(questions) = %d, want 2", len(body.Exam.Questions))
@@ -215,10 +220,21 @@ func TestExamByTokenStripsAnswerKeys(t *testing.T) {
 			t.Errorf("question %d: leaked 'answer' field: %v", i, q)
 		}
 	}
-	// Sanity: non-key fields survive.
+	// Sanity: non-key fields survive and the payload is canonical v1.
 	q0 := body.Exam.Questions[0]
 	if q0["type"] != "multiple_choice" || q0["label"] != "Ibu kota RI?" {
 		t.Errorf("question 0 lost non-key fields: %v", q0)
+	}
+	choices, _ := q0["choices"].([]interface{})
+	options, _ := q0["options"].([]interface{})
+	if len(choices) != 3 || len(options) != 3 {
+		t.Errorf("question 0 must carry dual choices/options, got %#v", q0)
+	}
+	if body.Exam.Questions[1]["type"] != "short_answer" {
+		t.Errorf("legacy essay alias not canonicalized: %#v", body.Exam.Questions[1])
+	}
+	if body.Exam.Questions[0]["number"] != float64(1) {
+		t.Errorf("number must be a JSON integer, got %#v", body.Exam.Questions[0]["number"])
 	}
 }
 

@@ -95,4 +95,31 @@ class QuestionParsingTest {
             QuestionParsing.stringList(listOf("Jakarta, Bandung"))
         )
     }
+
+    // ── Alias tipe & bentuk pilihan legacy ───────────────────────────────
+
+    @Test
+    fun normalizeType_mapsLegacyAliases() {
+        assertEquals("single_choice", QuestionParsing.normalizeType("pg"))
+        assertEquals("single_choice", QuestionParsing.normalizeType(" Pilihan Ganda "))
+        assertEquals("multiple_choice", QuestionParsing.normalizeType("pg-kompleks"))
+        assertEquals("true_false", QuestionParsing.normalizeType("benar_salah"))
+        assertEquals("matching", QuestionParsing.normalizeType("menjodohkan"))
+        assertEquals("short_answer", QuestionParsing.normalizeType("essay"))
+        assertEquals("file_upload", QuestionParsing.normalizeType("file_upload"))
+    }
+
+    @Test
+    fun choiceList_acceptsStringsNumbersAndObjectText() {
+        assertEquals(
+            listOf("Jakarta", "Bandung", "42"),
+            QuestionParsing.choiceList(
+                listOf(
+                    mapOf("text" to "Jakarta"),
+                    mapOf("label" to "Bandung"),
+                    42
+                )
+            )
+        )
+    }
 }

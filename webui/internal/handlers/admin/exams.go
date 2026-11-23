@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"mime"
 	"net/http"
 	"os"
 	"regexp"
@@ -1398,7 +1399,28 @@ func ExamPDF() gin.HandlerFunc {
 			client := r2client.FromContext(r2c)
 			if client != nil && client.Enabled() {
 				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-				signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
+
+				// "Lihat PDF" stays inline; "Download PDF" (download=1) must
+				// actually download. The filename override has to be part of the
+				// presign input, so it travels through SignedURLWithOptions.
+				dispositionType := "inline"
+				switch strings.ToLower(strings.TrimSpace(c.Query("download"))) {
+				case "1", "true", "yes", "on":
+					dispositionType = "attachment"
+				}
+				downloadName := sanitizeFilename(exam.Name)
+				if !strings.HasSuffix(strings.ToLower(downloadName), ".pdf") {
+					downloadName += ".pdf"
+				}
+				disposition := mime.FormatMediaType(dispositionType, map[string]string{"filename": downloadName})
+				if disposition == "" {
+					disposition = fmt.Sprintf(`%s; filename="%s"`, dispositionType, downloadName)
+				}
+
+				signedURL, err := client.SignedURLWithOptions(ctx, r2Key, 1*time.Hour, r2client.SignedURLOptions{
+					ContentDisposition: disposition,
+					ContentType:        "application/pdf",
+				})
 				if err == nil {
 					c.Redirect(http.StatusFound, signedURL)
 					return
@@ -1523,10 +1545,15 @@ func GetQuestions() gin.HandlerFunc {
 			return
 		}
 
-		// Parse questions
-		questions := []interface{}{}
+		// Parse questions into the canonical v1 shape. Legacy rows are
+		// normalized in memory only; saving them later persists the canonical
+		// form, but no bulk database migration is performed.
+		questions := []map[string]interface{}{}
 		if exam.QuestionsJSON != nil && *exam.QuestionsJSON != "" {
-			json.Unmarshal([]byte(*exam.QuestionsJSON), &questions)
+			var parsed []map[string]interface{}
+			if err := json.Unmarshal([]byte(*exam.QuestionsJSON), &parsed); err == nil {
+				questions = models.CanonicalizeQuestions(parsed)
+			}
 		}
 
 		// Security level (default aplikasi = strict/high)
@@ -1619,6 +1646,7 @@ func GetQuestions() gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"success":                    true,
 				"questions":                  questions,
+				"questions_schema_version":   models.QuestionsSchemaVersion,
 				"exam_running":               examIsRunning(&exam),
 				"security_level":             securityLevel,
 				"strict_mode":                exam.IsStrict(),
@@ -1638,6 +1666,7 @@ func GetQuestions() gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"success":                    true,
 				"questions":                  questions,
+				"questions_schema_version":   models.QuestionsSchemaVersion,
 				"exam_running":               examIsRunning(&exam),
 				"security_level":             securityLevel,
 				"strict_mode":                exam.IsStrict(),
@@ -1979,6 +2008,7 @@ func SaveQuestions() gin.HandlerFunc {
 // otherwise.
 func validateQuestionKeys(questions []map[string]interface{}) string {
 	seenNumbers := make(map[string]int, len(questions))
+	occupiedNumbers := make(map[int]int, len(questions))
 	for i, q := range questions {
 		num := i + 1
 		qtype, _ := q["type"].(string)
@@ -1995,6 +2025,38 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 			return fmt.Sprintf("Soal #%d memiliki nomor soal yang sama dengan soal #%d", num, prev+1)
 		}
 		seenNumbers[normNum] = i
+		startNum, _ := strconv.Atoi(normNum)
+		numbering := "single"
+		span := 1
+		if qtype == "matching" {
+			var errMsg string
+			numbering, errMsg = validateMatchingNumbering(q)
+			if errMsg != "" {
+				return fmt.Sprintf("Soal #%d (%s) %s", num, questionTypeLabel(qtype), errMsg)
+			}
+			if numbering == "range" {
+				span = len(stringListValue(q["left_items"]))
+				if span < 1 {
+					span = 1
+				}
+				if startNum+span-1 > maxQuestionNumber {
+					return fmt.Sprintf("Soal #%d (%s) rentang nomor %d–%d melewati batas %d",
+						num, questionTypeLabel(qtype), startNum, startNum+span-1, maxQuestionNumber)
+				}
+			}
+		}
+		if prev, dup := occupiedNumbers[startNum]; dup {
+			return fmt.Sprintf("Soal #%d (%s) nomor %d bertabrakan dengan rentang penomoran soal #%d",
+				num, questionTypeLabel(qtype), startNum, prev+1)
+		}
+		occupiedNumbers[startNum] = i
+		for n := startNum + 1; n < startNum+span; n++ {
+			if prev, dup := occupiedNumbers[n]; dup {
+				return fmt.Sprintf("Soal #%d (%s) nomor %d bertabrakan dengan rentang penomoran soal #%d",
+					num, questionTypeLabel(qtype), n, prev+1)
+			}
+			occupiedNumbers[n] = i
+		}
 		key, hasKey := q["key"]
 		if !hasKey || key == nil {
 			return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
@@ -2076,6 +2138,30 @@ func validateQuestionKeys(questions []map[string]interface{}) string {
 		}
 	}
 	return ""
+}
+
+// validateMatchingNumbering returns the matching card's numbering mode:
+// "single" (whole card = one question number, the legacy default) or "range"
+// (each left item consumes one number, so the next card starts after the
+// span). A missing field is single; any other value is rejected so a typo
+// cannot silently fall back to the wrong numbering.
+func validateMatchingNumbering(q map[string]interface{}) (string, string) {
+	raw, exists := q["numbering"]
+	if !exists || raw == nil {
+		return "single", ""
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return "", "nilai numbering harus \"single\" atau \"range\""
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "single":
+		return "single", ""
+	case "range":
+		return "range", ""
+	default:
+		return "", "nilai numbering harus \"single\" atau \"range\""
+	}
 }
 
 // validateTrueFalseKey validates both shapes of a true/false answer key:
@@ -2190,61 +2276,18 @@ func stringListValue(raw interface{}) []string {
 	return out
 }
 
-// normalizeQuestionsPayload makes the stored questions_json canonical for ALL
-// consumers. Historically two field names diverged: the admin UI (and thus
-// legacy rows) writes `choices` + `left_items`/`right_items`, while Go
-// consumers (seed, desktop, API fixtures, validateChoiceOptions) expect
-// `options`. Android's answer sheet reads `choices`. Choice questions now
-// carry BOTH keys with identical content so no consumer breaks regardless of
-// which name it reads; matching items are left under their established names.
-// Must be called AFTER validateQuestionKeys — validation decides which list is
-// authoritative (options, with legacy choices fallback), this only mirrors it.
+// normalizeQuestionsPayload rewrites an in-memory save payload into contract v1
+// before it is marshalled to questions_json. Legacy aliases (options/choices,
+// pg/essay, string numbers) are accepted as input by validation, but the stored
+// form is always canonical: integer numbers, canonical types, both choices and
+// the deprecated options mirror, and key (legacy answer becomes key).
+// Must be called AFTER validateQuestionKeys. Existing database rows are not
+// migrated; they are canonicalized on read instead.
 func normalizeQuestionsPayload(questions []map[string]interface{}) {
-	for _, q := range questions {
-		if q == nil {
-			continue
-		}
-		qtype, _ := q["type"].(string)
-		switch qtype {
-		case "single_choice", "multiple_choice":
-			list := stringListValue(q["options"])
-			if list == nil {
-				list = stringListValue(q["choices"])
-			}
-			if list == nil {
-				continue
-			}
-			opts := make([]interface{}, len(list))
-			chs := make([]interface{}, len(list))
-			for i, s := range list {
-				opts[i] = s
-				chs[i] = s
-			}
-			q["options"] = opts
-			q["choices"] = chs
-		case "true_false":
-			// Multi-statement true/false: trim statements and canonicalise the
-			// key values to upper-case TRUE/FALSE so the scoring path (which
-			// compares upper-cased values) and the clients (which render the
-			// key as-is on the hasil page) always see the same shape.
-			statements := stringListValue(q["statements"])
-			if statements == nil {
-				continue
-			}
-			stmts := make([]interface{}, len(statements))
-			for i, s := range statements {
-				stmts[i] = strings.TrimSpace(s)
-			}
-			q["statements"] = stmts
-			keys := stringListValue(q["key"])
-			if keys == nil {
-				continue
-			}
-			normKeys := make([]interface{}, len(keys))
-			for i, k := range keys {
-				normKeys[i] = strings.ToUpper(strings.TrimSpace(k))
-			}
-			q["key"] = normKeys
+	canonical := models.CanonicalizeQuestions(questions)
+	for i := range questions {
+		if i < len(canonical) {
+			questions[i] = canonical[i]
 		}
 	}
 }
@@ -2269,25 +2312,25 @@ func containsFold(opts []string, needle string) bool {
 const maxQuestionNumber = 10000
 
 // adminQNumInRange reports whether an already-normalised question number is
-// inside the usable range (0 < n <= maxQuestionNumber).
+// inside the usable range (0 < n <= maxQuestionNumber). Fractional numbers are
+// rejected: contract v1 numbers are integers, and truncating 2.5 would silently
+// collide with question 2 in the answer map.
 func adminQNumInRange(normalized string) bool {
 	f, err := strconv.ParseFloat(normalized, 64)
 	if err != nil {
 		return false
 	}
-	if f <= 0 || f > maxQuestionNumber {
+	if f <= 0 || f > maxQuestionNumber || math.Trunc(f) != f {
 		return false
 	}
 	return !math.IsNaN(f) && !math.IsInf(f, 0)
 }
 
-// normalizeAdminQNum normalizes a question number with the same rule as
-// normalizeQNum (internal/models/submission.go) — integers and
-// integer-valued floats collapse ("1", 1.0 → "1") while fractional numbers
-// keep their value (2.5 → "2.5") — and additionally reports whether the value
-// is a usable number at all. Null, missing, empty, non-numeric, zero,
-// negative, and out-of-range values are rejected (ok=false) so they can never
-// be saved as question numbers.
+// normalizeAdminQNum normalizes a question number with the same integer rule as
+// questionNumberInt (internal/models/submission.go) and additionally reports
+// whether the value is usable. Null, missing, empty, non-numeric, fractional,
+// zero, negative, and out-of-range values are rejected (ok=false) so they can
+// never be saved as question numbers.
 func normalizeAdminQNum(number interface{}) (string, bool) {
 	if normalized, ok := normalizeAdminQNumRaw(number); ok {
 		return normalized, adminQNumInRange(normalized)

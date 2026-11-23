@@ -89,6 +89,65 @@ class ClockDriftPolicyTest {
     }
 
     @Test
+    fun resolve_rebootChangedBootCount_ignoresPersistedBaseline() {
+        // Setelah reboot elapsedRealtime mulai dari 0; baseline lama akan
+        // terlihat seperti lompatan jam raksasa. Boot count berbeda wajib
+        // menghasilkan baseline baru, bukan tuduhan manipulasi waktu.
+        val resolved = ClockDriftPolicy.resolveBaseline(
+            savedStateDriftMs = null,
+            persistedDriftMs = 1_700_000_000_000L,
+            freshDriftMs = 1_700_003_600_000L,
+            persistedBootCount = 41,
+            currentBootCount = 42
+        )
+        assertEquals(1_700_003_600_000L, resolved.baselineDriftMs)
+        assertTrue(resolved.isNew)
+    }
+
+    @Test
+    fun resolve_sameBootCount_usesPersistedBaseline() {
+        val resolved = ClockDriftPolicy.resolveBaseline(
+            savedStateDriftMs = null,
+            persistedDriftMs = 222L,
+            freshDriftMs = 333L,
+            persistedBootCount = 42,
+            currentBootCount = 42
+        )
+        assertEquals(222L, resolved.baselineDriftMs)
+        assertFalse(resolved.isNew)
+    }
+
+    @Test
+    fun resolve_legacyPersistedWithoutBootCount_resetsWhenCurrentKnown() {
+        // Data sebelum fitur boot-count tidak bisa diverifikasi; lebih aman
+        // hitung baseline baru sekali daripada false positive setelah reboot.
+        val resolved = ClockDriftPolicy.resolveBaseline(
+            savedStateDriftMs = null,
+            persistedDriftMs = 222L,
+            freshDriftMs = 333L,
+            persistedBootCount = null,
+            currentBootCount = 42
+        )
+        assertEquals(333L, resolved.baselineDriftMs)
+        assertTrue(resolved.isNew)
+    }
+
+    @Test
+    fun resolve_bootCountUnavailable_fallsBackToPersisted() {
+        // Sebagian OEM/perangkat tidak menyediakan BOOT_COUNT — jangan buang
+        // proteksi lintas process death hanya karena penanda tidak tersedia.
+        val resolved = ClockDriftPolicy.resolveBaseline(
+            savedStateDriftMs = null,
+            persistedDriftMs = 222L,
+            freshDriftMs = 333L,
+            persistedBootCount = 42,
+            currentBootCount = -1
+        )
+        assertEquals(222L, resolved.baselineDriftMs)
+        assertFalse(resolved.isNew)
+    }
+
+    @Test
     fun resolve_negativeBaselines_areValidValues() {
         // Baseline negatif sah (jam perangkat di belakang elapsedRealtime
         // setelah reboot dengan jam belum tersinkron NTP) — tidak boleh

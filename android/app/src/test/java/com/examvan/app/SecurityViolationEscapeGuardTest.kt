@@ -98,6 +98,38 @@ class SecurityViolationEscapeGuardTest {
     }
 
     @Test
+    fun retry_restoresControlsHiddenBySecurityScreen() {
+        val enforcer = securityEnforcer()
+        assertTrue(
+            "SecurityEnforcer harus punya callback pemulihan layar blok",
+            enforcer.contains("var onBlockingScreenDismissed")
+        )
+        val showViolation = enforcer.substringAfter("fun showSecurityViolation(")
+            .substringBefore("fun checkSecurityViolations()")
+        assertTrue(
+            "Periksa Ulang harus memulihkan panel yang disembunyikan hideAllControls",
+            showViolation.contains("onBlockingScreenDismissed?.invoke()")
+        )
+
+        val activity = examViewerActivity()
+        assertTrue(
+            "Activity harus memasang callback pemulihan UI",
+            activity.contains("onBlockingScreenDismissed = { restoreMainUiAfterBlock() }")
+        )
+        val restore = activity.substringAfter("private fun restoreMainUiAfterBlock()")
+            .substringBefore("private fun confirmAndLogout()")
+        assertTrue(
+            "Pemulihan harus menampilkan kontrol utama + panel PDF/unduh",
+            restore.contains("ExamScreenPanels.showMainControls(binding)") &&
+                restore.contains("ExamScreenPanels.showContent(binding, viewModel.isPdfReady.value)")
+        )
+        assertTrue(
+            "Lembar jawaban harus dipulihkan bila soal valid sudah dimuat",
+            restore.contains("showAnswerOverlay()")
+        )
+    }
+
+    @Test
     fun retry_clearsStaleExitButton() {
         val src = securityEnforcer()
         val showViolation = src.substringAfter("fun showSecurityViolation(")

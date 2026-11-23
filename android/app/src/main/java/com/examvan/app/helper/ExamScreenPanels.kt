@@ -39,4 +39,20 @@ object ExamScreenPanels {
         binding.btnNext.visibility = View.VISIBLE
         binding.answerSheetToggle.visibility = View.VISIBLE
     }
+
+    /**
+     * Pulihkan panel konten yang ikut disembunyikan [hideAllControls]:
+     * viewer PDF bila sudah siap, atau panel unduh bila belum. Tanpa ini,
+     * retry dari layar blokir menampilkan kembali tombol tetapi PDF tetap
+     * GONE — layar tampak kosong walau renderer sudah siap.
+     */
+    fun showContent(binding: ActivityExamViewerBinding, pdfReady: Boolean) {
+        if (pdfReady) {
+            binding.layoutDownload.visibility = View.GONE
+            binding.ivPdfPage.visibility = View.VISIBLE
+        } else {
+            binding.layoutDownload.visibility = View.VISIBLE
+            binding.ivPdfPage.visibility = View.GONE
+        }
+    }
 }

@@ -18,7 +18,9 @@ data class Exam(
     val id: Int,
     val name: String,
     val token: String? = null,
-    val questions: List<Map<String, Any>>? = null,
+    val questions: List<Question>? = null,
+    @SerializedName("questions_schema_version")
+    val questionsSchemaVersion: Int = 0,
     val security_level: String? = null,
     val strict_mode: Boolean? = null,
     val identity_fields: List<IdentityField>? = null,

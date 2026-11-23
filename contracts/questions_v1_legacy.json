@@ -1,0 +1,33 @@
+[
+  {
+    "number": "1",
+    "type": "pg",
+    "label": "Ibu kota RI?",
+    "weight": 2,
+    "partial_scoring": false,
+    "options": ["Jakarta", "Bandung"],
+    "key": "Jakarta"
+  },
+  {
+    "type": "essay",
+    "label": "Jelaskan",
+    "answer": "kunci rahasia"
+  },
+  {
+    "number": "x",
+    "type": "benar_salah",
+    "weight": "1.5",
+    "partial_scoring": "true",
+    "statements": [" Satu ", "Dua"],
+    "key": [" true ", "false"]
+  },
+  {
+    "number": 4,
+    "type": "single",
+    "choices": [
+      { "text": "Ya" },
+      { "label": "Tidak" }
+    ],
+    "key": "Ya"
+  }
+]

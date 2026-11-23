@@ -37,8 +37,16 @@ object EnvironmentCheckPolicy {
         "/sbin/.magisk"
     )
 
-    /** Ambang default pergeseran drift jam yang dianggap manipulasi. */
-    const val CLOCK_DRIFT_THRESHOLD_MS = 10_000L
+    /**
+     * Ambang default pergeseran drift jam yang dianggap manipulasi.
+     *
+     * 60 detik memberi ruang untuk koreksi NTP/ColorOS setelah jaringan
+     * kembali (umumnya beberapa detik, kadang lebih di perangkat hemat daya)
+     * tanpa membiarkan pergeseran besar lolos. Reboot dan baseline sesi lama
+     * sudah ditangani terpisah (boot count + reset per sesi), jadi ambang ini
+     * tidak perlu menanggung false positive lintas sesi.
+     */
+    const val CLOCK_DRIFT_THRESHOLD_MS = 60_000L
 
     /** Hasil evaluasi drift jam: tampered + besar pergeserannya. */
     data class ClockDriftResult(val tampered: Boolean, val driftDeltaMs: Long)

@@ -21,6 +21,7 @@ type stubR2 struct {
 	enabled        bool
 	uploads        []string
 	signed         []string
+	signedOpts     []r2client.SignedURLOptions
 	deletes        []string
 	failWith       error
 	deleteFailWith error // fails Delete only, leaving Upload working (orphan-cleanup path)
@@ -68,8 +69,13 @@ func (s *stubR2) UploadBytes(ctx context.Context, key string, data []byte) error
 }
 
 func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	return s.SignedURLWithOptions(ctx, key, ttl, r2client.SignedURLOptions{})
+}
+
+func (s *stubR2) SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts r2client.SignedURLOptions) (string, error) {
 	s.mu.Lock()
 	s.signed = append(s.signed, key)
+	s.signedOpts = append(s.signedOpts, opts)
 	s.mu.Unlock()
 	if s.failWith != nil {
 		return "", s.failWith

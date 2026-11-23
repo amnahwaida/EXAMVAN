@@ -69,6 +69,41 @@ class LowMemorySafetyGuardTest {
     }
 
     @Test
+    fun pdfRelease_clearsImageViewBeforeRecyclingBitmap() {
+        val release = pdfRenderer()
+            .substringAfter("fun releaseForBackground(")
+            .substringBefore("fun reopenIfNeeded(")
+        val clearIndex = release.indexOf("binding.ivPdfPage.setImageDrawable(null)")
+        val recycleIndex = release.indexOf("currentBitmap?.recycle()")
+        assertTrue(
+            "Drawable harus dilepas sebelum bitmap di-recycle agar frame berikutnya tidak memakai bitmap recycled",
+            clearIndex >= 0 && recycleIndex >= 0 && clearIndex < recycleIndex
+        )
+    }
+
+    @Test
+    fun pdfReadyWhileBackground_isDeferredUntilResume() {
+        val src = pdfRenderer()
+        val download = src
+            .substringAfter("fun downloadPdf(")
+            .substringBefore("fun cancelDownload(")
+        assertTrue(
+            "Cache dan hasil unduhan wajib lewat openPdfOrDefer, bukan openPdfAsync langsung",
+            download.contains("openPdfOrDefer(cachedFile)") &&
+                download.contains("openPdfOrDefer(file)") &&
+                !download.contains("openPdfAsync(")
+        )
+        val deferred = src
+            .substringAfter("private fun openPdfOrDefer(")
+            .substringBefore("private fun openPdfAsync(")
+        assertTrue(
+            "Saat Activity belum resumed, PDF ditunda dan ditandai untuk reopenIfNeeded",
+            deferred.contains("Lifecycle.State.RESUMED") &&
+                deferred.contains("releasedForBackground = true")
+        )
+    }
+
+    @Test
     fun securityCleanup_cancelsFocusLossRunnable() {
         val cleanup = read("src/main/java/com/examvan/app/helper/SecurityEnforcer.kt")
             .substringAfter("fun cleanup()")

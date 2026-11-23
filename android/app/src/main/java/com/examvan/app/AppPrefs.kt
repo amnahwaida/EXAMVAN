@@ -54,6 +54,13 @@ object AppPrefs {
      */
     const val KEY_CLOCK_DRIFT_BASELINE = "clock_drift_baseline"
 
+    /**
+     * Settings.Global.BOOT_COUNT saat baseline drift dicatat. Baseline hanya
+     * sah untuk boot yang sama; setelah reboot elapsedRealtime kembali ke 0
+     * sehingga baseline lama selalu terlihat sebagai manipulasi jam.
+     */
+    const val KEY_CLOCK_DRIFT_BOOT_COUNT = "clock_drift_boot_count"
+
     fun getSubmittedOrExitedKey(examId: Int): String {
         return "${KEY_SUBMITTED_OR_EXITED}_$examId"
     }
@@ -109,6 +116,11 @@ object AppPrefs {
             .remove(KEY_ACTIVE_EXAM_ID)
             .remove(KEY_ACTIVE_SERVER_URL)
             .remove(KEY_AUTO_RESUME_PENDING)
+            // Baseline drift milik sesi lama tidak boleh diwarisi ujian baru:
+            // koreksi NTP/reboot di antara dua ujian akan langsung dilaporkan
+            // sebagai manipulasi jam di ujian berikutnya.
+            .remove(KEY_CLOCK_DRIFT_BASELINE)
+            .remove(KEY_CLOCK_DRIFT_BOOT_COUNT)
         val prunable = com.examvan.app.helper.ExamSessionResetPolicy
             .prunableSubmittedFlagKeys(prefs.all.keys, keepExamId = newExamId)
         prunable.forEach { editor.remove(it) }

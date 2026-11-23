@@ -150,6 +150,27 @@ class EnvironmentCheckPolicyTest {
     }
 
     @Test
+    fun clockTamper_defaultThreshold_allowsNtpCorrectionUpTo60Seconds() {
+        val result = EnvironmentCheckPolicy.evaluateClockDrift(
+            baselineDriftMs = 0L,
+            currentDriftMs = 45_000L,
+            thresholdMs = EnvironmentCheckPolicy.CLOCK_DRIFT_THRESHOLD_MS
+        )
+        assertFalse(result.tampered)
+        assertEquals(45_000L, result.driftDeltaMs)
+    }
+
+    @Test
+    fun clockTamper_defaultThreshold_flagsLargeShift() {
+        val result = EnvironmentCheckPolicy.evaluateClockDrift(
+            baselineDriftMs = 0L,
+            currentDriftMs = 61_000L,
+            thresholdMs = EnvironmentCheckPolicy.CLOCK_DRIFT_THRESHOLD_MS
+        )
+        assertTrue(result.tampered)
+    }
+
+    @Test
     fun clockTamper_beyondThreshold_tampered() {
         // Jam sistem dimundurkan/maju 30 detik dari baseline → tampered.
         val result = EnvironmentCheckPolicy.evaluateClockDrift(

@@ -66,6 +66,7 @@ Setiap butir soal ditulis sebagai elemen `<question>` dengan atribut wajib:
 - Wajib memiliki tag `<right_items>` berisi daftar opsi jawaban kanan yang dipisahkan koma.
 - Tag `<key>` berisi relasi penjodohan dengan format `itemKiri:itemKanan` dipisahkan koma (misal: `1:B, 2:A, 3:C`).
 - Tambahkan atribut `partial_scoring="true"` agar siswa mendapat poin proporsional atas pasangan yang cocok.
+- Default seluruh kartu memakai SATU nomor. Tambahkan atribut `numbering="range"` HANYA bila setiap item kiri di soal asli memang bernomor sendiri; saat itu nomor soal berikutnya harus melompati jumlah item kiri (contoh: card nomor 4 dengan 3 item kiri memakai 4–6, soal berikutnya nomor 7).
 *Contoh:*
 ```xml
 <question number="4" type="matching" weight="3.0" partial_scoring="true">

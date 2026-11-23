@@ -114,6 +114,11 @@ class SecurityEnforcer(
     // pra-ujian → logout + finish; saat ujian berjalan → auto-submit + exit.
     var onSecurityViolationExit: (() -> Unit)? = null
 
+    // Dipanggil setelah layar blok (strict-failed/gesture/security) berhasil
+    // ditutup. Pemilik activity memulihkan panel konten (PDF/unduh) dan
+    // lembar jawaban yang ikut disembunyikan hideAllControls.
+    var onBlockingScreenDismissed: (() -> Unit)? = null
+
     companion object {
         private const val TAG = "SecurityEnforcer"
         private const val BACK_PRESS_COOLDOWN_MS = 1200L
@@ -164,6 +169,7 @@ class SecurityEnforcer(
                 restoreButtonVisibility()
                 binding.layoutError.visibility = View.GONE
                 binding.btnRetryDownload.text = activity.getString(R.string.btn_retry)
+                onBlockingScreenDismissed?.invoke()
                 LockTaskManager.startHealthCheck(activity)
                 onConfirmed()
             } else {
@@ -542,6 +548,7 @@ class SecurityEnforcer(
             binding.btnRetryDownload.setOnClickListener {
                 binding.layoutError.visibility = View.GONE
                 isGestureBlockedShowing = false
+                onBlockingScreenDismissed?.invoke()
                 retryCallback()
             }
             binding.btnOpenResult.visibility = View.GONE
@@ -623,6 +630,7 @@ class SecurityEnforcer(
             isSecurityViolationShowing = false
             binding.btnOpenResult.visibility = View.GONE
             binding.btnOpenResult.setOnClickListener(null)
+            onBlockingScreenDismissed?.invoke()
             retryCallback()
         }
         binding.btnOpenResult.visibility = View.VISIBLE

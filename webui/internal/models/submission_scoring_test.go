@@ -179,3 +179,47 @@ func TestTrueFalseLegacySingleStillWorks(t *testing.T) {
 		t.Fatalf("true_false legacy: got %.2f/%s", got.Earned, got.StatusClass)
 	}
 }
+
+// TestLegacyQuestionTypeAliasesScored: data lama bisa memakai alias `essay`,
+// `pg`, `benar_salah`, dsb. Android me-render alias ini; server harus menilai
+// dengan tipe kanonis yang sama, bukan menganggapnya tipe tak dikenal.
+func TestLegacyQuestionTypeAliasesScored(t *testing.T) {
+	questions := []Question{
+		{Number: 1, Type: "essay", Weight: 2, Key: "Jakarta"},
+		{Number: "2", Type: "pg", Weight: 1, Key: "B"},
+		{Number: 3, Type: "benar_salah", Weight: 1, Key: "TRUE"},
+	}
+	answers := map[string]interface{}{
+		"1": "jakarta",
+		"2": "B",
+		"3": "true",
+	}
+	for key, detail := range EvaluateAnswersDetailed(answers, questions) {
+		if detail.StatusClass != StatusCorrect {
+			t.Errorf("question %s: got %s, want %s", key, detail.StatusClass, StatusCorrect)
+		}
+	}
+}
+
+// TestInvalidQuestionNumberFallsBackToPosition: nomor soal rusak/hilang harus
+// memakai nomor urut yang sama dengan AnswerSheetPlanner Android. Tanpa
+// fallback, jawaban siswa tersimpan di key yang tidak dicocokkan server.
+func TestInvalidQuestionNumberFallsBackToPosition(t *testing.T) {
+	questions := []Question{
+		{Number: "rusak", Type: "short_answer", Weight: 1, Key: "A"},
+		{Number: 1, Type: "short_answer", Weight: 1, Key: "B"},
+		{Number: nil, Type: "short_answer", Weight: 1, Key: "C"},
+	}
+	// Android: invalid index 0 -> 2 (karena 1 dipakai eksplisit), index 2 -> 3.
+	answers := map[string]interface{}{
+		"2": "A",
+		"1": "B",
+		"3": "C",
+	}
+	got := EvaluateAnswersDetailed(answers, questions)
+	for _, key := range []string{"1", "2", "3"} {
+		if got[key].StatusClass != StatusCorrect {
+			t.Errorf("question %s: got %s, want %s", key, got[key].StatusClass, StatusCorrect)
+		}
+	}
+}

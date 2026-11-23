@@ -575,6 +575,9 @@ function closeQuestionsModal(force) {
         if (t && t.classList && t.classList.contains('q-type-select')) {
             onQuestionTypeChange(t);
         }
+        if (t && t.classList && t.classList.contains('q-matching-numbering-select')) {
+            reindexQuestions();
+        }
     });
     // Koreksi guru menghapus penanda kartu invalid (outline merah) saat isi
     // kartu diedit — penanda hanya hidup sampai nilainya disentuh lagi.
@@ -586,6 +589,9 @@ function closeQuestionsModal(force) {
                 card.style.outline = '';
                 if (t.classList.contains('q-options-input') || t.classList.contains('q-statements-input') || t.classList.contains('q-left-items-input') || t.classList.contains('q-right-items-input')) {
                     renderQuestionAssist(card);
+                }
+                if (t.classList.contains('q-left-items-input')) {
+                    reindexQuestions();
                 }
             }
         }
@@ -961,6 +967,7 @@ function createNewQuestionCard(q, num) {
     const partial = q.partial_scoring ? 'checked' : '';
     const partialVisibility = (type === 'multiple_choice' || type === 'matching' || type === 'true_false') ? 'block' : 'none';
     const optionsVisibility = (type === 'true_false' || type === 'short_answer' || type === 'matching') ? 'none' : 'block';
+    const matchingNumbering = (q.numbering === 'range') ? 'range' : 'single';
     const statementsVisibility = type === 'true_false' ? 'block' : 'none';
     const statements = Array.isArray(q.statements) ? q.statements : [];
     const statementsVal = statements.join('\n');
@@ -1053,6 +1060,14 @@ function createNewQuestionCard(q, num) {
                         <textarea class="q-right-items-input" rows="3" placeholder="A&#10;B&#10;C">${escapeHtml(matchingRightVal)}</textarea>
                     </div>
                 </div>
+                <div class="q-matching-field">
+                    <label>Penomoran</label>
+                    <span class="q-field-hint">Pilih apakah seluruh kartu memakai satu nomor atau setiap item kiri memakai nomor sendiri.</span>
+                    <select class="q-matching-numbering-select">
+                        <option value="single" ${matchingNumbering === 'single' ? 'selected' : ''}>Satu nomor untuk seluruh kartu (sekarang)</option>
+                        <option value="range" ${matchingNumbering === 'range' ? 'selected' : ''}>Rentang nomor — tiap item kiri dihitung</option>
+                    </select>
+                </div>
                 <label>Pasangan Benar</label>
                 <span class="q-field-hint">Pilih pasangan untuk setiap item kiri.</span>
                 <div class="q-matching-pairs-list"></div>
@@ -1122,9 +1137,20 @@ function reindexQuestions() {
     let currentNum = 1;
     children.forEach(child => {
         if (child.classList.contains('question-editor-card')) {
-            child.querySelector('.q-num-badge').textContent = `No. ${currentNum}`;
+            let span = 1;
+            const typeSel = child.querySelector('.q-type-select');
+            const numberingSel = child.querySelector('.q-matching-numbering-select');
+            if (typeSel && typeSel.value === 'matching' && numberingSel && numberingSel.value === 'range') {
+                const leftInput = child.querySelector('.q-left-items-input');
+                const leftCount = leftInput
+                    ? String(leftInput.value || '').split('\n').map(x => x.trim()).filter(x => x).length
+                    : 0;
+                span = Math.max(1, leftCount);
+            }
+            child.querySelector('.q-num-badge').textContent =
+                span > 1 ? `No. ${currentNum}–${currentNum + span - 1}` : `No. ${currentNum}`;
             child.querySelector('.q-number').value = currentNum;
-            currentNum++;
+            currentNum += span;
         }
     });
     
@@ -1330,6 +1356,7 @@ function renderQuestions(questions) {
         container.appendChild(card);
         container.appendChild(createDivider(num));
     });
+    reindexQuestions();
 }
 
 // ===== Identity Fields Management =====
@@ -1647,6 +1674,7 @@ function onQuestionTypeChange(selectEl) {
         keyInput.value = '';
     }
     renderQuestionAssist(card);
+    reindexQuestions();
 }
 
 // ===== T15: guard penggantian isi editor soal ==============================
@@ -1774,6 +1802,8 @@ function getQuestionsFromEditor() {
                 q.key = keyRaw.toUpperCase();
             }
         } else if (type === 'matching') {
+            const numberingSel = card.querySelector('.q-matching-numbering-select');
+            q.numbering = numberingSel && numberingSel.value === 'range' ? 'range' : 'single';
             const keyObj = {};
             const selects = card.querySelectorAll('.q-matching-select');
             if (selects.length > 0) {
@@ -1825,7 +1855,8 @@ function exportXMLQuestions() {
     
     questions.forEach(q => {
         const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching' || q.type === 'true_false') ? ` partial_scoring="${xmlEscape(q.partial_scoring)}"` : '';
-        xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}>\n`;
+        const numberingAttr = (q.type === 'matching' && q.numbering === 'range') ? ' numbering="range"' : '';
+        xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}${numberingAttr}>\n`;
         
         if (q.type === 'single_choice' || q.type === 'multiple_choice') {
             const choices = q.options || q.choices;
@@ -3276,6 +3307,7 @@ function importXMLQuestions(event) {
                 const type = node.getAttribute("type") || "single_choice";
                 const weight = parseFloat(node.getAttribute("weight")) || 1.0;
                 const partialScoring = node.getAttribute("partial_scoring") === "true";
+                const numbering = node.getAttribute("numbering") === "range" ? "range" : "single";
                 
                 // Terima <options> maupun <choices> (nama field legacy).
                 const parseCSVNode = (tag) => {
@@ -3341,6 +3373,7 @@ function importXMLQuestions(event) {
                 if (left_items) qData.left_items = left_items;
                 if (right_items) qData.right_items = right_items;
                 if (statements) qData.statements = statements;
+                if (type === 'matching') qData.numbering = numbering;
                 questions.push(qData);
             }
             
@@ -3424,6 +3457,7 @@ Air membeku pada suhu 0 derajat Celsius.</statements>
 - Wajib memiliki tag <right_items> berisi daftar opsi jawaban kanan yang dipisahkan koma.
 - Tag <key> berisi relasi penjodohan dengan format itemKiri:itemKanan dipisahkan koma (misal: 1:B, 2:A, 3:C).
 - Tambahkan atribut partial_scoring="true" agar siswa mendapat poin proporsional atas pasangan yang cocok.
+- Default seluruh kartu memakai SATU nomor. Tambahkan atribut numbering="range" HANYA bila setiap item kiri di soal asli memang bernomor sendiri; saat itu nomor soal berikutnya harus melompati jumlah item kiri (contoh: card nomor 4 dengan 3 item kiri memakai 4–6, soal berikutnya nomor 7).
 Contoh:
 <question number="4" type="matching" weight="3.0" partial_scoring="true">
     <left_items>1, 2, 3</left_items>

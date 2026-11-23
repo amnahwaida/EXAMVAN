@@ -130,15 +130,20 @@ internal class AnswerSheetAdapter(
                 AnswerSheetItem.TYPE_MULTIPLE_CHOICE ->
                     bindMultiple(item.number, item.choices!!)
                 AnswerSheetItem.TYPE_MATCHING ->
-                    bindMatching(item.number, item.leftItems!!, item.rightItems!!)
+                    bindMatching(item.number, item.leftItems!!, item.rightItems!!, item.numberEnd)
                 AnswerSheetItem.TYPE_SHORT_ANSWER ->
                     bindShortAnswer(item.number)
             }
         }
 
-        private fun questionLabel(number: Int, suffixRes: Int? = null): String =
-            context.getString(R.string.answer_sheet_question_number, number) +
-                (suffixRes?.let { " " + context.getString(it) } ?: "")
+        private fun questionLabel(number: Int, suffixRes: Int? = null, numberEnd: Int? = null): String {
+            val base = if (numberEnd != null && numberEnd > number) {
+                context.getString(R.string.answer_sheet_question_range, number, numberEnd)
+            } else {
+                context.getString(R.string.answer_sheet_question_number, number)
+            }
+            return base + (suffixRes?.let { " " + context.getString(it) } ?: "")
+        }
 
         private fun currentText(number: Int): String? = getAnswer(number) as? String
 
@@ -280,9 +285,9 @@ internal class AnswerSheetAdapter(
 
         // ── Matching ─────────────────────────────────────────────────────
 
-        private fun bindMatching(number: Int, leftItems: List<String>, rightItems: List<String>) {
+        private fun bindMatching(number: Int, leftItems: List<String>, rightItems: List<String>, numberEnd: Int?) {
             view.findViewById<TextView>(R.id.tvMatchingLabel).text =
-                questionLabel(number, R.string.answer_sheet_matching_suffix)
+                questionLabel(number, R.string.answer_sheet_matching_suffix, numberEnd)
             val container = view.findViewById<LinearLayout>(R.id.layoutMatchingContainer)
             container.removeAllViews()
 

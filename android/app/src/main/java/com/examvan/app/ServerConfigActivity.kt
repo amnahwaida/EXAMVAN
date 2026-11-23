@@ -23,6 +23,7 @@ import com.examvan.app.helper.ExamIntentPolicy
 import com.examvan.app.helper.ExamModePolicy
 import com.examvan.app.helper.IdentityFormPolicy
 import com.examvan.app.helper.PdfCache
+import com.examvan.app.helper.QuestionContract
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
@@ -385,7 +386,9 @@ class ServerConfigActivity : BaseSecureActivity() {
             alertDialog.dismiss()
 
             // Save questions JSON and security level
-            val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
+            val questionsJson = QuestionContract.encodeForClient(
+                questions = exam.questions ?: emptyList()
+            )
             // Normalisasi di titik intake (fix review low-mode #1): nilai
             // mentah server ("LOW", " Low ") tidak boleh lolos ke hilir.
             val securityLevel = ExamModePolicy.normalize(exam.security_level)

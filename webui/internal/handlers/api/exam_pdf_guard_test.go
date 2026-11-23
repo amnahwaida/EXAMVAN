@@ -61,6 +61,10 @@ func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (
 	return "https://storage.example.test/" + key, nil
 }
 
+func (s *stubR2) SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts r2client.SignedURLOptions) (string, error) {
+	return s.SignedURL(ctx, key, ttl)
+}
+
 func (s *stubR2) Delete(ctx context.Context, key string) error { return nil }
 
 // newExamPDFGuardRouter wires the api ExamPDF endpoint with sessions + "db" +

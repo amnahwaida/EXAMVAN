@@ -92,6 +92,13 @@ func createExamPDFFixture(t *testing.T, pool *pgxpool.Pool, username string) (in
 // are not followed so the 302 Location stays observable.
 func getAdminPDF(t *testing.T, router *gin.Engine, userID, examID int) *http.Response {
 	t.Helper()
+	return getAdminPDFQuery(t, router, userID, examID, "")
+}
+
+// getAdminPDFQuery is getAdminPDF with an optional raw query string (e.g.
+// "?download=1") so the download vs inline disposition paths stay testable.
+func getAdminPDFQuery(t *testing.T, router *gin.Engine, userID, examID int, query string) *http.Response {
+	t.Helper()
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -106,7 +113,7 @@ func getAdminPDF(t *testing.T, router *gin.Engine, userID, examID int) *http.Res
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	resp, err := client.Get(srv.URL + "/admin/api/exams/" + strconv.Itoa(examID) + "/pdf")
+	resp, err := client.Get(srv.URL + "/admin/api/exams/" + strconv.Itoa(examID) + "/pdf" + query)
 	if err != nil {
 		t.Fatalf("GET exam pdf: %v", err)
 	}
@@ -210,5 +217,64 @@ func TestAdminExamPDFEnabledSignedURLRedirect(t *testing.T) {
 	}
 	if len(stub.signed) != 1 || stub.signed[0] != "pdfs/ujian-pdf-guard.pdf" {
 		t.Fatalf("SignedURL keys=%v, want [pdfs/ujian-pdf-guard.pdf]", stub.signed)
+	}
+}
+
+// TestAdminExamPDFViewIsInline locks in that the plain "Lihat PDF" link asks R2
+// for an inline response so the browser renders it instead of downloading it.
+func TestAdminExamPDFViewIsInline(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	userID, examID := createExamPDFFixture(t, pool, "pdfguard-inline")
+
+	stub := newStubR2()
+	router := newExamPDFTestRouter(pool, func(c *gin.Context) { c.Set("r2", stub) })
+
+	resp := getAdminPDF(t, router, userID, examID)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("view PDF: status=%d, want 302", resp.StatusCode)
+	}
+	if len(stub.signedOpts) != 1 {
+		t.Fatalf("SignedURLWithOptions calls=%d, want 1", len(stub.signedOpts))
+	}
+	opts := stub.signedOpts[0]
+	if !strings.HasPrefix(opts.ContentDisposition, "inline") {
+		t.Fatalf("ContentDisposition=%q, want inline", opts.ContentDisposition)
+	}
+	if !strings.Contains(opts.ContentDisposition, "Ujian PDF Guard.pdf") {
+		t.Fatalf("ContentDisposition=%q, want the exam name as filename", opts.ContentDisposition)
+	}
+	if opts.ContentType != "application/pdf" {
+		t.Fatalf("ContentType=%q, want application/pdf", opts.ContentType)
+	}
+}
+
+// TestAdminExamPDFDownloadForcesAttachment locks in that ?download=1 actually
+// downloads: the presigned response carries Content-Disposition: attachment
+// (ignoring the param was the original bug — both links behaved identically).
+func TestAdminExamPDFDownloadForcesAttachment(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	userID, examID := createExamPDFFixture(t, pool, "pdfguard-download")
+
+	stub := newStubR2()
+	router := newExamPDFTestRouter(pool, func(c *gin.Context) { c.Set("r2", stub) })
+
+	resp := getAdminPDFQuery(t, router, userID, examID, "?download=1")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("download PDF: status=%d, want 302", resp.StatusCode)
+	}
+	if len(stub.signedOpts) != 1 {
+		t.Fatalf("SignedURLWithOptions calls=%d, want 1", len(stub.signedOpts))
+	}
+	opts := stub.signedOpts[0]
+	if !strings.HasPrefix(opts.ContentDisposition, "attachment") {
+		t.Fatalf("ContentDisposition=%q, want attachment", opts.ContentDisposition)
+	}
+	if !strings.Contains(opts.ContentDisposition, "Ujian PDF Guard.pdf") {
+		t.Fatalf("ContentDisposition=%q, want the exam name as filename", opts.ContentDisposition)
+	}
+	if opts.ContentType != "application/pdf" {
+		t.Fatalf("ContentType=%q, want application/pdf", opts.ContentType)
 	}
 }
