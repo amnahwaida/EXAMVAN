@@ -1,14 +1,19 @@
 """Persistent configuration stored in ~/.config/examvan/config.json.
 
-Answers saved to disk are obfuscated (XOR) to prevent casual tampering.
+On Windows, answers and short secrets are protected with DPAPI (the user's
+login credential); on other platforms they fall back to XOR+base64
+obfuscation. Both formats are readable so files written before this change
+survive the upgrade.
 """
 
 from __future__ import annotations
 
 import base64
+import ctypes
 import json
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -251,6 +256,182 @@ def _windows_restrict_to_owner(path: Path) -> bool:
 # Not cryptographic security (answers stay on disk only during exam).
 _OBFUSCATE_KEY = b"EXAMVAN_OBF_2024!!"
 
+# DPAPI envelope. The prefix is part of the on-disk format: a Windows file
+# cannot be decoded by the XOR fallback (and must not be mistaken for one).
+_DPAPI_PREFIX = "dpapi1:"
+# Changing this entropy (or the prefix) makes every existing DPAPI file
+# undecryptable; a format change needs a migration path first.
+_DPAPI_ENTROPY = b"EXAMVAN-DPAPI-v1"
+_CRYPTPROTECT_UI_FORBIDDEN = 0x01
+
+
+class _DataBlob(ctypes.Structure):
+    _fields_ = [
+        ("cbData", ctypes.c_uint32),
+        ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
+    ]
+
+
+def _dpapi_available() -> bool:
+    """True hanya di Windows, tempat CryptProtectData tersedia."""
+    return sys.platform == "win32"
+
+
+def _blob_from_bytes(data: bytes):
+    """Return (DATA_BLOB, backing buffer) — buffer must stay alive."""
+    if not data:
+        return _DataBlob(0, None), None
+    buf = ctypes.create_string_buffer(data, len(data))
+    blob = _DataBlob(
+        len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte))
+    )
+    return blob, buf
+
+
+def _dpapi_protect(plain: bytes) -> Optional[bytes]:
+    """Encrypt with the current Windows user's DPAPI key, or None on failure.
+
+    Windows-only. DPAPI output is bound to the user profile (and machine),
+    so copying config/answer files to another account does not reveal them.
+    This does NOT defend against another student using the SAME Windows
+    login: DPAPI will decrypt for that account, exactly like it does for us.
+    Closing that requires per-student Windows accounts (or an ACL boundary
+    outside the installer), not a different local cipher.
+
+    Best-effort: failure falls back to XOR rather than breaking autosave.
+    """
+    if not plain or not _dpapi_available():
+        return None
+    try:
+        from ctypes import wintypes
+
+        crypt32 = ctypes.windll.crypt32
+        kernel32 = ctypes.windll.kernel32
+        crypt32.CryptProtectData.restype = wintypes.BOOL
+        crypt32.CryptProtectData.argtypes = [
+            ctypes.POINTER(_DataBlob),
+            wintypes.LPCWSTR,
+            ctypes.POINTER(_DataBlob),
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(_DataBlob),
+        ]
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+
+        in_blob, _in_buf = _blob_from_bytes(plain)
+        entropy_blob, _entropy_buf = _blob_from_bytes(_DPAPI_ENTROPY)
+        out_blob = _DataBlob()
+        ok = crypt32.CryptProtectData(
+            ctypes.byref(in_blob),
+            "EXAMVAN",
+            ctypes.byref(entropy_blob),
+            None,
+            None,
+            _CRYPTPROTECT_UI_FORBIDDEN,
+            ctypes.byref(out_blob),
+        )
+        if not ok or not out_blob.pbData:
+            return None
+        try:
+            return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
+    except Exception:
+        _log.warning(
+            "DPAPI protect failed; falling back to XOR obfuscation",
+            exc_info=True,
+        )
+        return None
+
+
+def _dpapi_unprotect(blob: bytes) -> Optional[bytes]:
+    """Decrypt a DPAPI envelope, or None when unavailable/invalid."""
+    if not blob or not _dpapi_available():
+        return None
+    try:
+        from ctypes import wintypes
+
+        crypt32 = ctypes.windll.crypt32
+        kernel32 = ctypes.windll.kernel32
+        crypt32.CryptUnprotectData.restype = wintypes.BOOL
+        crypt32.CryptUnprotectData.argtypes = [
+            ctypes.POINTER(_DataBlob),
+            ctypes.c_void_p,
+            ctypes.POINTER(_DataBlob),
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(_DataBlob),
+        ]
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+
+        in_blob, _in_buf = _blob_from_bytes(blob)
+        entropy_blob, _entropy_buf = _blob_from_bytes(_DPAPI_ENTROPY)
+        out_blob = _DataBlob()
+        ok = crypt32.CryptUnprotectData(
+            ctypes.byref(in_blob),
+            None,
+            ctypes.byref(entropy_blob),
+            None,
+            None,
+            _CRYPTPROTECT_UI_FORBIDDEN,
+            ctypes.byref(out_blob),
+        )
+        if not ok or not out_blob.pbData:
+            return None
+        try:
+            return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
+    except Exception:
+        _log.warning("DPAPI unprotect failed", exc_info=True)
+        return None
+
+
+def _is_dpapi(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith(_DPAPI_PREFIX)
+
+
+def _protect_bytes(raw: bytes) -> str:
+    """Protect raw bytes for disk: DPAPI on Windows, XOR elsewhere.
+
+    On Windows a successful DPAPI call always wins. Any failure (and every
+    non-Windows platform) keeps the old XOR+base64 shape, so an affected
+    machine can still recover instead of losing the answers.
+    """
+    if not raw:
+        return ""
+    if _dpapi_available():
+        blob = _dpapi_protect(raw)
+        if blob:
+            return _DPAPI_PREFIX + base64.urlsafe_b64encode(blob).decode("ascii")
+    return base64.urlsafe_b64encode(_xor_obfuscate(raw)).decode("ascii")
+
+
+def _unprotect_bytes(value: str) -> Optional[bytes]:
+    """Reverse `_protect_bytes`; None for corrupt/unavailable envelopes."""
+    if not isinstance(value, str) or not value:
+        return None
+    if _is_dpapi(value):
+        if not _dpapi_available():
+            return None
+        try:
+            blob = base64.urlsafe_b64decode(
+                value[len(_DPAPI_PREFIX):].encode("ascii")
+            )
+        except Exception:
+            return None
+        return _dpapi_unprotect(blob)
+    try:
+        return _xor_obfuscate(
+            base64.urlsafe_b64decode(value.encode("ascii"))
+        )
+    except Exception:
+        return None
+
 
 def _xor_obfuscate(data: bytes) -> bytes:
     """XOR obfuscation. Same function for encrypt and decrypt.
@@ -326,20 +507,32 @@ def _legacy_token_candidates() -> list:
 
 
 def _encode_answers(answers: Dict[str, Any]) -> str:
-    """Serialize + obfuscate + base64 encode."""
+    """Serialize + protect for disk (DPAPI on Windows, XOR elsewhere)."""
     raw = json.dumps(answers, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    obfuscated = _xor_obfuscate(raw)
-    return base64.urlsafe_b64encode(obfuscated).decode("ascii")
+    return _protect_bytes(raw)
 
 
 def _decode_answers(data: str) -> Optional[Dict[str, Any]]:
-    """Base64 decode + deobfuscate + parse.
+    """Decode the current envelope, then the legacy XOR schemes.
 
-    Mencoba skema saat ini dulu, lalu skema lama (kunci dicampur token)
-    sebagai fallback. Tanpa fallback ini, setiap jawaban yang tersimpan
-    sebelum update hilang begitu saja saat pertama kali app dibuka
-    sesudahnya.
+    DPAPI files are accepted only on Windows; on other platforms they are
+    reported unreadable instead of being fed to the XOR fallback (which
+    would produce garbage). Files written before DPAPI still use the old
+    base64+XOR shapes and remain readable everywhere.
     """
+    if _is_dpapi(data):
+        raw = _unprotect_bytes(data)
+        if raw is None:
+            _log.warning(
+                "could not decode DPAPI-protected answers on this host"
+            )
+            return None
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
     try:
         obfuscated = base64.urlsafe_b64decode(data.encode("ascii"))
     except Exception:
@@ -667,16 +860,14 @@ def _save() -> None:
 
 
 def _encode_secret(text: str) -> str:
-    """Obfuscate string pendek (token/label) utk disimpan di config.json.
+    """Protect string pendek (token/label) utk disimpan di config.json.
 
-    Bukan kriptografi — siapa pun yang bisa membaca kode ini bisa
-    men-decode-nya. Tujuannya sama seperti obfuscation jawaban: menaikkan
-    palang dari "buka file, baca token ke-9 di baris mana pun" menjadi
-    "harus tahu skemanya". Nilai di-decode dengan fallback ke bentuk
-    aslinya, jadi config yang ditulis versi lama (plaintext) tetap terbaca.
+    Di Windows memakai DPAPI (terikat akun/mesin); platform lain tetap
+    XOR+base64. Nilai di-decode dengan fallback ke bentuk aslinya, jadi
+    config yang ditulis versi lama (plaintext) tetap terbaca.
     """
     raw = str(text or "").encode("utf-8")
-    return base64.urlsafe_b64encode(_xor_obfuscate(raw)).decode("ascii")
+    return _protect_bytes(raw)
 
 
 def _decode_secret(value: Any) -> str:
@@ -684,17 +875,28 @@ def _decode_secret(value: Any) -> str:
 
     Nilai yang bukan hasil encode (ditulis versi lama sebagai plaintext,
     atau diedit siswa) dikembalikan apa adanya — pemanggil hanya butuh
-    string yang sama dengan yang disimpan dulu.
+    string yang sama dengan yang disimpan dulu. Envelope DPAPI yang tidak
+    bisa dibuka TIDAK jatuh ke nilai mentah: ciphertext bukan token.
     """
     if not isinstance(value, str) or not value:
         return ""
-    try:
-        raw = base64.urlsafe_b64decode(value.encode("ascii"))
-        decoded = _xor_obfuscate(raw).decode("utf-8")
-        if decoded:
-            return decoded
-    except Exception:
-        pass
+    if _is_dpapi(value):
+        raw = _unprotect_bytes(value)
+        if raw is None:
+            _log.warning("could not decrypt a DPAPI-protected config secret")
+            return ""
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+    raw = _unprotect_bytes(value)
+    if raw is not None:
+        try:
+            decoded = raw.decode("utf-8")
+            if decoded:
+                return decoded
+        except UnicodeDecodeError:
+            pass
     return value
 
 
@@ -736,10 +938,18 @@ def set(key: str, value: Any) -> None:
                 # Bukan arsip: hanya kandidat yang masih mungkin dipakai
                 # (maksimal 3).
                 history = [h for h in history if isinstance(h, str) and h]
-                # Bandingkan dalam bentuk tersimpan (ter-obfuscated) supaya
-                # rotasi bolak-balik token yang sama tidak menduplikasi entri.
+                # Bandingkan token POLOS, bukan ciphertext: DPAPI
+                # menghasilkan ciphertext berbeda untuk nilai yang sama,
+                # jadi perbandingan byte akan menduplikasi token yang
+                # berputar bolak-balik dan mendorong kandidat lama keluar
+                # dari batas 3 entri.
+                known_plaintexts = {
+                    _decode_secret(h)
+                    for h in history
+                    if isinstance(h, str) and h
+                }
                 encoded_previous = _encode_secret(previous)
-                if encoded_previous not in history:
+                if previous not in known_plaintexts:
                     # Riwayat dulu berisi 8 token plaintext — kredensial
                     # kelas yang lama tersusun rapi di config.json bahkan
                     # setelah token berputar. Simpan ter-obfuscated (lihat
@@ -820,6 +1030,14 @@ def _decode_secret_strict(value: Any) -> Optional[str]:
     """
     if not isinstance(value, str):
         return None
+    if _is_dpapi(value):
+        raw = _unprotect_bytes(value)
+        if raw is None:
+            return None
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
     try:
         raw = base64.urlsafe_b64decode(value.encode("ascii"))
         return _xor_obfuscate(raw).decode("utf-8")

@@ -155,7 +155,11 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 
 ## Keamanan Data
 
-- **Jawaban tersimpan** di disk dalam format **XOR-obfuscated + base64**, bukan plaintext.
+- **Jawaban dan token tersimpan** di disk, bukan plaintext: di Windows memakai
+  **DPAPI** (terikat akun/mesin); platform lain memakai **XOR-obfuscated +
+  base64**. File lama tetap bisa dibaca.
+- DPAPI melindungi dari akun Windows lain dan dari salinan file ke mesin lain,
+  tetapi **bukan** dari siswa yang memakai login Windows yang sama.
 - **PDF file** di `%TEMP%` langsung dihapus setelah submit.
 - **Window title** generic ("EXAMVAN") — tidak bocor nama ujian.
 - **Clipboard** dibersihkan tiap 10 detik. Sisi Qt di-clear inline di GUI
@@ -173,7 +177,7 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 ├── examvan/                  ← source code (cross-platform)
 │   ├── __main__.py           ← entry point
 │   ├── api.py                ← HTTP client (urllib)
-│   ├── config.py             ← konfigurasi + answer cache (XOR obfuscated)
+│   ├── config.py             ← konfigurasi + answer cache (DPAPI/XOR)
 │   ├── models.py             ← data models
 │   ├── notify.py             ← notifikasi hasil auto-submit (Linux notify-send / Windows balloon)
 │   ├── utils.py              ← MAC, clipboard, device identity
