@@ -349,9 +349,11 @@ func main() {
 	// Timeout middleware — large R2 uploads (exam PDFs and system apps) can
 	// take minutes, while normal API calls keep the tight 30s budget.
 	r.Use(middleware.TimeoutMiddlewareWithOverrides(30*time.Second, map[string]time.Duration{
-		"/admin/api/upload":       10 * time.Minute,
-		"/admin/api/exams/*/edit": 10 * time.Minute,
-		"/admin/api/system-apps":  10 * time.Minute,
+		"/admin/api/upload":              10 * time.Minute,
+		"/admin/api/exams/*/edit":        10 * time.Minute,
+		"/admin/api/system-apps":         10 * time.Minute,
+		"/admin/api/system-app-upload":   10 * time.Minute,
+		"/admin/api/system-app-upload/*": 10 * time.Minute,
 	}))
 	// Inject Redis client when available.
 	if rdb != nil {
@@ -922,6 +924,17 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 					adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
 					adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
 					adminSettings.POST("/packages", middleware.LimitBodySize(256*1024), admin.SavePackageSettingsHandler())
+				}
+
+				// Chunked large-installer upload. A dedicated, higher request
+				// budget is required because a 100 MB installer is sent as many
+				// 2 MB chunks; the shared 120/min admin bucket would throttle it.
+				adminUploads := lockedAPI.Group("", middleware.CSRFRequired(), middleware.RateLimit(600, time.Minute), middleware.SuperAdminRequired())
+				{
+					adminUploads.POST("/system-app-upload/init", middleware.LimitBodySize(256*1024), admin.InitSystemAppUpload())
+					adminUploads.POST("/system-app-upload/chunk", middleware.LimitBodySize(3*1024*1024), admin.UploadSystemAppChunk())
+					adminUploads.POST("/system-app-upload/complete", middleware.LimitBodySize(256*1024), admin.CompleteSystemAppUpload())
+					adminUploads.POST("/system-app-upload/cancel", middleware.LimitBodySize(256*1024), admin.CancelSystemAppUpload())
 				}
 
 				// Vouchers (management — creation, toggling, deletion are

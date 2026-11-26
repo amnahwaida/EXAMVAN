@@ -408,6 +408,79 @@ function validateUploadForm() {
     }
 })();
 
+// Chunked upload: each request body is 2 MB, so Cloudflare never sees the
+// full ~100 MB installer (which used to hit the fixed ~100s origin timeout).
+const SYSTEM_APP_CHUNK_FALLBACK = 2 * 1024 * 1024;
+
+function systemAppPostJSON(url, payload, fallback) {
+    return apiFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        suppressApiErrorToast: true
+    }).then(function (res) {
+        return res.json().then(function (data) {
+            if (!res.ok || !data.success) {
+                throw new Error(apiErrorMessage(data, fallback));
+            }
+            return data;
+        });
+    });
+}
+
+function systemAppChunkError(xhr, fallback) {
+    var data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (_) {}
+    var err = new Error(apiErrorMessage(data, fallback));
+    err.retryable = xhr.status === 0 || xhr.status === 408 || xhr.status === 429 ||
+        xhr.status === 524 || xhr.status >= 500;
+    return err;
+}
+
+function uploadSystemAppChunk(uploadId, index, blob, onProgress) {
+    return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/admin/api/system-app-upload/chunk?id=' +
+            encodeURIComponent(uploadId) + '&index=' + encodeURIComponent(String(index)), true);
+        xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        if (xhr.upload) {
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable && typeof onProgress === 'function') onProgress(e.loaded);
+            };
+        }
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data && data.success) { resolve(); return; }
+                } catch (_) {}
+            }
+            reject(systemAppChunkError(xhr, 'Gagal mengunggah potongan file.'));
+        };
+        xhr.onerror = function () {
+            var err = new Error('Kesalahan jaringan saat mengunggah potongan file.');
+            err.retryable = true;
+            reject(err);
+        };
+        xhr.send(blob);
+    });
+}
+
+function uploadSystemAppChunkWithRetry(uploadId, index, blob, onProgress) {
+    var attempt = 0;
+    function tryOnce() {
+        return uploadSystemAppChunk(uploadId, index, blob, onProgress).catch(function (err) {
+            attempt += 1;
+            if (!err.retryable || attempt >= 3) throw err;
+            return new Promise(function (resolve) {
+                setTimeout(resolve, attempt * 800);
+            }).then(tryOnce);
+        });
+    }
+    return tryOnce();
+}
+
 function submitUpload(event) {
     event.preventDefault();
     const form = document.getElementById('uploadAppForm');
@@ -424,9 +497,18 @@ function submitUpload(event) {
     const progressBar = document.getElementById('uploadProgressBar');
     const percentText = document.getElementById('uploadPercentage');
     const statusText = document.getElementById('uploadStatusText');
+    const fileInput = document.getElementById('appFile');
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    const appName = document.getElementById('appName').value.trim();
+    const platform = document.getElementById('platformSelect').value;
+    const version = document.getElementById('appVersion').value.trim();
+    if (!file) { validateUploadForm(); return; }
 
     errorDiv.style.display = 'none';
     progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    percentText.innerText = '0%';
+    statusText.innerHTML = '<svg class="animate-spin" width="18" height="18" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Mengunggah...';
     window.__uploadInProgress = true;
     // S37: kunci overlay + tampilkan indikator mengambang selama unggahan.
     const modalEl = document.getElementById('uploadModal');
@@ -436,57 +518,13 @@ function submitUpload(event) {
     btn.innerHTML = '<svg class="animate-spin" width="20" height="20" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Memproses...';
     btn.disabled = true;
 
-    const formData = new FormData(form);
-    const xhr = new XMLHttpRequest();
+    let uploadId = '';
 
-    xhr.open('POST', '/admin/api/system-apps', true);
-    // Fix: file ini STATIK — literal '{{ .csrf_token }}' tidak pernah
-    // ter-render oleh template engine. Ambil token dari meta tag base.html
-    // via helper getCsrfToken() (admin-core.js).
-    xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
-
-    xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) {
-            const percentComplete = Math.round((e.loaded / e.total) * 100);
-            progressBar.style.width = percentComplete + '%';
-            percentText.innerText = percentComplete + '%';
-            if (percentComplete === 100) {
-                statusText.innerHTML = '<svg class="animate-spin" width="18" height="18" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Memvalidasi & Menyimpan...';
-            }
-        }
-    };
-
-    xhr.onload = function() {
-        window.__uploadInProgress = false;
-        unlockUploadOverlay(modalEl);
-        hideUploadProgressPill();
-        if (xhr.status === 200) {
-            const data = JSON.parse(xhr.responseText);
-            if (data.success) {
-                // Fix review ronde 3: refresh KARTU aplikasi secara in-place —
-                // tanpa reload/navigasi apapun, konteks tab tetap terjaga.
-                showToast('Aplikasi berhasil diunggah', 'success');
-                loadApps();
-                closeUploadModal();
-            } else {
-                showError(apiErrorMessage(data, 'Gagal mengunggah aplikasi'));
-            }
-        } else {
-            let msg = 'Gagal mengunggah file (Status ' + xhr.status + ')';
-            try {
-                const data = JSON.parse(xhr.responseText);
-                msg = apiErrorMessage(data, msg);
-            } catch(e) {}
-            showError(msg);
-        }
-    };
-
-    xhr.onerror = function() {
-        window.__uploadInProgress = false;
-        unlockUploadOverlay(modalEl);
-        hideUploadProgressPill();
-        showError('Terjadi kesalahan jaringan. Periksa koneksi internet Anda.');
-    };
+    function setProgress(percent) {
+        const safe = Math.max(0, Math.min(100, Math.round(percent)));
+        progressBar.style.width = safe + '%';
+        percentText.innerText = safe + '%';
+    }
 
     function showError(msg) {
         errorText.innerText = msg;
@@ -497,7 +535,59 @@ function submitUpload(event) {
         progressBar.style.width = '0%';
     }
 
-        xhr.send(formData);
+    (async function () {
+        try {
+            const init = await systemAppPostJSON('/admin/api/system-app-upload/init', {
+                name: appName,
+                platform: platform,
+                version: version,
+                filename: file.name,
+                size: file.size
+            }, 'Gagal memulai unggahan aplikasi.');
+            uploadId = init.upload_id;
+            const chunkSize = init.chunk_size || SYSTEM_APP_CHUNK_FALLBACK;
+            const totalChunks = init.total_chunks || Math.ceil(file.size / chunkSize);
+
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * chunkSize;
+                const end = Math.min(start + chunkSize, file.size);
+                await uploadSystemAppChunkWithRetry(
+                    uploadId,
+                    i,
+                    file.slice(start, end),
+                    function (loaded) {
+                        setProgress(((start + loaded) / file.size) * 100);
+                    }
+                );
+                setProgress((end / file.size) * 100);
+            }
+
+            statusText.innerHTML = '<svg class="animate-spin" width="18" height="18" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Memvalidasi & Menyimpan...';
+            await systemAppPostJSON('/admin/api/system-app-upload/complete', {
+                upload_id: uploadId
+            }, 'Gagal menyimpan aplikasi.');
+
+            window.__uploadInProgress = false;
+            unlockUploadOverlay(modalEl);
+            hideUploadProgressPill();
+            showToast('Aplikasi berhasil diunggah', 'success');
+            loadApps();
+            closeUploadModal();
+        } catch (e) {
+            if (uploadId) {
+                // Best-effort cleanup only — never make the user wait on it.
+                systemAppPostJSON('/admin/api/system-app-upload/cancel', {
+                    upload_id: uploadId
+                }, 'Gagal membatalkan unggahan.').catch(function () {});
+            }
+            showError(e && e.message ? e.message : 'Gagal mengunggah aplikasi.');
+            if (window.__uploadInProgress) {
+                window.__uploadInProgress = false;
+                unlockUploadOverlay(modalEl);
+                hideUploadProgressPill();
+            }
+        }
+    })();
 }
 
 async function deleteApp(id, name) {
