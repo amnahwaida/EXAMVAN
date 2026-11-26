@@ -346,8 +346,13 @@ func main() {
 	if pool != nil {
 		r.Use(middleware.DatabaseMiddleware(pool))
 	}
-	// Timeout middleware — wrap request context with deadline
-	r.Use(middleware.TimeoutMiddleware(30 * time.Second))
+	// Timeout middleware — large R2 uploads (exam PDFs and system apps) can
+	// take minutes, while normal API calls keep the tight 30s budget.
+	r.Use(middleware.TimeoutMiddlewareWithOverrides(30*time.Second, map[string]time.Duration{
+		"/admin/api/upload":       10 * time.Minute,
+		"/admin/api/exams/*/edit": 10 * time.Minute,
+		"/admin/api/system-apps":  10 * time.Minute,
+	}))
 	// Inject Redis client when available.
 	if rdb != nil {
 		r.Use(func(c *gin.Context) { c.Set("redis", rdb); c.Next() })
@@ -388,8 +393,8 @@ func main() {
 	// -----------------------------------------------------------------------
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      r,
+		Addr:    addr,
+		Handler: r,
 		// ReadTimeout/WriteTimeout cover the WHOLE request, including a large
 		// system-app upload and the subsequent server-to-R2 transfer. The old
 		// 30s/120s limits killed slow ~100 MB installers mid-flight. Header
