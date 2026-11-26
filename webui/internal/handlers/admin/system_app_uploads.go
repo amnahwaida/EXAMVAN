@@ -69,7 +69,18 @@ type systemAppUploadIDRequest struct {
 }
 
 func systemAppUploadRoot(c *gin.Context) string {
-	return filepath.Join(getStoragePath(c), "tmp", "system-app-uploads")
+	storageRoot := filepath.Join(getStoragePath(c), "tmp", "system-app-uploads")
+	if err := os.MkdirAll(storageRoot, 0755); err == nil {
+		return storageRoot
+	}
+	// Existing Docker volumes are often root-owned while the server runs as
+	// appuser. Chunk temp files are disposable, so fall back to the container's
+	// writable /tmp instead of failing the upload on storage permissions.
+	fallback := filepath.Join(os.TempDir(), "examvan-system-app-uploads")
+	if err := os.MkdirAll(fallback, 0755); err == nil {
+		return fallback
+	}
+	return storageRoot
 }
 
 func systemAppUploadDir(c *gin.Context, id string) (string, error) {

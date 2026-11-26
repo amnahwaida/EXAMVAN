@@ -28,7 +28,7 @@ COPY --from=builder /build/server /usr/local/bin/server
 COPY --from=builder /build/static /app/static
 COPY --from=builder /build/templates /app/templates
 
-RUN chown -R appuser:appuser /app
+RUN mkdir -p /app/storage/tmp/system-app-uploads && chown -R appuser:appuser /app
 
 WORKDIR /app
 
