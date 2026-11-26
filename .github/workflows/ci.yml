@@ -146,7 +146,7 @@ jobs:
           src_ver=$(python3 -c "
           import re,pathlib
           t=pathlib.Path('desktop/examvan/__init__.py').read_text()
-          print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',t).group(1))")
+          print(re.search(r'^\s*APP_VERSION\s*=\s*\"([^\"]+)\"',t,re.M).group(1))")
           deb_ver=$(dpkg-deb -f "$DEB" Version)
           echo "source=$src_ver paket=$deb_ver"
           [ "$src_ver" = "$deb_ver" ] || { echo "::error::versi paket melenceng dari source"; exit 1; }
