@@ -470,6 +470,31 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- One-time upgrade of the Android minimum version to the 2.7.20 release. The
+-- code default is already 2.7.20, but existing installs keep an explicit
+-- saas_setting row from an older release, and that stored value takes
+-- precedence over the default. Raise only values below the floor so a future
+-- admin-configured minimum (2.8.0, etc.) is never downgraded. Fresh installs
+-- get the row inserted. Guarded by a marker so this runs once per schema.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM schema_migrations
+                   WHERE name = 'android_version_min_2_7_20') THEN
+        INSERT INTO saas_settings (key, value)
+        VALUES ('android_version', '2.7.20')
+        ON CONFLICT (key) DO NOTHING;
+
+        UPDATE saas_settings
+        SET value = '2.7.20'
+        WHERE key = 'android_version'
+          AND value ~ '^[0-9]{1,9}(\.[0-9]{1,9}){0,3}$'
+          AND string_to_array(value, '.')::int[] < ARRAY[2,7,20];
+
+        INSERT INTO schema_migrations (name)
+        VALUES ('android_version_min_2_7_20');
+    END IF;
+END $$;
+
 -- One-time cleanup for heartbeat-flusher duplicates. The flusher used to
 -- INSERT a new open placeholder on every heartbeat even when the latest row
 -- was still open, so an idle student accumulated one row per minute (and the

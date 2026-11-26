@@ -530,6 +530,7 @@
 <div class="exam-action-dropdown">
 <button class="btn-sm btn-more btn-sm-compact" data-action="row-dropdown-toggle" data-exam-id="{{$exam.ID}}" title="Menu Tindakan Lainnya" aria-label="Tindakan lainnya" aria-haspopup="true" aria-expanded="false"><svg class="icon-svg" aria-hidden="true"><use href="#hi-chevron-down"/></svg></button>
 <div class="exam-action-dropdown-content" id="dropdown-content-{{$exam.ID}}">
+<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="questions-preview-open"><svg class="icon-svg"><use href="#hi-eye"/></svg> Pratinjau Kunci Jawaban</button>
 <a href="/admin/api/exams/{{$exam.ID}}/pdf" target="_blank" rel="noopener"><svg class="icon-svg"><use href="#hi-eye"/></svg> Lihat PDF</a>
 <a href="/admin/api/exams/{{$exam.ID}}/pdf?download=1"><svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF</a>
 <button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="edit-exam-open"><svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF</button>
@@ -863,6 +864,9 @@
 <div class="inline-group" style="display:flex;align-items:center;gap:6px;">
 <button class="btn-sm" data-action="weights-set-all" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-settings"/></svg> Terapkan ke Semua Bobot</button>
 </div>
+<div class="inline-group" style="display:flex;align-items:center;gap:6px;">
+<button id="btnPreviewAnswers" class="btn-sm" data-action="questions-preview-open" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pratinjau Jawaban</button>
+</div>
 <div class="xml-import-wrapper" style="display:flex;align-items:center;gap:6px;">
 <button class="btn-sm" data-action="ai-prompt-copy" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>
 <input type="file" id="xmlFileInput" accept=".xml" style="display:none;">
@@ -881,6 +885,35 @@
 <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 24px;border-top:1px solid var(--color-glass-border);">
 <button class="btn-sm btn-delete" data-action="modal-close" data-modal-close="closeQuestionsModal">Batal</button>
 <button id="btnSaveQuestionsConfig" class="btn-upload" data-action="questions-save"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Konfigurasi</button>
+</div>
+</div>
+</div>
+
+<div class="modal-overlay" id="answerPreviewModal" role="dialog" aria-modal="true" aria-labelledby="answerPreviewTitle">
+<div class="modal-card glass-card answer-preview-card">
+<div class="modal-header">
+<div>
+<h3 id="answerPreviewTitle">Pratinjau Kunci Jawaban</h3>
+<div id="answerPreviewSource" class="answer-preview-source"></div>
+</div>
+<button class="modal-close answer-preview-no-print" data-action="modal-close" data-modal-close="closeAnswerPreviewModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+</div>
+<div class="modal-body">
+<div id="answerPreviewSummary" class="answer-preview-summary" aria-live="polite"></div>
+<div class="answer-preview-note answer-preview-no-print">Pratinjau ini memeriksa nomor, tipe, opsi, dan kunci. Teks soal yang berada di PDF tidak digambar ulang di sini.</div>
+<div class="answer-preview-toolbar answer-preview-no-print">
+<div class="answer-preview-filters" role="group" aria-label="Filter pratinjau jawaban">
+<button type="button" class="answer-preview-filter is-active" data-action="answer-preview-filter" data-filter="all" aria-pressed="true">Semua</button>
+<button type="button" class="answer-preview-filter" data-action="answer-preview-filter" data-filter="issues" aria-pressed="false">Perlu dicek</button>
+<button type="button" class="answer-preview-filter" data-action="answer-preview-filter" data-filter="missing" aria-pressed="false">Belum ada kunci</button>
+</div>
+<button type="button" class="btn-sm" data-action="answer-preview-print" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-file"/></svg> Cetak / Simpan PDF</button>
+</div>
+<div id="answerPreviewEmpty" class="answer-preview-empty" hidden></div>
+<div id="answerPreviewList" class="answer-preview-list" role="list"></div>
+</div>
+<div class="modal-footer answer-preview-no-print">
+<button class="btn-sm" data-action="modal-close" data-modal-close="closeAnswerPreviewModal">Tutup</button>
 </div>
 </div>
 </div>

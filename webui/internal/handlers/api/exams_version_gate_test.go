@@ -20,7 +20,7 @@ import (
 // ---------------------------------------------------------------------------
 //
 // H1: join (ExamByToken), submit (SubmitExam) and access-log (AccessLog) read
-// the RAW saas_setting "android_version" (default const 2.5.0) instead of the
+// the RAW saas_setting "android_version" (default const 2.7.20) instead of the
 // effective version used by middleware.AndroidVersionCheck and /api/health
 // (models.EffectiveAndroidRequiredVersion). Two failure modes:
 //

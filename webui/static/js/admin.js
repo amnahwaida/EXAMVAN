@@ -448,7 +448,7 @@ function resetQuestionsConfigDirty() {
     questionsConfigDirty = false;
 }
 
-function openQuestionsModal(examId, examName) {
+function openQuestionsModal(examId, examName, focusQuestionNumber) {
     activeExamName = examName;
     // Modal dibuka dengan data segar dari server — mulai dari state bersih.
     questionsConfigDirty = false;
@@ -525,6 +525,9 @@ function openQuestionsModal(examId, examName) {
                 renderIdentityFields(res.identity_fields || []);
                 if (res.assigned_pengawas) {
                     renderPengawasSelection(res.assigned_pengawas, res.available_pengawas || []);
+                }
+                if (focusQuestionNumber) {
+                    setTimeout(function () { focusQuestionCard(focusQuestionNumber); }, 120);
                 }
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
@@ -2141,6 +2144,657 @@ function findQuestionCardProblems() {
         if (msg) problems.push({ num: num, msg: msg, card: card });
     });
     return problems;
+}
+
+let answerPreviewData = null;
+let answerPreviewFilter = 'all';
+let answerPreviewExamId = null;
+let answerPreviewExamName = '';
+let answerPreviewSource = 'editor';
+
+function answerPreviewTypeLabel(type) {
+    switch (type) {
+        case 'single_choice': return 'Pilihan Ganda';
+        case 'multiple_choice': return 'PG Kompleks';
+        case 'true_false': return 'Benar / Salah';
+        case 'matching': return 'Menjodohkan';
+        case 'short_answer': return 'Isian Singkat';
+        default: return 'Tipe tidak dikenal';
+    }
+}
+
+function answerPreviewStringList(value) {
+    if (!Array.isArray(value)) return [];
+    return value.map(function (item) {
+        return String(item == null ? '' : item).trim();
+    }).filter(function (item) { return item !== ''; });
+}
+
+function answerPreviewKeyValues(key) {
+    if (Array.isArray(key)) {
+        return key.map(function (item) {
+            return String(item == null ? '' : item).trim();
+        });
+    }
+    if (key === undefined || key === null) return [];
+    return [String(key).trim()];
+}
+
+function answerPreviewOptions(q) {
+    if (!q) return [];
+    if (Array.isArray(q.options)) return answerPreviewStringList(q.options);
+    if (Array.isArray(q.choices)) return answerPreviewStringList(q.choices);
+    return [];
+}
+
+function answerPreviewSameToken(left, right) {
+    return String(left == null ? '' : left).trim().toLowerCase() ===
+        String(right == null ? '' : right).trim().toLowerCase();
+}
+
+function answerPreviewSpan(q) {
+    if (!q || q.numbering !== 'range') return 1;
+    if (q.type === 'matching') {
+        return Math.max(1, answerPreviewStringList(q.left_items).length);
+    }
+    if (q.type === 'short_answer') {
+        return Math.max(
+            1,
+            answerPreviewStringList(q.statements).length,
+            answerPreviewKeyValues(q.key).length
+        );
+    }
+    return 1;
+}
+
+function answerPreviewTrueFalseLabel(value, q) {
+    var raw = String(value == null ? '' : value).trim().toUpperCase();
+    if (raw === 'TRUE') return (q && q.true_label) || 'Benar';
+    if (raw === 'FALSE') return (q && q.false_label) || 'Salah';
+    if (value === undefined || value === null || String(value).trim() === '') return '—';
+    return String(value);
+}
+
+function answerPreviewIssue(level, code, message) {
+    return { level: level, code: code, message: message };
+}
+
+function collectQuestionPreviewIssues(q) {
+    const issues = [];
+    if (!q || typeof q !== 'object') {
+        issues.push(answerPreviewIssue('error', 'invalid_question', 'Data soal tidak valid.'));
+        return issues;
+    }
+
+    const type = String(q.type || '');
+    if (['single_choice', 'multiple_choice', 'true_false', 'matching', 'short_answer'].indexOf(type) === -1) {
+        issues.push(answerPreviewIssue('error', 'unknown_type', 'Tipe soal tidak dikenal.'));
+        return issues;
+    }
+
+    const weight = Number(q.weight);
+    if (!Number.isFinite(weight) || weight <= 0) {
+        issues.push(answerPreviewIssue('warn', 'weight_nonpositive', 'Bobot 0 atau kosong akan dianggap 1 oleh server.'));
+    }
+
+    if ((type === 'matching' || type === 'short_answer') &&
+        q.numbering !== undefined && q.numbering !== null &&
+        q.numbering !== 'single' && q.numbering !== 'range') {
+        issues.push(answerPreviewIssue('warn', 'invalid_numbering', 'Mode penomoran tidak dikenal; server akan memakai satu nomor.'));
+    }
+
+    const options = answerPreviewOptions(q);
+    const keyValues = answerPreviewKeyValues(q.key);
+    const nonEmptyKeys = keyValues.filter(function (value) { return value !== ''; });
+
+    if (type === 'single_choice' || type === 'multiple_choice') {
+        if (options.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_options', 'Belum ada pilihan jawaban.'));
+        }
+    }
+
+    if (type === 'single_choice') {
+        if (nonEmptyKeys.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_key', 'Belum ada kunci jawaban.'));
+        } else {
+            if (keyValues.length > 1) {
+                issues.push(answerPreviewIssue('error', 'invalid_single_key', 'Pilihan ganda hanya boleh memiliki satu kunci.'));
+            }
+            if (options.length > 0 && !options.some(function (option) {
+                return answerPreviewSameToken(option, nonEmptyKeys[0]);
+            })) {
+                issues.push(answerPreviewIssue('error', 'key_not_in_options',
+                    "Kunci '" + nonEmptyKeys[0] + "' tidak ada di pilihan jawaban."));
+            }
+        }
+    } else if (type === 'multiple_choice') {
+        if (nonEmptyKeys.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_key', 'Belum ada kunci jawaban.'));
+        } else {
+            if (keyValues.length !== nonEmptyKeys.length) {
+                issues.push(answerPreviewIssue('error', 'empty_key', 'Ada kunci jawaban yang kosong.'));
+            }
+            const seenKeys = {};
+            nonEmptyKeys.forEach(function (key) {
+                const folded = key.toLowerCase();
+                if (seenKeys[folded]) {
+                    issues.push(answerPreviewIssue('error', 'duplicate_key',
+                        "Kunci '" + key + "' muncul lebih dari sekali."));
+                }
+                seenKeys[folded] = true;
+                if (options.length > 0 && !options.some(function (option) {
+                    return answerPreviewSameToken(option, key);
+                })) {
+                    issues.push(answerPreviewIssue('error', 'key_not_in_options',
+                        "Kunci '" + key + "' tidak ada di pilihan jawaban."));
+                }
+            });
+        }
+    } else if (type === 'true_false') {
+        const statements = answerPreviewStringList(q.statements);
+        if (nonEmptyKeys.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_key', 'Belum ada kunci jawaban.'));
+        } else if (statements.length > 0) {
+            if (keyValues.length !== statements.length) {
+                issues.push(answerPreviewIssue('error', 'key_count_mismatch',
+                    'Jumlah kunci (' + keyValues.length + ') harus sama dengan jumlah pernyataan (' + statements.length + ').'));
+            }
+            keyValues.forEach(function (key) {
+                const folded = key.toUpperCase();
+                if (folded !== 'TRUE' && folded !== 'FALSE') {
+                    issues.push(answerPreviewIssue('error', 'invalid_true_false',
+                        "Kunci '" + key + "' harus TRUE atau FALSE."));
+                }
+            });
+        } else {
+            if (keyValues.length !== 1) {
+                issues.push(answerPreviewIssue('error', 'invalid_true_false_key',
+                    'Soal Benar/Salah tanpa daftar pernyataan harus memiliki satu kunci.'));
+            }
+            const folded = nonEmptyKeys[0].toUpperCase();
+            if (folded !== 'TRUE' && folded !== 'FALSE') {
+                issues.push(answerPreviewIssue('error', 'invalid_true_false',
+                    "Kunci '" + nonEmptyKeys[0] + "' harus TRUE atau FALSE."));
+            }
+        }
+    } else if (type === 'matching') {
+        const left = answerPreviewStringList(q.left_items);
+        const right = answerPreviewStringList(q.right_items);
+        const map = q.key && typeof q.key === 'object' && !Array.isArray(q.key) ? q.key : {};
+        const entries = Object.keys(map);
+
+        if (left.length === 0 || right.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_matching_items', 'Item kiri dan kanan wajib diisi.'));
+        }
+        if (entries.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_key', 'Belum ada pasangan jawaban.'));
+        } else {
+            left.forEach(function (item) {
+                if (!Object.prototype.hasOwnProperty.call(map, item)) {
+                    issues.push(answerPreviewIssue('warn', 'matching_missing_pair',
+                        "Pasangan untuk '" + item + "' belum diisi."));
+                }
+            });
+            const seenRight = {};
+            entries.forEach(function (leftKey) {
+                const rightValue = String(map[leftKey] == null ? '' : map[leftKey]).trim();
+                if (left.indexOf(leftKey) === -1) {
+                    issues.push(answerPreviewIssue('warn', 'matching_extra_left',
+                        "Item kiri '" + leftKey + "' tidak ada di daftar item kiri."));
+                }
+                if (rightValue === '') {
+                    issues.push(answerPreviewIssue('error', 'matching_empty_right',
+                        "Pasangan '" + leftKey + "' belum memiliki item kanan."));
+                } else if (right.length > 0 && !right.some(function (item) {
+                    return answerPreviewSameToken(item, rightValue);
+                })) {
+                    issues.push(answerPreviewIssue('error', 'matching_invalid_right',
+                        "Pasangan '" + leftKey + "' -> '" + rightValue + "' tidak ada di item kanan."));
+                }
+                const folded = rightValue.toLowerCase();
+                if (folded !== '') {
+                    if (seenRight[folded]) {
+                        issues.push(answerPreviewIssue('warn', 'matching_duplicate_right',
+                            "Item kanan '" + rightValue + "' dipakai lebih dari sekali."));
+                    }
+                    seenRight[folded] = true;
+                }
+            });
+        }
+    } else if (type === 'short_answer') {
+        const statements = answerPreviewStringList(q.statements);
+        if (nonEmptyKeys.length === 0) {
+            issues.push(answerPreviewIssue('error', 'missing_key', 'Belum ada kunci jawaban.'));
+        } else {
+            if (keyValues.length !== nonEmptyKeys.length) {
+                issues.push(answerPreviewIssue('error', 'empty_key', 'Ada kunci isian yang kosong.'));
+            }
+            if (statements.length > MAX_SHORT_ANSWER_FIELDS || keyValues.length > MAX_SHORT_ANSWER_FIELDS) {
+                issues.push(answerPreviewIssue('error', 'too_many_fields',
+                    'Jumlah isian maksimal ' + MAX_SHORT_ANSWER_FIELDS + ' per nomor.'));
+            }
+            if (statements.length > 0 && keyValues.length !== statements.length) {
+                issues.push(answerPreviewIssue('error', 'key_count_mismatch',
+                    'Jumlah kunci (' + keyValues.length + ') harus sama dengan jumlah isian (' + statements.length + ').'));
+            }
+            if (q.answer_order !== undefined && q.answer_order !== null &&
+                q.answer_order !== 'ordered' && q.answer_order !== 'any') {
+                issues.push(answerPreviewIssue('warn', 'invalid_answer_order',
+                    'Urutan jawaban tidak dikenal; server akan memakai urutan sesuai kunci.'));
+            }
+            const seenKeys = {};
+            nonEmptyKeys.forEach(function (key) {
+                const folded = key.toLowerCase();
+                if (seenKeys[folded]) {
+                    issues.push(answerPreviewIssue('warn', 'duplicate_short_key',
+                        "Kunci isian '" + key + "' muncul lebih dari sekali."));
+                }
+                seenKeys[folded] = true;
+            });
+        }
+    }
+
+    return issues;
+}
+
+function buildAnswerPreviewRows(q) {
+    const rows = [];
+    const type = q.type;
+    const keys = answerPreviewKeyValues(q.key);
+
+    if (type === 'single_choice' || type === 'multiple_choice') {
+        const correct = {};
+        keys.filter(function (key) { return key !== ''; }).forEach(function (key) {
+            correct[key.toLowerCase()] = true;
+        });
+        answerPreviewOptions(q).forEach(function (option) {
+            rows.push({ kind: 'option', text: option, correct: Boolean(correct[option.toLowerCase()]) });
+        });
+        if (rows.length === 0) rows.push({ kind: 'meta', text: 'Belum ada pilihan jawaban.' });
+    } else if (type === 'true_false') {
+        const statements = answerPreviewStringList(q.statements);
+        if (statements.length > 0) {
+            statements.forEach(function (statement, index) {
+                rows.push({
+                    kind: 'statement',
+                    label: String(index + 1),
+                    text: statement,
+                    answer: answerPreviewTrueFalseLabel(keys[index], q)
+                });
+            });
+        } else {
+            rows.push({
+                kind: 'answer',
+                label: 'Kunci',
+                text: answerPreviewTrueFalseLabel(keys[0], q)
+            });
+        }
+    } else if (type === 'matching') {
+        const left = answerPreviewStringList(q.left_items);
+        const map = q.key && typeof q.key === 'object' && !Array.isArray(q.key) ? q.key : {};
+        if (left.length === 0) rows.push({ kind: 'meta', text: 'Belum ada item kiri.' });
+        left.forEach(function (item) {
+            rows.push({
+                kind: 'pair',
+                text: item,
+                answer: Object.prototype.hasOwnProperty.call(map, item)
+                    ? String(map[item] == null ? '' : map[item])
+                    : ''
+            });
+        });
+    } else if (type === 'short_answer') {
+        const statements = answerPreviewStringList(q.statements);
+        if (statements.length > 0) {
+            statements.forEach(function (statement, index) {
+                rows.push({
+                    kind: 'answer',
+                    label: statement,
+                    text: keys[index] || ''
+                });
+            });
+        } else if (keys.length > 0) {
+            keys.forEach(function (key, index) {
+                rows.push({ kind: 'answer', label: 'Isian ' + (index + 1), text: key });
+            });
+        } else {
+            rows.push({ kind: 'meta', text: 'Belum ada kunci jawaban.' });
+        }
+    }
+
+    return rows;
+}
+
+function answerPreviewNumberRanges(numbers) {
+    if (numbers.length === 0) return '';
+    const sorted = numbers.slice().sort(function (a, b) { return a - b; });
+    const ranges = [];
+    let start = sorted[0];
+    let previous = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] === previous + 1) {
+            previous = sorted[i];
+            continue;
+        }
+        ranges.push([start, previous]);
+        start = sorted[i];
+        previous = sorted[i];
+    }
+    ranges.push([start, previous]);
+    return ranges.map(function (range) {
+        return range[0] === range[1] ? String(range[0]) : range[0] + '–' + range[1];
+    }).join(', ');
+}
+
+function buildAnswerPreview(questions) {
+    const list = Array.isArray(questions) ? questions.filter(function (q) {
+        return q && typeof q === 'object';
+    }) : [];
+    const usedNumbers = {};
+    const summaryIssues = [];
+    let totalWeight = 0;
+
+    const items = list.map(function (q, index) {
+        const number = Number.isFinite(Number(q.number)) ? Number(q.number) : index + 1;
+        const span = answerPreviewSpan(q);
+        const issues = collectQuestionPreviewIssues(q);
+
+        for (let n = number; n < number + span; n++) {
+            if (Object.prototype.hasOwnProperty.call(usedNumbers, n)) {
+                issues.push(answerPreviewIssue('error', 'duplicate_number',
+                    'Nomor ' + n + ' juga dipakai soal lain.'));
+            } else {
+                usedNumbers[n] = true;
+            }
+        }
+
+        const rawWeight = Number(q.weight);
+        const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
+        totalWeight += weight;
+
+        const status = issues.some(function (issue) { return issue.level === 'error'; })
+            ? 'error'
+            : (issues.some(function (issue) { return issue.level === 'warn'; }) ? 'warn' : 'ok');
+        const numberLabel = span > 1 ? number + '–' + (number + span - 1) : String(number);
+        const meta = [];
+        if (q.numbering === 'range') meta.push('Rentang nomor');
+        if (q.answer_order === 'any') meta.push('Urutan bebas');
+        if (q.partial_scoring !== false &&
+            ['multiple_choice', 'matching', 'true_false', 'short_answer'].indexOf(q.type) !== -1) {
+            meta.push('Nilai parsial');
+        }
+
+        return {
+            number: number,
+            numberLabel: numberLabel,
+            type: q.type,
+            label: typeof q.label === 'string' ? q.label.trim() : '',
+            weight: weight,
+            meta: meta,
+            status: status,
+            issues: issues,
+            missingKey: issues.some(function (issue) {
+                return issue.code === 'missing_key' || issue.code === 'empty_key';
+            }),
+            rows: buildAnswerPreviewRows(q)
+        };
+    });
+
+    const maxNumber = Object.keys(usedNumbers).reduce(function (max, key) {
+        return Math.max(max, Number(key));
+    }, 0);
+    const gaps = [];
+    for (let n = 1; n <= maxNumber; n++) {
+        if (!Object.prototype.hasOwnProperty.call(usedNumbers, n)) gaps.push(n);
+    }
+    if (gaps.length > 0) {
+        summaryIssues.push(answerPreviewIssue('warn', 'number_gap',
+            'Nomor tidak terpakai: ' + answerPreviewNumberRanges(gaps) + '.'));
+    }
+
+    return {
+        items: items,
+        issues: summaryIssues,
+        summary: {
+            cardCount: items.length,
+            numberCount: Object.keys(usedNumbers).length,
+            totalWeight: totalWeight,
+            okCount: items.filter(function (item) { return item.status === 'ok'; }).length,
+            warnCount: items.filter(function (item) { return item.status === 'warn'; }).length,
+            errorCount: items.filter(function (item) { return item.status === 'error'; }).length
+        }
+    };
+}
+
+function answerPreviewWeightText(value) {
+    const weight = Number(value);
+    if (!Number.isFinite(weight)) return '—';
+    return Number.isInteger(weight) ? String(weight) : weight.toFixed(1).replace(/\.0$/, '');
+}
+
+function renderAnswerPreviewSummary(data) {
+    const el = document.getElementById('answerPreviewSummary');
+    if (!el) return;
+    const summary = data.summary;
+    const stats = [
+        { label: 'Kartu soal', value: summary.cardCount, tone: 'neutral' },
+        { label: 'Nomor', value: summary.numberCount, tone: 'neutral' },
+        { label: 'Total bobot', value: answerPreviewWeightText(summary.totalWeight), tone: 'neutral' },
+        { label: 'Lengkap', value: summary.okCount, tone: 'ok' },
+        { label: 'Perlu dicek', value: summary.warnCount, tone: 'warn' },
+        { label: 'Perlu diperbaiki', value: summary.errorCount, tone: 'error' }
+    ];
+    let html = stats.map(function (stat) {
+        return '<div class="answer-preview-stat is-' + stat.tone + '">' +
+            '<span class="answer-preview-stat-value">' + escapeHtml(String(stat.value)) + '</span>' +
+            '<span class="answer-preview-stat-label">' + escapeHtml(stat.label) + '</span>' +
+            '</div>';
+    }).join('');
+    if (data.issues.length > 0) {
+        html += '<ul class="answer-preview-global-issues">' + data.issues.map(function (issue) {
+            return '<li class="is-' + escapeHtml(issue.level) + '">' + escapeHtml(issue.message) + '</li>';
+        }).join('') + '</ul>';
+    }
+    el.innerHTML = html;
+}
+
+function renderAnswerPreviewRow(row) {
+    if (row.kind === 'option') {
+        return '<div class="answer-preview-row' + (row.correct ? ' is-correct' : '') + '">' +
+            '<span class="answer-preview-row-label">' + (row.correct ? '✓' : '') + '</span>' +
+            '<span class="answer-preview-row-text">' + escapeHtml(row.text) + '</span>' +
+            (row.correct ? '<span class="answer-preview-key-badge">Kunci</span>' : '') +
+            '</div>';
+    }
+    if (row.kind === 'statement') {
+        return '<div class="answer-preview-row">' +
+            '<span class="answer-preview-row-label">' + escapeHtml(row.label + '.') + '</span>' +
+            '<span class="answer-preview-row-text">' + escapeHtml(row.text) + '</span>' +
+            '<span class="answer-preview-row-answer">' + escapeHtml(row.answer) + '</span>' +
+            '</div>';
+    }
+    if (row.kind === 'pair') {
+        return '<div class="answer-preview-row">' +
+            '<span class="answer-preview-row-text">' + escapeHtml(row.text) + '</span>' +
+            '<span class="answer-preview-row-answer">→ ' + escapeHtml(row.answer || '—') + '</span>' +
+            '</div>';
+    }
+    if (row.kind === 'answer') {
+        return '<div class="answer-preview-row">' +
+            '<span class="answer-preview-row-text">' + escapeHtml(row.label) + '</span>' +
+            '<span class="answer-preview-row-answer">' + escapeHtml(row.text || '—') + '</span>' +
+            '</div>';
+    }
+    return '<div class="answer-preview-row is-meta">' + escapeHtml(row.text) + '</div>';
+}
+
+function renderAnswerPreviewItem(item) {
+    const statusLabel = item.status === 'error'
+        ? 'Perlu diperbaiki'
+        : (item.status === 'warn' ? 'Perlu dicek' : 'Lengkap');
+    const meta = [
+        answerPreviewTypeLabel(item.type),
+        'Bobot ' + answerPreviewWeightText(item.weight)
+    ].concat(item.meta || []);
+    const issues = item.issues.length > 0
+        ? '<ul class="answer-preview-issues">' + item.issues.map(function (issue) {
+            return '<li class="is-' + escapeHtml(issue.level) + '">' + escapeHtml(issue.message) + '</li>';
+        }).join('') + '</ul>'
+        : '';
+    return '<article class="answer-preview-item is-' + escapeHtml(item.status) + '" role="listitem">' +
+        '<div class="answer-preview-item-head">' +
+        '<span class="answer-preview-number">No. ' + escapeHtml(item.numberLabel) + '</span>' +
+        meta.map(function (value) {
+            return '<span class="answer-preview-meta">' + escapeHtml(value) + '</span>';
+        }).join('') +
+        '<span class="answer-preview-status is-' + escapeHtml(item.status) + '">' + escapeHtml(statusLabel) + '</span>' +
+        '</div>' +
+        (item.label ? '<div class="answer-preview-label">' + escapeHtml(item.label) + '</div>' : '') +
+        issues +
+        '<div class="answer-preview-rows">' + item.rows.map(renderAnswerPreviewRow).join('') + '</div>' +
+        '<div class="answer-preview-item-actions answer-preview-no-print">' +
+        '<button type="button" class="btn-sm" data-action="answer-preview-jump" data-number="' + escapeHtml(String(item.number)) + '">Lompat ke soal</button>' +
+        '</div>' +
+        '</article>';
+}
+
+function renderAnswerPreview() {
+    if (!answerPreviewData) return;
+    renderAnswerPreviewSummary(answerPreviewData);
+
+    document.querySelectorAll('.answer-preview-filter').forEach(function (button) {
+        const active = button.getAttribute('data-filter') === answerPreviewFilter;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+
+    const list = document.getElementById('answerPreviewList');
+    const empty = document.getElementById('answerPreviewEmpty');
+    if (!list || !empty) return;
+
+    let items = answerPreviewData.items;
+    if (answerPreviewFilter === 'issues') {
+        items = items.filter(function (item) { return item.status !== 'ok'; });
+    } else if (answerPreviewFilter === 'missing') {
+        items = items.filter(function (item) { return item.missingKey; });
+    }
+
+    if (answerPreviewData.items.length === 0) {
+        empty.hidden = false;
+        empty.textContent = 'Belum ada soal. Tambahkan soal atau impor XML terlebih dahulu.';
+        list.innerHTML = '';
+        return;
+    }
+    if (items.length === 0) {
+        empty.hidden = false;
+        empty.textContent = 'Tidak ada soal pada filter ini.';
+        list.innerHTML = '';
+        return;
+    }
+    empty.hidden = true;
+    empty.textContent = '';
+    list.innerHTML = items.map(renderAnswerPreviewItem).join('');
+}
+
+function answerPreviewSourceText(source) {
+    if (source === 'saved') return 'Dari data ujian yang tersimpan.';
+    return questionsConfigDirty
+        ? 'Dari editor soal — termasuk perubahan yang belum disimpan.'
+        : 'Dari editor soal yang sedang terbuka.';
+}
+
+function showAnswerPreview(questions, examName, source, examId) {
+    answerPreviewData = buildAnswerPreview(questions);
+    answerPreviewFilter = 'all';
+    answerPreviewSource = source;
+    answerPreviewExamId = Number.isFinite(Number(examId)) ? Number(examId) : null;
+    answerPreviewExamName = examName || '';
+    const title = document.getElementById('answerPreviewTitle');
+    if (title) {
+        title.textContent = 'Pratinjau Kunci Jawaban' + (examName ? ': ' + examName : '');
+    }
+    const sourceEl = document.getElementById('answerPreviewSource');
+    if (sourceEl) sourceEl.textContent = answerPreviewSourceText(source);
+    if (typeof Modal === 'undefined') {
+        const modal = document.getElementById('answerPreviewModal');
+        if (modal) modal.style.display = 'flex';
+    } else {
+        Modal.open('answerPreviewModal');
+    }
+    renderAnswerPreview();
+}
+
+function openAnswerPreviewFromEditor() {
+    if (!activeExamId) {
+        showToast('Buka ujian terlebih dahulu untuk melihat pratinjau.', 'error');
+        return;
+    }
+    showAnswerPreview(getQuestionsFromEditor(), activeExamName, 'editor', activeExamId);
+}
+
+function openAnswerPreviewFromExam(examId, examName) {
+    apiFetch('/admin/api/exams/' + encodeURIComponent(examId) + '/questions')
+        .then(function (response) { return response.json(); })
+        .then(function (res) {
+            if (!res || !res.success) {
+                showToast((res && res.message) || 'Gagal memuat pratinjau jawaban', 'error');
+                return;
+            }
+            showAnswerPreview(res.questions || [], examName, 'saved', examId);
+        })
+        .catch(function () {
+            showToast('Gagal memuat pratinjau jawaban', 'error');
+        });
+}
+
+function closeAnswerPreviewModal() {
+    if (typeof Modal === 'undefined') {
+        const modal = document.getElementById('answerPreviewModal');
+        if (modal) modal.style.display = 'none';
+    } else {
+        Modal.close('answerPreviewModal');
+    }
+}
+
+function setAnswerPreviewFilter(filter) {
+    if (['all', 'issues', 'missing'].indexOf(filter) === -1) filter = 'all';
+    answerPreviewFilter = filter;
+    renderAnswerPreview();
+}
+
+function focusQuestionCard(number) {
+    const target = Number(number);
+    const modal = document.getElementById('questionsModal');
+    if (!modal || modal.style.display !== 'flex') return;
+    const cards = Array.from(document.querySelectorAll('.question-editor-card'));
+    const card = cards.find(function (item) {
+        const input = item.querySelector('.q-number');
+        return input && parseInt(input.value, 10) === target;
+    });
+    if (!card) return;
+    if (card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const previousOutline = card.style.outline;
+    card.style.outline = '2px solid var(--color-primary)';
+    setTimeout(function () { card.style.outline = previousOutline; }, 1600);
+}
+
+function jumpToPreviewQuestion(number) {
+    const target = Number(number);
+    const source = answerPreviewSource;
+    const examId = answerPreviewExamId;
+    const examName = answerPreviewExamName;
+    closeAnswerPreviewModal();
+    if (source === 'editor') {
+        setTimeout(function () { focusQuestionCard(target); }, 120);
+        return;
+    }
+    if (examId) openQuestionsModal(examId, examName, target);
+}
+
+function printAnswerPreview() {
+    if (!answerPreviewData) return;
+    answerPreviewFilter = 'all';
+    renderAnswerPreview();
+    setTimeout(function () { window.print(); }, 50);
 }
 
 function saveQuestionsConfig() {
@@ -4778,7 +5432,7 @@ function loadSaasSettings() {
                         : 'Sisa disk server tidak dapat ditentukan';
                 }
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 14;
-                document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
+                document.getElementById('androidVersionInput').value = s.android_version || '2.7.20';
                 document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';
                 document.getElementById('seoTitleInput').value = s.seo_title || '';
                 document.getElementById('seoDescriptionInput').value = s.seo_description || '';
@@ -5232,6 +5886,21 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     });
     Actions.register('xml-export', function () { exportXMLQuestions(); });
     Actions.register('questions-save', function () { saveQuestionsConfig(); });
+    Actions.register('questions-preview-open', function (el) {
+        var examId = parseInt(el.getAttribute('data-exam-id'), 10);
+        if (Number.isFinite(examId)) {
+            openAnswerPreviewFromExam(examId, el.getAttribute('data-exam-name'));
+        } else {
+            openAnswerPreviewFromEditor();
+        }
+    });
+    Actions.register('answer-preview-filter', function (el) {
+        setAnswerPreviewFilter(el.getAttribute('data-filter'));
+    });
+    Actions.register('answer-preview-print', function () { printAnswerPreview(); });
+    Actions.register('answer-preview-jump', function (el) {
+        jumpToPreviewQuestion(parseInt(el.getAttribute('data-number'), 10));
+    });
 
     // ===== Batch 8: wrapper pindahan dari inline script halaman ==============
     // Fungsi-fungsi di bawah HIDUP di admin.js ini juga, jadi registrasinya

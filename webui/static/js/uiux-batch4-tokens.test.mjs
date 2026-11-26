@@ -145,9 +145,9 @@ test('S15/no-visual-change: jumlah total deklarasi radius & box-shadow tidak ber
     // Review sederhanakan 14 Nov 2026: .skeleton-circle mati membawa 1 radius
     // → 25 turun ke 24. Shadow tetap 6.
     // UI pass 19 Nov 2026: modal detail jawaban siswa menambah 5 deklarasi
-    // radius (dikelompokkan per nilai token) → 24 naik ke 29. Shadow tidak
-    // bertambah (hover memakai outline, bukan box-shadow).
-    assert.equal(radiusDecls, 29, `jumlah deklarasi border-radius berubah (baseline 29, dapat ${radiusDecls})`);
+    // radius (dikelompokkan per nilai token) → 24 naik ke 29. Pratinjau jawaban
+    // menambah 3 deklarasi radius → 32. Shadow tidak bertambah.
+    assert.equal(radiusDecls, 32, `jumlah deklarasi border-radius berubah (baseline 32, dapat ${radiusDecls})`);
     assert.equal(shadowDecls, 6, `jumlah deklarasi box-shadow berubah (baseline 6, dapat ${shadowDecls})`);
 });
 
