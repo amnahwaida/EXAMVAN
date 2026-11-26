@@ -390,9 +390,14 @@ func main() {
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		// ReadTimeout/WriteTimeout cover the WHOLE request, including a large
+		// system-app upload and the subsequent server-to-R2 transfer. The old
+		// 30s/120s limits killed slow ~100 MB installers mid-flight. Header
+		// reads stay short; body size is still capped per route.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

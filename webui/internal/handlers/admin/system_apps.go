@@ -135,6 +135,7 @@ func UploadSystemApp() gin.HandlerFunc {
 
 		// Upload to R2
 		if err := r2.UploadWithContentType(ctx, r2Key, f, contentType); err != nil {
+			log.Printf("admin: upload system app key=%q size=%d failed: %v", r2Key, file.Size, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeUploadFailed, "message": r2client.ErrMsgUploadFailed})
 			return
 		}

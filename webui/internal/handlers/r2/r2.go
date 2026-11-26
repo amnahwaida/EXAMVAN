@@ -11,7 +11,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+const (
+	// r2PartSize is the multipart chunk size for large uploads (installer
+	// files can be ~100 MB). R2 requires parts of at least 5 MiB.
+	r2PartSize = 16 * 1024 * 1024
+	// r2UploadConcurrency uploads several parts in parallel, cutting the
+	// wall-clock time for slow links while the request still fits in the
+	// proxy/server timeout budget.
+	r2UploadConcurrency = 4
 )
 
 // ErrMsgNotConfigured is the canonical user-facing message every handler
@@ -85,9 +96,22 @@ func FromContext(v interface{}) Client {
 
 // S3Client wraps an S3-compatible client for Cloudflare R2.
 type S3Client struct {
-	S3      *s3.Client
-	Bucket  string
-	enabled bool
+	S3       *s3.Client
+	Bucket   string
+	uploader *manager.Uploader
+	enabled  bool
+}
+
+// newUploader builds the multipart uploader used for large objects. The
+// manager falls back to a single PutObject for small files, so APK/PDF uploads
+// keep their previous behaviour while installers are split into retryable
+// parts instead of one fragile ~100 MB PUT.
+func newUploader(client *s3.Client) *manager.Uploader {
+	return manager.NewUploader(client, func(u *manager.Uploader) {
+		u.PartSize = r2PartSize
+		u.Concurrency = r2UploadConcurrency
+		u.LeavePartsOnError = false
+	})
 }
 
 // NewClient creates an R2 client. Returns nil if credentials are missing or
@@ -117,9 +141,10 @@ func NewClient(accessKey, secretKey, endpoint, bucket string) *S3Client {
 
 	log.Println("r2: connected — PDF will be served via Cloudflare R2")
 	return &S3Client{
-		S3:      client,
-		Bucket:  bucket,
-		enabled: true,
+		S3:       client,
+		Bucket:   bucket,
+		uploader: newUploader(client),
+		enabled:  true,
 	}
 }
 
@@ -133,39 +158,34 @@ func (c *S3Client) Upload(ctx context.Context, key string, reader io.Reader) err
 	return c.UploadWithContentType(ctx, key, reader, "application/pdf")
 }
 
-// UploadWithContentType reads from reader and uploads to R2 with the given key and content type.
+// UploadWithContentType streams reader into R2 with the given key and content
+// type. Large readers are uploaded in parallel multipart chunks, so a ~100 MB
+// installer is not buffered fully in memory nor sent as one fragile PUT.
 func (c *S3Client) UploadWithContentType(ctx context.Context, key string, reader io.Reader, contentType string) error {
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("r2 read: %w", err)
+	if c == nil || c.S3 == nil {
+		return fmt.Errorf("r2 upload: client not configured")
+	}
+	uploader := c.uploader
+	if uploader == nil {
+		uploader = newUploader(c.S3)
 	}
 
-	_, err = c.S3.PutObject(ctx, &s3.PutObjectInput{
+	_, err := uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(c.Bucket),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
+		Body:        reader,
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		return fmt.Errorf("r2 upload: %w", err)
 	}
-	log.Printf("r2: uploaded %s (%d bytes)", key, len(data))
+	log.Printf("r2: uploaded %q (%s)", key, contentType)
 	return nil
 }
 
 // UploadBytes uploads raw bytes to R2 with the given key.
 func (c *S3Client) UploadBytes(ctx context.Context, key string, data []byte) error {
-	_, err := c.S3.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(c.Bucket),
-		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
-		ContentType: aws.String("application/pdf"),
-	})
-	if err != nil {
-		return fmt.Errorf("r2 upload: %w", err)
-	}
-	log.Printf("r2: uploaded %s (%d bytes)", key, len(data))
-	return nil
+	return c.UploadWithContentType(ctx, key, bytes.NewReader(data), "application/pdf")
 }
 
 // SignedURL generates a temporary download URL valid for the given duration.
