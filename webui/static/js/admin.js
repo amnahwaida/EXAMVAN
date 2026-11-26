@@ -3595,7 +3595,7 @@ function openEditUserModal(userId) {
             document.getElementById('editUserName').value = user.name || '';
             document.getElementById('editUserExams').value = user.max_exams ?? 3;
             document.getElementById('editUserConcurrent').value = user.max_concurrent_exams ?? 2;
-            document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
+            document.getElementById('editUserPdfSize').value = user.max_pdf_size == null ? '1' : (user.max_pdf_size / (1024*1024)).toFixed(1);
             document.getElementById('editUserStorageSize').value = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) : '0';
             // Cap Maks Storage di modal Atur Limit pada sisa kapasitas disk server.
             var _est = document.getElementById('editUserStorageSize');
@@ -3612,7 +3612,22 @@ function openEditUserModal(userId) {
             }
             document.getElementById('editUserEmail').value = user.email || '';
             document.getElementById('editUserInstansi').value = user.instansi || '';
-            document.getElementById('editUserPackage').value = user.package || 'free';
+            var editPkgSelect = document.getElementById('editUserPackage');
+            var currentPackage = user.package || 'free';
+            Array.prototype.slice.call(editPkgSelect.options).forEach(function (option) {
+                if (option.dataset.customPackage === '1') editPkgSelect.removeChild(option);
+            });
+            var packageKnown = Array.prototype.some.call(editPkgSelect.options, function (option) {
+                return option.value === currentPackage;
+            });
+            if (!packageKnown) {
+                var packageOption = document.createElement('option');
+                packageOption.value = currentPackage;
+                packageOption.textContent = 'Paket khusus: ' + currentPackage;
+                packageOption.dataset.customPackage = '1';
+                editPkgSelect.appendChild(packageOption);
+            }
+            editPkgSelect.value = currentPackage;
             var userRoles = user.roles || (user.role ? [user.role] : ['guru']);
             document.getElementById('editRoleGuru').checked = userRoles.indexOf('guru') !== -1;
             document.getElementById('editRolePengawas').checked = userRoles.indexOf('pengawas') !== -1;
