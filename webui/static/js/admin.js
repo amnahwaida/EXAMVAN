@@ -2464,6 +2464,32 @@ function buildAnswerPreviewRows(q) {
     return rows;
 }
 
+// Ringkasan satu baris per soal: hanya jawaban, tanpa opsi/tipe/bobot, agar
+// guru bisa memeriksa seluruh kunci sekaligus tanpa menggulir kartu detail.
+function answerPreviewQuickAnswer(rows) {
+    if (!Array.isArray(rows)) return '—';
+    const parts = [];
+    rows.forEach(function (row) {
+        if (!row || typeof row !== 'object') return;
+        if (row.kind === 'option') {
+            if (row.correct && row.text !== '') parts.push(row.text);
+            return;
+        }
+        if (row.kind === 'statement') {
+            parts.push((row.label ? row.label + '. ' : '') + (row.answer || '—'));
+            return;
+        }
+        if (row.kind === 'pair') {
+            parts.push(row.text + '→' + (row.answer || '—'));
+            return;
+        }
+        if (row.kind === 'answer') {
+            parts.push(row.text || '—');
+        }
+    });
+    return parts.length > 0 ? parts.join(' · ') : '—';
+}
+
 function answerPreviewNumberRanges(numbers) {
     if (numbers.length === 0) return '';
     const sorted = numbers.slice().sort(function (a, b) { return a - b; });
@@ -2522,6 +2548,7 @@ function buildAnswerPreview(questions) {
             ['multiple_choice', 'matching', 'true_false', 'short_answer'].indexOf(q.type) !== -1) {
             meta.push('Nilai parsial');
         }
+        const rows = buildAnswerPreviewRows(q);
 
         return {
             number: number,
@@ -2535,7 +2562,8 @@ function buildAnswerPreview(questions) {
             missingKey: issues.some(function (issue) {
                 return issue.code === 'missing_key' || issue.code === 'empty_key';
             }),
-            rows: buildAnswerPreviewRows(q)
+            quickAnswer: answerPreviewQuickAnswer(rows),
+            rows: rows
         };
     });
 
@@ -2595,6 +2623,30 @@ function renderAnswerPreviewSummary(data) {
         }).join('') + '</ul>';
     }
     el.innerHTML = html;
+}
+
+function renderAnswerPreviewQuick(data) {
+    const list = document.getElementById('answerPreviewQuickList');
+    if (!list) return;
+    const count = document.getElementById('answerPreviewQuickCount');
+    if (count) {
+        count.textContent = data.items.length + ' soal';
+    }
+    if (data.items.length === 0) {
+        list.innerHTML = '<span class="answer-preview-quick-empty">Belum ada jawaban.</span>';
+        return;
+    }
+    list.innerHTML = data.items.map(function (item) {
+        const answer = item.quickAnswer || '—';
+        const tone = item.status === 'error' || item.missingKey
+            ? 'error'
+            : (item.status === 'warn' ? 'warn' : 'ok');
+        const title = 'Soal ' + item.numberLabel + ': ' + answer;
+        return '<div class="answer-preview-quick-item is-' + escapeHtml(tone) + '" role="listitem" title="' + escapeHtml(title) + '">' +
+            '<span class="answer-preview-quick-number">No. ' + escapeHtml(item.numberLabel) + '</span>' +
+            '<span class="answer-preview-quick-answer">' + escapeHtml(answer) + '</span>' +
+            '</div>';
+    }).join('');
 }
 
 function renderAnswerPreviewRow(row) {
@@ -2660,6 +2712,7 @@ function renderAnswerPreviewItem(item) {
 function renderAnswerPreview() {
     if (!answerPreviewData) return;
     renderAnswerPreviewSummary(answerPreviewData);
+    renderAnswerPreviewQuick(answerPreviewData);
 
     document.querySelectorAll('.answer-preview-filter').forEach(function (button) {
         const active = button.getAttribute('data-filter') === answerPreviewFilter;

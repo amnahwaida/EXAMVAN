@@ -41,6 +41,7 @@ function loadPreviewHelpers() {
         'answerPreviewIssue',
         'collectQuestionPreviewIssues',
         'buildAnswerPreviewRows',
+        'answerPreviewQuickAnswer',
         'answerPreviewNumberRanges',
         'buildAnswerPreview',
         'answerPreviewWeightText'
@@ -102,6 +103,12 @@ test('semua tipe soal valid tampil lengkap dengan kunci yang benar', () => {
         ['Ibu kota=Jakarta', 'Hasil 3 + 4=7']
     );
     assert.ok(preview.items[4].meta.includes('Urutan bebas'));
+
+    assert.equal(preview.items[0].quickAnswer, 'C');
+    assert.equal(preview.items[1].quickAnswer, 'A · C');
+    assert.equal(preview.items[2].quickAnswer, '1. Sesuai · 2. Tidak Sesuai');
+    assert.equal(preview.items[3].quickAnswer, '1→A · 2→B · 3→C');
+    assert.equal(preview.items[4].quickAnswer, 'Jakarta · 7');
 });
 
 test('kunci kosong dan kunci di luar pilihan terdeteksi', () => {
@@ -117,6 +124,11 @@ test('kunci kosong dan kunci di luar pilihan terdeteksi', () => {
     assert.equal(outside.items[0].status, 'error');
     assert.equal(outside.items[0].missingKey, false);
     assert.ok(outside.items[0].issues.some(issue => issue.code === 'key_not_in_options'));
+
+    const noKey = h.buildAnswerPreview([
+        { number: 1, type: 'single_choice', weight: 1, options: ['A', 'B'], key: '' }
+    ]);
+    assert.equal(noKey.items[0].quickAnswer, '—');
 });
 
 test('jumlah kunci benar/salah dan isian harus cocok', () => {
@@ -181,16 +193,26 @@ test('UI pratinjau, aksi, dan CSS print terpasang', () => {
     assert.match(DASHBOARD, /data-filter="issues"/);
     assert.match(DASHBOARD, /data-filter="missing"/);
     assert.match(DASHBOARD, /answer-preview-no-print/);
+    assert.match(DASHBOARD, /id="answerPreviewQuickList"/);
+    assert.match(DASHBOARD, /Ringkasan Jawaban/);
     assert.match(ADMIN_JS, /Actions\.register\('questions-preview-open'/);
     assert.match(ADMIN_JS, /Actions\.register\('answer-preview-filter'/);
     assert.match(ADMIN_JS, /Actions\.register\('answer-preview-print'/);
     assert.match(ADMIN_JS, /Actions\.register\('answer-preview-jump'/);
+    assert.match(ADMIN_JS, /renderAnswerPreviewQuick\(/);
     assert.match(ADMIN_CSS, /@media print/);
     assert.match(ADMIN_CSS, /#answerPreviewModal/);
     assert.match(ADMIN_CSS, /break-inside: avoid/);
+    assert.match(ADMIN_CSS, /\.answer-preview-quick-item/);
+    assert.match(ADMIN_CSS, /html,\s*body,\s*body\.dashboard-page,\s*body\.modal-open\s*\{[^}]*overflow: visible;/s);
+    assert.match(ADMIN_CSS, /body > \*:not\(#answerPreviewModal\)\s*\{\s*display: none;/);
+    assert.match(ADMIN_CSS, /#answerPreviewModal \.answer-preview-stat-value\s*\{[^}]*color: rgb\(var\(--rgb-black\)\)/s);
     const renderer = extractFunction(ADMIN_JS, 'renderAnswerPreviewItem');
     assert.ok(renderer);
     assert.match(renderer, /escapeHtml\(/);
+    const quickRenderer = extractFunction(ADMIN_JS, 'renderAnswerPreviewQuick');
+    assert.ok(quickRenderer);
+    assert.match(quickRenderer, /escapeHtml\(/);
 });
 
 test('bobot kosong atau nol ditampilkan sebagai bobot efektif 1', () => {
