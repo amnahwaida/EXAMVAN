@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -133,34 +134,35 @@ func UploadSystemApp() gin.HandlerFunc {
 			contentType = "application/octet-stream"
 		}
 
-		// Upload to R2
-		if err := r2.UploadWithContentType(ctx, r2Key, f, contentType); err != nil {
-			log.Printf("admin: upload system app key=%q size=%d failed: %v", r2Key, file.Size, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeUploadFailed, "message": r2client.ErrMsgUploadFailed})
-			return
-		}
-
-		// Save to DB
-		app := &models.SystemApp{
-			Name:      appName,
-			Platform:  platform,
-			Version:   version,
-			FilePath:  r2Key,
-			SizeBytes: file.Size,
-		}
-
-		if err := models.CreateSystemApp(ctx, pool, app); err != nil {
-			// Cleanup the orphan R2 object (best-effort, same contract as
-			// UploadExam's cleanupR2Orphan): the row never materialized, so the
-			// just-uploaded object must not leak in the bucket.
-			if err := r2.Delete(ctx, r2Key); err != nil {
-				log.Printf("admin: cleanup orphan R2 object %s failed: %v", r2Key, err)
+		// Upload to R2 and persist. A ~100 MB installer can exceed Cloudflare's
+		// fixed ~100s origin timeout, so switch to streamed heartbeats before
+		// that limit; the final JSON still reports success/error normally.
+		respondSlowOperation(c, slowUploadThreshold, func(opCtx context.Context) (int, gin.H) {
+			if err := r2.UploadWithContentType(opCtx, r2Key, f, contentType); err != nil {
+				log.Printf("admin: upload system app key=%q size=%d failed: %v", r2Key, file.Size, err)
+				return http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeUploadFailed, "message": r2client.ErrMsgUploadFailed}
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal menyimpan metadata aplikasi."})
-			return
-		}
 
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Aplikasi berhasil diunggah."})
+			app := &models.SystemApp{
+				Name:      appName,
+				Platform:  platform,
+				Version:   version,
+				FilePath:  r2Key,
+				SizeBytes: file.Size,
+			}
+
+			if err := models.CreateSystemApp(opCtx, pool, app); err != nil {
+				// Cleanup the orphan R2 object (best-effort, same contract as
+				// UploadExam's cleanupR2Orphan): the row never materialized, so the
+				// just-uploaded object must not leak in the bucket.
+				if err := r2.Delete(opCtx, r2Key); err != nil {
+					log.Printf("admin: cleanup orphan R2 object %s failed: %v", r2Key, err)
+				}
+				return http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal menyimpan metadata aplikasi."}
+			}
+
+			return http.StatusOK, gin.H{"success": true, "message": "Aplikasi berhasil diunggah."}
+		})
 	}
 }
 
