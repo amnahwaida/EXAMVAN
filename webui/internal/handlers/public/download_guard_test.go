@@ -17,6 +17,7 @@ import (
 	"github.com/examvan/webui/internal/database"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
+	"github.com/examvan/webui/internal/models"
 )
 
 // ---------------------------------------------------------------------------
@@ -31,9 +32,10 @@ import (
 // stub from the admin package's, since test helpers are per-package). Only
 // SignedURL is exercised by the download handlers.
 type stubR2 struct {
-	enabled  bool
-	signed   []string
-	failWith error
+	enabled    bool
+	signed     []string
+	signedOpts []r2client.SignedURLOptions
+	failWith   error
 }
 
 var _ r2client.Client = (*stubR2)(nil)
@@ -41,15 +43,16 @@ var _ r2client.Client = (*stubR2)(nil)
 func (s *stubR2) Enabled() bool { return s.enabled }
 
 func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	return s.SignedURLWithOptions(ctx, key, ttl, r2client.SignedURLOptions{})
+}
+
+func (s *stubR2) SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts r2client.SignedURLOptions) (string, error) {
 	s.signed = append(s.signed, key)
+	s.signedOpts = append(s.signedOpts, opts)
 	if s.failWith != nil {
 		return "", s.failWith
 	}
 	return "https://storage.example.test/" + key, nil
-}
-
-func (s *stubR2) SignedURLWithOptions(ctx context.Context, key string, ttl time.Duration, opts r2client.SignedURLOptions) (string, error) {
-	return s.SignedURL(ctx, key, ttl)
 }
 
 func (s *stubR2) Upload(ctx context.Context, key string, reader io.Reader) error {
@@ -66,6 +69,30 @@ func (s *stubR2) UploadBytes(ctx context.Context, key string, data []byte) error
 
 func (s *stubR2) Delete(ctx context.Context, key string) error {
 	return nil
+}
+
+// TestDownloadOptionsSetsCleanAttachmentHeaders is a pure unit test (no DB) so
+// the header contract still runs when TEST_DATABASE_URL is unavailable.
+func TestDownloadOptionsSetsCleanAttachmentHeaders(t *testing.T) {
+	opts := downloadOptions(models.SystemApp{
+		Name:     "EXAMVAN",
+		Platform: "android",
+		Version:  "2.7.20",
+		FilePath: "apps/android/2.7.20/EXAMVAN-v2.7.20-Student.apk-1795473310781416667",
+	})
+	if !strings.HasPrefix(opts.ContentDisposition, "attachment") {
+		t.Errorf("ContentDisposition=%q, want attachment prefix", opts.ContentDisposition)
+	}
+	if !strings.Contains(opts.ContentDisposition, "filename=") ||
+		!strings.Contains(opts.ContentDisposition, "EXAMVAN-v2.7.20-Student.apk") {
+		t.Errorf("ContentDisposition=%q, want cleaned APK filename", opts.ContentDisposition)
+	}
+	if strings.Contains(opts.ContentDisposition, "1795473310781416667") {
+		t.Errorf("ContentDisposition=%q leaks the R2 key suffix", opts.ContentDisposition)
+	}
+	if opts.ContentType != "application/vnd.android.package-archive" {
+		t.Errorf("ContentType=%q, want application/vnd.android.package-archive", opts.ContentType)
+	}
 }
 
 // newDownloadGuardTestRouter wires the two download endpoints with a custom
@@ -182,6 +209,40 @@ func TestDownloadAPKEnabledSignedURLRedirect(t *testing.T) {
 	}
 }
 
+// TestDownloadAPKSetsAttachmentHeaders locks in the browser-facing filename.
+// The R2 key ends in a UnixNano suffix; without an explicit attachment name
+// Chrome saves the APK as "9" or "...apk-1795473310", so tapping the file
+// never reaches the Android package installer.
+func TestDownloadAPKSetsAttachmentHeaders(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "public")
+	insertDownloadSystemApp(t, pool, "EXAMVAN", "android", "2.7.20",
+		"apps/android/2.7.20/EXAMVAN-v2.7.20-Student.apk-1795473310781416667")
+	stub := &stubR2{enabled: true}
+
+	srv := httptest.NewServer(newDownloadGuardTestRouter(pool, stub))
+	defer srv.Close()
+
+	code, _, _ := downloadGet(t, srv.URL, "/download/apk")
+	if code != http.StatusFound {
+		t.Fatalf("GET /download/apk status=%d, want 302", code)
+	}
+	if len(stub.signedOpts) != 1 {
+		t.Fatalf("SignedURLWithOptions calls=%d, want 1", len(stub.signedOpts))
+	}
+	opts := stub.signedOpts[0]
+	if !strings.HasPrefix(opts.ContentDisposition, "attachment") ||
+		!strings.Contains(opts.ContentDisposition, "filename=") ||
+		!strings.Contains(opts.ContentDisposition, "EXAMVAN-v2.7.20-Student.apk") {
+		t.Errorf("ContentDisposition=%q, want attachment with cleaned APK filename", opts.ContentDisposition)
+	}
+	if strings.Contains(opts.ContentDisposition, "1795473310781416667") {
+		t.Errorf("ContentDisposition=%q leaks the R2 key suffix", opts.ContentDisposition)
+	}
+	if opts.ContentType != "application/vnd.android.package-archive" {
+		t.Errorf("ContentType=%q, want application/vnd.android.package-archive", opts.ContentType)
+	}
+}
+
 // TestDownloadAPKSignURLFailureHasCode locks in that a signed-URL generation
 // failure on an ENABLED backend returns 500 with the SIGNED_URL_FAILED code
 // (not the not-configured code).
@@ -272,5 +333,16 @@ func TestDownloadSystemAppEnabledSignedURLRedirect(t *testing.T) {
 	}
 	if len(stub.signed) != 1 || stub.signed[0] != "apps/android/2.5.0/kiosk.apk-1" {
 		t.Errorf("SignedURL called with %v, want exactly [apps/android/2.5.0/kiosk.apk-1]", stub.signed)
+	}
+	if len(stub.signedOpts) != 1 {
+		t.Fatalf("SignedURLWithOptions calls=%d, want 1", len(stub.signedOpts))
+	}
+	opts := stub.signedOpts[0]
+	if !strings.HasPrefix(opts.ContentDisposition, "attachment") ||
+		!strings.Contains(opts.ContentDisposition, "kiosk.apk") {
+		t.Errorf("ContentDisposition=%q, want attachment named kiosk.apk", opts.ContentDisposition)
+	}
+	if opts.ContentType != "application/vnd.android.package-archive" {
+		t.Errorf("ContentType=%q, want application/vnd.android.package-archive", opts.ContentType)
 	}
 }

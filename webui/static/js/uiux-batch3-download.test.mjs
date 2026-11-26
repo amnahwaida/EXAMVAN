@@ -196,3 +196,20 @@ test('S12b: asal alamat server & token dijelaskan + contoh format alamat', () =>
     assert.match(siswa, /http:\/\/192\.168\.1\.10:8080/,
         'contoh format alamat server (http://192.168.1.10:8080) harus ada');
 });
+
+test('S12c: tips pemecahan masalah menangani file manager, Play Protect, dan pemindai OEM', () => {
+    const { siswa } = guideBlocks();
+
+    assert.match(siswa, /Files\/File Manager/,
+        'panduan harus menyebut Files/File Manager, bukan hanya browser');
+    assert.match(siswa, /Scan apps with Play Protect/,
+        'langkah mematikan pemindaian Play Protect harus spesifik');
+    assert.match(siswa, /iManager[\s\S]{0,250}(Online security scan|Block malicious apps)/i,
+        'panduan vivo harus menyebut pemindai iManager');
+    assert.match(siswa, /Sumber instalasi/i,
+        'panduan realme harus menyebut menu Sumber instalasi');
+    assert.match(siswa, /2,93 MB/,
+        'panduan harus memberi ukuran APK yang benar agar unduhan terpotong terdeteksi');
+    assert.match(siswa, /Aplikasi tidak terpasang/i,
+        'harus ada bagian khusus untuk error "Aplikasi tidak terpasang"');
+});

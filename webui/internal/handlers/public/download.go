@@ -3,6 +3,7 @@ package public
 
 import (
 	"log"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,23 @@ import (
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
+
+// downloadOptions makes R2 return a real attachment name (and the APK MIME
+// type) in the signed response. The object key ends with a numeric suffix, so
+// without this Chrome can save the file as "9" or
+// "...-Student.apk-1795473310" and never offer the package installer.
+func downloadOptions(app models.SystemApp) r2client.SignedURLOptions {
+	disposition := mime.FormatMediaType("attachment", map[string]string{
+		"filename": app.DownloadFilename(),
+	})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	return r2client.SignedURLOptions{
+		ContentDisposition: disposition,
+		ContentType:        app.DownloadContentType(),
+	}
+}
 
 // ---------------------------------------------------------------------------
 // 1. GET /download — Render download page
@@ -103,7 +121,7 @@ func DownloadAPK() gin.HandlerFunc {
 		}
 
 		// Generate presigned URL for download valid for 5 minutes.
-		url, err := r2.SignedURL(ctx, app.FilePath, 5*time.Minute)
+		url, err := r2.SignedURLWithOptions(ctx, app.FilePath, 5*time.Minute, downloadOptions(*app))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeSignURLFailed, "message": r2client.ErrMsgSignURLFailed})
 			return
@@ -148,7 +166,7 @@ func DownloadSystemApp() gin.HandlerFunc {
 		}
 
 		// Generate presigned URL for download valid for 5 minutes
-		url, err := r2.SignedURL(ctx, app.FilePath, 5*time.Minute)
+		url, err := r2.SignedURLWithOptions(ctx, app.FilePath, 5*time.Minute, downloadOptions(app))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeSignURLFailed, "message": r2client.ErrMsgSignURLFailed})
 			return

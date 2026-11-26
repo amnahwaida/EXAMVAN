@@ -540,7 +540,7 @@
                 <span class="step-number">2</span>
                 <div class="step-content">
                   <span class="step-title">Izinkan Pemasangan dari Sumber Tidak Dikenal</span>
-                  <span class="step-desc">Buka file APK hasil unduhan. Jika muncul peringatan keamanan, pilih izinkan pemasangan dari sumber tidak dikenal untuk aplikasi browser yang Anda pakai. Lokasi menu pengaturan ini <strong>berbeda-beda tergantung merk HP</strong> — buka daftar di bawah sesuai merk perangkatmu:</span>
+                  <span class="step-desc">Buka file APK hasil unduhan. Jika muncul peringatan keamanan, izinkan pemasangan untuk <strong>aplikasi yang benar-benar membuka file</strong> — biasanya Chrome <strong>dan</strong> Files/File Manager. Mengizinkan salah satunya saja tidak cukup jika file dibuka dari aplikasi yang lain. Lokasi menu pengaturan ini <strong>berbeda-beda tergantung merk HP</strong> — buka daftar di bawah sesuai merk perangkatmu:</span>
                   <details style="margin-top: 12px;">
                     <summary style="cursor: pointer; font-weight: 700; color: var(--color-primary-light);">Samsung</summary>
                     <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Aplikasi</strong> → ketuk titik tiga (⋮) di kanan atas → <strong>Akses khusus</strong> → <strong>Instal aplikasi tak dikenal</strong> → pilih browser (Chrome/dll.) → aktifkan <strong>Izinkan dari sumber ini</strong>.</span>
@@ -551,11 +551,11 @@
                   </details>
                   <details style="margin-top: 8px;">
                     <summary style="cursor: pointer; font-weight: 700; color: var(--color-primary-light);">vivo / iQOO</summary>
-                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Aplikasi</strong> → <strong>Instal aplikasi tak dikenal</strong> (atau lewat <strong>Manajer i</strong> → Izin) → pilih browser → aktifkan <strong>Izinkan menginstal aplikasi tak dikenal</strong>.</span>
+                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Keamanan &amp; privasi</strong> → <strong>Pengaturan keamanan lainnya</strong> → <strong>Instal aplikasi tak dikenal</strong> → pilih Chrome/Files → aktifkan <strong>Izinkan dari sumber ini</strong>. Jika pemasangan masih diblokir, buka <strong>iManager</strong> → <strong>Security scan</strong> → <strong>App install management</strong>, lalu matikan sementara <strong>Online security scan</strong>/<strong>Block malicious apps</strong> (aktifkan lagi setelah selesai). Beberapa HP Vivo meminta password akun Vivo.</span>
                   </details>
                   <details style="margin-top: 8px;">
                     <summary style="cursor: pointer; font-weight: 700; color: var(--color-primary-light);">Oppo / Realme / OnePlus</summary>
-                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Pengaturan tambahan</strong> → <strong>Instal aplikasi tak dikenal</strong> (atau <strong>Perangkat &amp; aplikasi</strong> → akses khusus) → pilih browser → aktifkan <strong>Izinkan instalasi aplikasi</strong>.</span>
+                    <span class="step-desc" style="display: block; margin-top: 8px;">realme UI 5/6: Pengaturan → <strong>Keamanan &amp; privasi</strong> → <strong>Pengaturan keamanan lainnya</strong> → <strong>Sumber instalasi</strong> → pilih Chrome/Files → aktifkan. realme UI 3/4: <strong>Sandi &amp; keamanan</strong> → <strong>Keamanan sistem</strong> → <strong>Sumber instalasi</strong>. Jika muncul <strong>"Install anyway"/"Tetap pasang"</strong>, pilih itu. Bila payment protection/auto blocker menahan pemasangan, matikan sementara lalu aktifkan lagi setelah aplikasi terpasang.</span>
                   </details>
                 </div>
               </div>
@@ -575,9 +575,21 @@
                 Tips Pemecahan Masalah
               </div>
               <ul class="tips-list">
-                <li><strong style="color: var(--color-warning-light);">Uninstall Versi Lama:</strong> Hapus versi lawas terlebih dahulu sebelum memasang yang baru untuk mencegah konflik sertifikat digital.</li>
-                <li><strong style="color: var(--color-warning-light);">Play Protect:</strong> Jika muncul penolakan, pilih <strong>"Detail"</strong> lalu klik <strong>"Tetap Pasang" (Install Anyway)</strong>.</li>
+                <li><strong style="color: var(--color-warning-light);">Uninstall Versi Lama:</strong> Hapus versi lawas terlebih dahulu — termasuk untuk semua pengguna/profil — agar tidak ada konflik sertifikat digital.</li>
+                <li><strong style="color: var(--color-warning-light);">Play Protect:</strong> Buka <strong>Play Store</strong> → foto profil → <strong>Play Protect</strong> → ikon gear → matikan sementara <strong>"Scan apps with Play Protect"</strong>. Setelah terpasang, aktifkan lagi. Jika tetap muncul penolakan, pilih <strong>"Detail"</strong> lalu <strong>"Tetap Pasang" (Install Anyway)</strong>.</li>
+                <li><strong style="color: var(--color-warning-light);">Periksa File:</strong> Nama file harus berakhiran <strong>.apk</strong> dan ukurannya ±<strong>2,93 MB</strong> untuk versi 2.7.20. Jika tidak, hapus file lama lalu unduh ulang lewat WiFi.</li>
+                <li><strong style="color: var(--color-warning-light);">Setelah Mengubah Izin:</strong> Restart HP, sediakan ruang kosong minimal 3× ukuran APK, lalu buka file dari <strong>Files/File Manager</strong> — bukan dari preview browser atau aplikasi chat.</li>
               </ul>
+
+              <details style="margin-top: 12px;">
+                <summary style="cursor: pointer; font-weight: 700; color: var(--color-primary-light);">Jika tetap muncul "Aplikasi tidak terpasang"</summary>
+                <ul class="tips-list" style="margin-top: 8px;">
+                  <li>Pastikan tidak ada sisa EXAMVAN di profil lain, <strong>Dual Apps/App Clone</strong>, atau ruang kerja. Buka Pengaturan → Aplikasi → EXAMVAN → hapus untuk semua pengguna, lalu restart.</li>
+                  <li>Pesan <strong>"Paket tidak valid"</strong> biasanya berarti unduhan belum selesai atau file bukan APK. Hapus file dan unduh ulang.</li>
+                  <li>Jika muncul peringatan keamanan, pilih <strong>Detail → Tetap Pasang</strong>. Jangan mematikan Play Protect secara permanen.</li>
+                  <li>Jika masih gagal, kirim screenshot pesan error, merk HP, dan versi Android ke pengawas/panitia.</li>
+                </ul>
+              </details>
             </div>
           </details>
 

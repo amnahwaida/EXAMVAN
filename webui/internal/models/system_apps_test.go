@@ -82,6 +82,81 @@ func TestBestAndroidAppTieBreakNonKiosk(t *testing.T) {
 	}
 }
 
+func TestSystemAppDownloadFilename(t *testing.T) {
+	cases := []struct {
+		name string
+		app  SystemApp
+		want string
+	}{
+		{
+			name: "strips r2 unixnano suffix from student apk",
+			app: SystemApp{
+				Name: "EXAMVAN", Platform: "android", Version: "2.7.20",
+				FilePath: "apps/android/2.7.20/EXAMVAN-v2.7.20-Student.apk-1795473310781416667",
+			},
+			want: "EXAMVAN-v2.7.20-Student.apk",
+		},
+		{
+			name: "strips suffix from kiosk apk",
+			app: SystemApp{
+				Name: "EXAMVAN Kiosk", Platform: "android", Version: "2.7.20",
+				FilePath: "apps/android/2.7.20/EXAMVAN-v2.7.20-Kiosk.apk-42",
+			},
+			want: "EXAMVAN-v2.7.20-Kiosk.apk",
+		},
+		{
+			name: "keeps clean windows exe name",
+			app: SystemApp{
+				Name: "EXAMVAN-Setup", Platform: "windows", Version: "2.5.1",
+				FilePath: "apps/windows/2.5.1/EXAMVAN-Setup.exe-1791099010756077063",
+			},
+			want: "EXAMVAN-Setup.exe",
+		},
+		{
+			name: "falls back to name and version when key has no extension",
+			app: SystemApp{
+				Name: "EXAMVAN", Platform: "android", Version: "2.7.20",
+				FilePath: "apps/android/2.7.20/9",
+			},
+			want: "EXAMVAN-v2.7.20.apk",
+		},
+		{
+			name: "sanitizes quotes and path separators",
+			app: SystemApp{
+				Name: "EXAMVAN", Platform: "android", Version: "2.7.20",
+				FilePath: `apps/../evil"name.apk-1`,
+			},
+			want: "evil_name.apk",
+		},
+		{
+			name: "empty metadata still yields installable apk name",
+			app:  SystemApp{Platform: "android"},
+			want: "EXAMVAN.apk",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.app.DownloadFilename(); got != tc.want {
+				t.Errorf("DownloadFilename() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSystemAppDownloadContentType(t *testing.T) {
+	cases := map[string]string{
+		"android": "application/vnd.android.package-archive",
+		"windows": "application/x-msdownload",
+		"linux":   "application/x-executable",
+		"other":   "application/octet-stream",
+	}
+	for platform, want := range cases {
+		if got := (SystemApp{Platform: platform}).DownloadContentType(); got != want {
+			t.Errorf("DownloadContentType(%q) = %q, want %q", platform, got, want)
+		}
+	}
+}
+
 func TestEffectiveAndroidRequiredVersionFrom(t *testing.T) {
 	cases := []struct {
 		name       string

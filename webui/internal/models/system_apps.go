@@ -1,9 +1,10 @@
 package models
 
 import (
-	"regexp"
 	"context"
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,83 @@ type SystemApp struct {
 	SizeBytes int64     `json:"size_bytes"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// downloadKeySuffixPattern matches the collision-avoiding UnixNano suffix the
+// admin uploader appends to every R2 key (e.g. "...-Student.apk-1795473310").
+// Without stripping it the browser saves the APK with no ".apk" extension,
+// so the package installer may never be offered when the user taps the file.
+var downloadKeySuffixPattern = regexp.MustCompile(`-\d+$`)
+
+// DownloadFilename returns the user-facing attachment filename for a system
+// app. It preserves the original uploaded name (Student/Kiosk/Setup) instead
+// of exposing the R2 key's numeric suffix, and falls back to Name+Version when
+// the stored key has no usable extension.
+func (a SystemApp) DownloadFilename() string {
+	base := path.Base(strings.TrimSpace(a.FilePath))
+	base = downloadKeySuffixPattern.ReplaceAllString(base, "")
+	base = sanitizeDownloadFilename(base)
+	if base != "" && path.Ext(base) != "" {
+		return base
+	}
+
+	name := sanitizeDownloadFilename(strings.TrimSpace(a.Name))
+	if name == "" {
+		name = "EXAMVAN"
+	}
+	if a.Version != "" {
+		name += "-v" + a.Version
+	}
+	return name + a.DownloadExtension()
+}
+
+// DownloadExtension returns the conventional file extension for the app's
+// platform.
+func (a SystemApp) DownloadExtension() string {
+	switch a.Platform {
+	case "android":
+		return ".apk"
+	case "windows":
+		return ".exe"
+	case "linux":
+		return ".AppImage"
+	default:
+		return ""
+	}
+}
+
+// DownloadContentType returns the MIME type browsers need in order to hand an
+// APK to the Android package installer instead of downloading it as an opaque
+// blob.
+func (a SystemApp) DownloadContentType() string {
+	switch a.Platform {
+	case "android":
+		return "application/vnd.android.package-archive"
+	case "windows":
+		return "application/x-msdownload"
+	case "linux":
+		return "application/x-executable"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// sanitizeDownloadFilename removes path separators, quotes, and CR/LF so a
+// database row can never inject a path or split the Content-Disposition
+// header. The result may be empty; callers must provide a fallback.
+func sanitizeDownloadFilename(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.NewReplacer(
+		"\\", "_",
+		"/", "_",
+		"\"", "_",
+		"\r", "",
+		"\n", "",
+	).Replace(name)
+	if name == "." || name == ".." {
+		return ""
+	}
+	return name
 }
 
 // BestAndroidApp returns the system_app entry for the Android platform with the
