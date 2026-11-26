@@ -125,6 +125,8 @@ class HealthResponse:
     version: str = ""
     certificate_fingerprint: Optional[str] = None
     server_time_utc: Optional[str] = None
+    required_app_version: Optional[str] = None
+    required_desktop_version: Optional[str] = None
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "HealthResponse":
@@ -135,6 +137,10 @@ class HealthResponse:
             version=_text_or(data.get("version", "")),
             certificate_fingerprint=_text(data.get("certificate_fingerprint")),
             server_time_utc=_text(data.get("server_time_utc")),
+            required_app_version=_text(data.get("required_app_version")),
+            required_desktop_version=_text(
+                data.get("required_desktop_version")
+            ),
         )
 
 

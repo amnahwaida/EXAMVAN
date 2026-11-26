@@ -1490,6 +1490,27 @@ def mark_submitted(
     set(f"submitted_{exam_id}", store)
 
 
+def clear_submitted(exam_id: int, attempt_key: str = "") -> None:
+    """Hapus marker submit untuk satu percobaan setelah siswa memilih ulang.
+
+    Marker ini menandai percobaan yang SUDAH selesai. "Kerjakan Ulang"
+    memulai percobaan baru, jadi marker lama tidak boleh membuat resume
+    sesi baru dianggap sudah selesai.
+    """
+    key = _submitted_key(attempt_key)
+    with _save_lock:
+        raw = _submitted_raw(exam_id)
+        if key not in raw:
+            return
+        raw.pop(key, None)
+        if raw:
+            set(f"submitted_{exam_id}", raw)
+        else:
+            store = _load()
+            store.pop(f"submitted_{exam_id}", None)
+            _save()
+
+
 def submitted_labels(exam_id: int) -> list:
     """Label identitas yang sudah submit ujian ini di perangkat ini."""
     return sorted(_submitted_map(exam_id).values())

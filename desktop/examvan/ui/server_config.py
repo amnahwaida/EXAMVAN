@@ -30,6 +30,7 @@ from ..utils import (
     map_identity_to_standard,
     student_label,
 )
+from ..versioning import is_version_outdated
 from .congratulations import _sanitize_server_text
 from .exam_viewer import answers_match_disk  # noqa: F401  (re-export untuk pengujian)
 
@@ -64,6 +65,22 @@ _PER_STUDENT_KEY_SOURCE = "exam_number"
 # memastikan dialog TIDAK PERNAH menggantung permanen karena worker yang
 # hilang (proxy buntu, proses dibunuh, koneksi yang membeku).
 RECOVERY_WAIT_SECONDS = 180
+
+
+def _custom_yes_chosen(box: QMessageBox, reply: int) -> bool:
+    """True bila tombol custom ber-role Yes yang diklik.
+
+    `QMessageBox.exec_()` mengembalikan `QMessageBox.Yes` HANYA untuk
+    standard button; untuk tombol custom (mis. "Lanjutkan Ujian") nilainya
+    0. Keputusan karena itu tidak boleh hanya bergantung pada return value.
+    """
+    if reply == QMessageBox.Yes:
+        return True
+    clicked = box.clickedButton()
+    return (
+        clicked is not None
+        and box.buttonRole(clicked) == QMessageBox.YesRole
+    )
 
 
 def _present_result_page(
@@ -189,6 +206,7 @@ class ServerConfigDialog(QDialog):
     _sig_status = pyqtSignal(str, bool)      # (message, is_error)
     _sig_enable_btn = pyqtSignal()
     _sig_show_identity = pyqtSignal()
+    _sig_update_required = pyqtSignal(str, str)  # (required_version, server_url)
     _sig_recovery_available = pyqtSignal(object)  # Exam — jawaban belum terkirim
     _sig_recovery_done = pyqtSignal(str)          # (message) — kirim ulang sukses
     # (url, fingerprint lama, fingerprint baru) — sertifikat berubah.
@@ -218,11 +236,13 @@ class ServerConfigDialog(QDialog):
         # di thread, supaya `clear_identity()` / re-entry siswa berikutnya
         # tidak mengubah identitas di tengah pengiriman ulang.
         self._recovery_identity: Dict[str, str] = {}
+        self._resume_requested = False
 
         # Connect signals to slots
         self._sig_status.connect(self._set_status_slot)
         self._sig_enable_btn.connect(self._enable_btn_slot)
         self._sig_show_identity.connect(self._show_identity_dialog)
+        self._sig_update_required.connect(self._update_required_slot)
         self._sig_recovery_available.connect(self._show_recovery)
         self._sig_recovery_done.connect(self._recovery_done_slot)
         self._sig_certificate_changed.connect(self._certificate_changed_slot)
@@ -435,13 +455,12 @@ class ServerConfigDialog(QDialog):
         # Default = Batal: satu Enter yang tidak sengaja pada dialog ini
         # berarti "kirim kredensial kelas ke host yang tidak saya kenal".
         box.setDefaultButton(batal)
-        # `exec_()` mengembalikan StandardButton dari tombol yang diklik
-        # (documented untuk QMessageBox) — sama seperti
-        # `_offer_resubmit_choice`, supaya keputusannya tidak bergantung
-        # pada `clickedButton()` yang kosong saat dialog ditutup dengan
-        # Escape atau tombol tutup.
+        # Standard button mengembalikan QMessageBox.Yes; tombol custom
+        # mengembalikan 0, jadi `_custom_yes_chosen` juga memeriksa role
+        # tombol yang benar-benar diklik (dialog ditutup lewat Escape/close
+        # tetap berarti Batal).
         reply = box.exec_()
-        if reply != QMessageBox.Yes:
+        if not _custom_yes_chosen(box, reply):
             log.warning(
                 "koneksi ke server yang bukan server sekolah DITOLAK: %s", url,
             )
@@ -519,6 +538,11 @@ class ServerConfigDialog(QDialog):
         if self._validated_token:
             return self._validated_token
         return self.input_token.text().strip().upper()
+
+    def consume_resume_request(self) -> bool:
+        requested = self._resume_requested
+        self._resume_requested = False
+        return requested
 
     def _on_connect(self) -> None:
         # Satu koneksi pada satu waktu. Tanpa ini, Enter di QLineEdit
@@ -611,6 +635,14 @@ class ServerConfigDialog(QDialog):
                 self._sig_enable_btn.emit()
                 self._sig_status.emit(
                     f"Gagal terhubung ke server:\n{health.status}", True)
+                return
+
+            required_desktop = getattr(
+                health, "required_desktop_version", "") or ""
+            if is_version_outdated(APP_VERSION, required_desktop):
+                self._sig_update_required.emit(
+                    str(required_desktop), url,
+                )
                 return
 
             # Fingerprint sertifikat yang dilaporkan server — dipantau
@@ -708,6 +740,27 @@ class ServerConfigDialog(QDialog):
         except Exception:
             # Pemantauan fingerprint tidak boleh menggagalkan koneksi.
             log.debug("fingerprint check failed", exc_info=True)
+
+    @pyqtSlot(str, str)
+    def _update_required_slot(self, required: str, url: str) -> None:
+        self._enable_connect_ui()
+        required_text = _sanitize_server_text(str(required or "").strip())
+        base = _sanitize_server_text(str(url or "").rstrip("/"))
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Versi Aplikasi Usang")
+        box.setText(
+            f"Versi EXAMVAN ini (v{APP_VERSION}) sudah tidak didukung "
+            "server."
+        )
+        box.setInformativeText(
+            f"Server meminta EXAMVAN v{required_text} atau lebih baru.\n\n"
+            "Minta pengawas memasang versi terbaru dari halaman Download "
+            f"server:\n{base}/download\n\n"
+            "Setelah diperbarui, buka ulang aplikasi."
+        )
+        box.setStandardButtons(QMessageBox.Ok)
+        box.exec_()
 
     @pyqtSlot(str, str, str)
     def _certificate_changed_slot(
@@ -1192,6 +1245,61 @@ class ServerConfigDialog(QDialog):
             return False
         return label.split("=", 1)[0].strip() == _PER_STUDENT_KEY_SOURCE
 
+    def _active_resume_start_time(self, identity: Dict[str, str]) -> Optional[str]:
+        assert self._exam is not None
+        try:
+            start_time = config.load_start_time(self._exam.id)
+            answers = config.load_answers(self._exam.id)
+            if not start_time or not answers:
+                return None
+            student_key, source = build_student_key_source(
+                identity, self._current_token()
+            )
+            if source != _PER_STUDENT_KEY_SOURCE:
+                return None
+            owner = config.load_answers_owner(self._exam.id)
+            if owner is None or not self._owner_key_is_per_student(owner):
+                return None
+            owner_key = str(owner.get("student_key", "") or "")
+            if not owner_key or owner_key != student_key:
+                return None
+            if config.is_submitted(self._exam.id, student_key):
+                return None
+            return str(start_time)
+        except Exception:
+            log.warning("gagal memeriksa sesi ujian aktif", exc_info=True)
+            return None
+
+    def _offer_active_resume(
+        self, identity: Dict[str, str]
+    ) -> Optional[bool]:
+        start_time = self._active_resume_start_time(identity)
+        if not start_time:
+            return None
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Lanjutkan Ujian")
+        box.setText(
+            "Ada sesi ujian yang belum selesai untuk identitas ini."
+        )
+        box.setInformativeText(
+            "Jawaban yang sudah tersimpan akan dipulihkan dan waktu mulai "
+            f"{_sanitize_server_text(start_time)} tetap dipakai.\n\n"
+            "Lanjutkan ujian?"
+        )
+        box.addButton("Lanjutkan Ujian", QMessageBox.YesRole)
+        batal = box.addButton("Batal", QMessageBox.NoRole)
+        box.setDefaultButton(batal)
+        reply = box.exec_()
+        if _custom_yes_chosen(box, reply):
+            return True
+        self._enable_connect_ui()
+        self.lbl_status.setStyleSheet("color: #6c7086;")
+        self.lbl_status.setText(
+            "Sesi tidak dilanjutkan. Tekan Hubungkan lagi untuk memilih."
+        )
+        return False
+
     def _refuse_recovery(self, reason: str) -> None:
         """Jawaban di disk TIDAK ditawarkan — dengan penjelasan jujur.
 
@@ -1376,7 +1484,12 @@ class ServerConfigDialog(QDialog):
                 "token": str(token_now or "").strip().upper(),
             })
 
-            if not self._offer_pending_recovery(identity):
+            resume_selected = self._offer_active_resume(identity)
+            if resume_selected is False:
+                config.clear_identity()
+                dlg.deleteLater()
+                return
+            if resume_selected is None and not self._offer_pending_recovery(identity):
                 # UJIAN TIDAK DIMULAI. Identitas harus dibersihkan.
                 #
                 # `exam_selected` tidak pernah emit, jadi tidak ada viewer
@@ -1407,9 +1520,12 @@ class ServerConfigDialog(QDialog):
             #
             # Ronde 6 (item 5): baru setelah recovery (yang lebih mendesak)
             # menawarkan pilihan eksplisit soal marker "sudah terkumpul".
-            if not self._offer_resubmit_choice(identity):
-                dlg.deleteLater()
-                return
+            if resume_selected is not True:
+                if not self._offer_resubmit_choice(identity):
+                    dlg.deleteLater()
+                    return
+            else:
+                self._resume_requested = True
             self._enable_connect_ui()
             self.exam_selected.emit(self._exam, self._server_url, identity)
         else:
@@ -1514,11 +1630,15 @@ class ServerConfigDialog(QDialog):
         # yang `_on_submit` di dialog identitas lakukan untuk menutup
         # form — tidak boleh ikut memulai percobaan baru.
         box.setDefaultButton(back_btn)
-        # `exec_()` mengembalikan StandardButton yang diklik (documented
-        # untuk QMessageBox), jadi keputusan tidak bergantung pada
-        # `clickedButton()`.
+        # Tombol custom tidak mengembalikan QMessageBox.Yes; role tombol
+        # yang diklik yang menentukan (`_custom_yes_chosen`).
         reply = box.exec_()
-        if reply == QMessageBox.Yes:
+        if _custom_yes_chosen(box, reply):
+            try:
+                config.clear_submitted(self._exam.id, attempt)
+            except Exception:
+                log.warning("gagal menghapus marker submit lama",
+                            exc_info=True)
             return True
         log.info(
             "siswa memilih kembali: marker submit untuk exam %s, identitas %s",

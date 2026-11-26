@@ -86,7 +86,12 @@ class ElapsedTimerWidget(QWidget):
 
     time_up = pyqtSignal()  # emitted once when countdown reaches 0
 
-    def __init__(self, end_time: Optional[str] = None, parent=None):
+    def __init__(
+        self,
+        end_time: Optional[str] = None,
+        start_time: Optional[str] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         # Monotonic clock — immune to system clock changes
         self._start_mono = _time.monotonic()
@@ -96,6 +101,7 @@ class ElapsedTimerWidget(QWidget):
         # Nilai start diabadikan SEKALI di sini: get_start_time_iso() tidak
         # boleh dihitung ulang dari jam dinding tiap dipanggil (drift).
         self._start_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._apply_resume_start_time(start_time)
 
         self._compute_deadline()
 
@@ -109,6 +115,25 @@ class ElapsedTimerWidget(QWidget):
         # re-entry tidak pernah auto-submit. Jadwalkan ke event loop agar
         # listener sempat terhubung dulu.
         QTimer.singleShot(0, self._update)
+
+    def _apply_resume_start_time(self, start_time: Optional[str]) -> None:
+        text = str(start_time or "").strip()
+        if not text:
+            return
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            elapsed = max(
+                0.0,
+                (datetime.now(timezone.utc) - parsed).total_seconds(),
+            )
+            self._start_mono = _time.monotonic() - elapsed
+            self._start_iso = parsed.astimezone(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+        except Exception:
+            _log.warning("start_time resume tidak valid: %r", start_time)
 
     def _compute_deadline(self) -> None:
         """Wall-clock deadline server -> titik monotonic lokal.

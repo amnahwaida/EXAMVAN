@@ -232,3 +232,41 @@ func TestEffectiveAndroidRequiredVersionFrom(t *testing.T) {
 		})
 	}
 }
+func TestBestWindowsAppVersion(t *testing.T) {
+	apps := []SystemApp{
+		{Platform: "android", Version: "9.9.9"},
+		{Platform: "windows", Version: "2.6.5"},
+		{Platform: "windows", Version: "2.7.20"},
+		{Platform: "windows", Version: "2.10.0"},
+	}
+	if got := BestWindowsAppVersion(apps); got != "2.10.0" {
+		t.Errorf("BestWindowsAppVersion = %q, want %q", got, "2.10.0")
+	}
+	if got := BestWindowsAppVersion([]SystemApp{{Platform: "android", Version: "2.7.20"}}); got != "" {
+		t.Errorf("BestWindowsAppVersion non-windows = %q, want empty", got)
+	}
+}
+
+func TestEffectiveDesktopRequiredVersionFrom(t *testing.T) {
+	cases := []struct {
+		name string
+		apps []SystemApp
+		want string
+	}{
+		{"no apps", nil, ""},
+		{"only android", []SystemApp{{Platform: "android", Version: "2.7.20"}}, ""},
+		{"highest windows wins", []SystemApp{
+			{Platform: "windows", Version: "2.6.5"},
+			{Platform: "android", Version: "9.9.9"},
+			{Platform: "windows", Version: "2.7.20"},
+		}, "2.7.20"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EffectiveDesktopRequiredVersionFrom(tc.apps); got != tc.want {
+				t.Errorf("EffectiveDesktopRequiredVersionFrom(%+v) = %q, want %q",
+					tc.apps, got, tc.want)
+			}
+		})
+	}
+}

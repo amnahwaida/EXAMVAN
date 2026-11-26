@@ -130,6 +130,31 @@ func BestAndroidAppVersion(apps []SystemApp) string {
 	return ""
 }
 
+// BestWindowsApp returns the Windows system_app entry with the highest
+// version. Returns nil when no Windows entry exists.
+func BestWindowsApp(apps []SystemApp) *SystemApp {
+	var best *SystemApp
+	for i := range apps {
+		app := &apps[i]
+		if app.Platform != "windows" {
+			continue
+		}
+		if best == nil || CompareVersions(app.Version, best.Version) > 0 {
+			best = app
+		}
+	}
+	return best
+}
+
+// BestWindowsAppVersion returns the version string of the highest-version
+// Windows system_app, or "" when none exists.
+func BestWindowsAppVersion(apps []SystemApp) string {
+	if best := BestWindowsApp(apps); best != nil {
+		return best.Version
+	}
+	return ""
+}
+
 // appVersionPattern memvalidasi bentuk versi aplikasi sistem:
 // 1–4 segmen angka ber titik (mis. "2", "2.7", "2.7.3").
 var appVersionPattern = regexp.MustCompile(`^\d+(\.\d+){0,3}$`)
@@ -243,6 +268,28 @@ func EffectiveAndroidRequiredVersionFrom(configured string, apps []SystemApp) st
 		return available
 	}
 	return configured
+}
+
+// EffectiveDesktopRequiredVersion returns the Windows app version the server
+// currently requires clients to run. Desktop releases are not clamped by the
+// Android version setting; the newest published Windows system_app is the
+// source of truth. Returns "" when no Windows build is available so callers
+// skip enforcement instead of locking clients out with no download.
+func EffectiveDesktopRequiredVersion(ctx context.Context, pool *pgxpool.Pool) string {
+	if pool == nil {
+		return ""
+	}
+	apps, err := GetAllSystemApps(ctx, pool)
+	if err != nil {
+		return ""
+	}
+	return EffectiveDesktopRequiredVersionFrom(apps)
+}
+
+// EffectiveDesktopRequiredVersionFrom computes the required Windows version
+// from published system_apps without touching the database.
+func EffectiveDesktopRequiredVersionFrom(apps []SystemApp) string {
+	return BestWindowsAppVersion(apps)
 }
 
 func GetAllSystemApps(ctx context.Context, pool *pgxpool.Pool) ([]SystemApp, error) {

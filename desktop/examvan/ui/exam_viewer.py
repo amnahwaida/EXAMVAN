@@ -486,6 +486,7 @@ class ExamViewerWindow(QMainWindow):
         identity_data: Dict[str, str],
         kiosk_mode: bool = False,
         parent=None,
+        resume_start_time: Optional[str] = None,
     ):
         super().__init__(parent)
         self._exam = exam
@@ -493,6 +494,7 @@ class ExamViewerWindow(QMainWindow):
         self._token = token
         self._identity_data = identity_data
         self._kiosk_mode = kiosk_mode
+        self._resume_start_time = resume_start_time
 
         # Thread-safe submission guards
         self._submit_lock = threading.Lock()
@@ -723,7 +725,10 @@ class ExamViewerWindow(QMainWindow):
         self._battery_timer.start()
 
         # Timer (countdown if end_time, else elapsed)
-        self._timer_widget = ElapsedTimerWidget(end_time=self._exam.end_time)
+        self._timer_widget = ElapsedTimerWidget(
+            end_time=self._exam.end_time,
+            start_time=self._resume_start_time,
+        )
         self._timer_widget.time_up.connect(self._auto_submit)
         top_layout.addWidget(self._timer_widget)
 

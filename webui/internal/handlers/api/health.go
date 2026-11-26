@@ -25,6 +25,7 @@ func Health() gin.HandlerFunc {
 
 		fingerprint := ""
 		requiredAppVersion := ""
+		requiredDesktopVersion := ""
 		if poolVal, exists := c.Get("db"); exists {
 			if pool, ok := poolVal.(*pgxpool.Pool); ok && pool != nil {
 				ctx := c.Request.Context()
@@ -37,6 +38,7 @@ func Health() gin.HandlerFunc {
 				// download — the app must not prompt an update it cannot fetch
 				// (matches AndroidVersionCheck, which also skips enforcement).
 				requiredAppVersion = models.EffectiveAndroidRequiredVersion(ctx, pool)
+				requiredDesktopVersion = models.EffectiveDesktopRequiredVersion(ctx, pool)
 			}
 		}
 
@@ -47,9 +49,10 @@ func Health() gin.HandlerFunc {
 			// required_app_version lets the Android app compare its installed
 			// version against the server's minimum before hitting protected
 			// routes (which return HTTP 426 when outdated).
-			"required_app_version":    requiredAppVersion,
-			"certificate_fingerprint": fingerprint,
-			"server_time_utc":         time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+			"required_app_version":     requiredAppVersion,
+			"required_desktop_version": requiredDesktopVersion,
+			"certificate_fingerprint":  fingerprint,
+			"server_time_utc":          time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 }

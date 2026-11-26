@@ -254,6 +254,21 @@ class UntrustedServerTestCase(_Sandbox):
             "akan tersangkut dialog tiap peluncuran",
         )
 
+    def test_confirming_works_with_a_custom_yes_button(self):
+        dlg = self._dlg()
+
+        def click_yes(box):
+            for button in box.buttons():
+                if box.buttonRole(button) == QMessageBox.YesRole:
+                    button.click()
+                    break
+            return 0
+
+        with mock.patch.object(QMessageBox, "exec_", click_yes):
+            self._press_connect(dlg, SELF_HOSTED)
+        self.assertEqual(config.get("server_url", ""), SELF_HOSTED)
+        self.assertEqual(config.get("trusted_server_url", ""), SELF_HOSTED)
+
     def test_the_school_server_is_never_questioned(self):
         dlg = self._dlg()
         recorder = _BoxRecorder(QMessageBox.No)

@@ -690,20 +690,27 @@ def main() -> None:
                     "utama — aktivitas di layar lain dapat tercatat.",
                 )
 
-        waiting_dlg = WaitingApprovalDialog(
-            exam, server_url, identity_data,
-            token=token,
-            parent=dialog,
-        )
-        _maximize_window(waiting_dlg)
+        try:
+            resume = bool(dialog.consume_resume_request())
+        except Exception:
+            log.warning("tidak bisa membaca status resume", exc_info=True)
+            resume = False
 
-        if waiting_dlg.exec_() != QDialog.Accepted:
-            # Siswa membatalkan / ditolak. Dialog konfigurasi kembali —
-            # identitas yang baru disimpan `_show_identity_dialog` WAJIB
-            # dibersihkan (kalau tidak, siswa berikutnya mendapat form
-            # terisi dan Enter saja cukup menjawab atas nama orang lain).
-            _back_to_config("approval-cancel")
-            return
+        if not resume:
+            waiting_dlg = WaitingApprovalDialog(
+                exam, server_url, identity_data,
+                token=token,
+                parent=dialog,
+            )
+            _maximize_window(waiting_dlg)
+
+            if waiting_dlg.exec_() != QDialog.Accepted:
+                # Siswa membatalkan / ditolak. Dialog konfigurasi kembali —
+                # identitas yang baru disimpan `_show_identity_dialog` WAJIB
+                # dibersihkan (kalau tidak, siswa berikutnya mendapat form
+                # terisi dan Enter saja cukup menjawab atas nama orang lain).
+                _back_to_config("approval-cancel")
+                return
 
         viewer = None
         if exam.is_strict:
@@ -746,12 +753,20 @@ def main() -> None:
         # (blok medium sudah dipindah ke SEBELUM dialog persetujuan —
         # lihat catatan M-5 di atas.)
 
+        resume_start_time = None
+        if resume:
+            try:
+                resume_start_time = config.load_start_time(exam.id)
+            except Exception:
+                log.warning("tidak bisa membaca start_time resume",
+                            exc_info=True)
         viewer = ExamViewerWindow(
             exam=exam,
             server_url=server_url,
             token=token,
             identity_data=identity_data,
             kiosk_mode=kiosk,
+            resume_start_time=resume_start_time,
         )
 
         _gone_state = {"done": False}
