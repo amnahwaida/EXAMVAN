@@ -69,9 +69,19 @@ func newTestS3Client(t *testing.T, endpoint string) *S3Client {
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = true
-		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 	return &S3Client{S3: client, Bucket: "bucket", uploader: newUploader(client), enabled: true}
+}
+
+func TestNewUploaderR2Compatibility(t *testing.T) {
+	client := newTestS3Client(t, "http://127.0.0.1")
+	uploader := newUploader(client.S3)
+	if uploader.RequestChecksumCalculation != aws.RequestChecksumCalculationWhenRequired {
+		t.Fatalf("uploader checksum calculation = %q, want when_required", uploader.RequestChecksumCalculation)
+	}
+	if uploader.Concurrency > 3 {
+		t.Fatalf("uploader concurrency = %d, want <= 3 for R2", uploader.Concurrency)
+	}
 }
 
 func TestUploadWithContentTypeUsesMultipartForLargeReader(t *testing.T) {

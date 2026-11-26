@@ -19,10 +19,9 @@ const (
 	// r2PartSize is the multipart chunk size for large uploads (installer
 	// files can be ~100 MB). R2 requires parts of at least 5 MiB.
 	r2PartSize = 16 * 1024 * 1024
-	// r2UploadConcurrency uploads several parts in parallel, cutting the
-	// wall-clock time for slow links while the request still fits in the
-	// proxy/server timeout budget.
-	r2UploadConcurrency = 4
+	// r2UploadConcurrency uploads several parts in parallel. R2 is stricter
+	// than S3 about concurrent parts, so keep this conservative.
+	r2UploadConcurrency = 3
 )
 
 // ErrMsgNotConfigured is the canonical user-facing message every handler
@@ -111,6 +110,10 @@ func newUploader(client *s3.Client) *manager.Uploader {
 		u.PartSize = r2PartSize
 		u.Concurrency = r2UploadConcurrency
 		u.LeavePartsOnError = false
+		// R2 rejects the SDK's default CRC32 streaming trailers on multipart
+		// UploadPart requests (500 InternalError). Disable automatic checksums
+		// unless a caller explicitly asks for one.
+		u.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 }
 
@@ -137,6 +140,9 @@ func NewClient(accessKey, secretKey, endpoint, bucket string) *S3Client {
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = true
+		// Same R2 compatibility fix for single-part PutObject requests.
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
 
 	log.Println("r2: connected — PDF will be served via Cloudflare R2")
